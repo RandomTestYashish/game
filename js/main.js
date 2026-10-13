@@ -9,6 +9,8 @@ import { drawGame, drawHUD } from './render.js';
 import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, panel } from './ui.js';
 import { AudioSys } from './audio.js';
 import { Save } from './save.js';
+import { onlineEnabled } from './config.js';
+import { fetchTopScores } from './remote.js';
 
 const canvas = document.getElementById('court');
 initCanvas(canvas);
@@ -64,6 +66,8 @@ const S = {
   name: '',
   nameTitle: 'RALLY OVER',
   board: { rank: -1, fromRun: false },
+  boardTab: 'local', // 'local' | 'online' (online only when js/config.js is filled in)
+  online: { state: 'idle', rows: [], error: '', at: -99 },
   coach: null, // first-time guided rally: { step, t, moved, lastX, toolSeen }
 };
 
@@ -93,6 +97,11 @@ function enter(name) {
   if (name === 'intro') S.introSeen = true;
   if (name === 'courts') S.page = Math.floor((Math.min(save.data.progress.unlocked, LEVELS.length) - 1) / PER_PAGE);
   if (name === 'name') S.name = save.data.lastName;
+  if (name === 'scores') {
+    // After a run, show the device board (that is where the new score went).
+    S.boardTab = onlineEnabled() && !S.board.fromRun ? 'online' : 'local';
+    if (S.boardTab === 'online') loadOnline();
+  }
 }
 
 let lastLand = 0;
@@ -218,6 +227,22 @@ function saveScore() {
   S.run.saved = true;
   S.board = { rank: save.addScore(S.name, S.run.score, S.level + 1), fromRun: true };
   go('scores');
+}
+
+// Read the shared leaderboard. Results are reused for 30 seconds.
+async function loadOnline(force) {
+  const o = S.online;
+  if (o.state === 'loading' || (!force && o.state === 'ok' && S.time - o.at < 30)) return;
+  o.state = 'loading';
+  const res = await fetchTopScores();
+  o.at = S.time;
+  if (res.ok) Object.assign(o, { state: 'ok', rows: res.rows, error: '' });
+  else Object.assign(o, { state: 'error', rows: [], error: res.error });
+}
+
+function showBoard(tab) {
+  S.boardTab = tab;
+  if (tab === 'online') loadOnline();
 }
 
 function typeKey(ch) {
@@ -721,33 +746,52 @@ const SCREENS = {
   },
 
   scores(k) {
+    const tabs = onlineEnabled();
+    const online = tabs && S.boardTab === 'online';
     const w = 206;
-    const h = 250;
+    const h = tabs ? 268 : 250;
     const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
-    const board = save.data.leaderboard;
+    const board = online ? S.online.rows : save.data.leaderboard;
+    const mineAt = online ? -1 : S.board.rank;
     const again = () => beginRun(S.level);
     const home = () => go('title');
     panel(k, x, y, w, h, 'dark', () => {
       serif('LEADERBOARD', W / 2 + 1, y + 14, 14, PAL.cream, { align: 'center', sp: 2 });
-      rect(W / 2 - 14, y + 30, 28, 1, PAL.cream);
-      if (!board.length) {
-        text('NO SCORES YET', W / 2, y + 86, PAL.cream, { align: 'center', sp: 2 });
-        text('FINISH A RALLY TO ADD YOURS', W / 2, y + 100, PAL.dim, { align: 'center' });
+      let top0 = y + 38;
+      if (tabs) {
+        const on = { fill: PAL.yellow, color: PAL.ink, line: PAL.yellow };
+        ghost('tablocal', 'THIS DEVICE', W / 2 - 46, y + 32, 86, 13, () => showBoard('local'), online ? {} : on);
+        ghost('tabonline', 'ONLINE', W / 2 + 46, y + 32, 86, 13, () => showBoard('online'), online ? on : {});
+        top0 = y + 54;
+      } else {
+        rect(W / 2 - 14, y + 30, 28, 1, PAL.cream);
+      }
+      const mid = top0 + 50;
+      if (online && S.online.state === 'loading') {
+        text('LOADING' + '.'.repeat(1 + (Math.floor(S.time * 3) % 3)), W / 2 - 24, mid, PAL.cream, { sp: 2 });
+      } else if (online && S.online.state === 'error') {
+        text('COULD NOT LOAD ONLINE SCORES', W / 2, mid - 8, PAL.cream, { align: 'center' });
+        text('TRY AGAIN IN A MOMENT', W / 2, mid + 4, PAL.dim, { align: 'center' });
+        ghost('retryonline', 'TRY AGAIN', W / 2, mid + 20, 80, 15, () => loadOnline(true));
+      } else if (!board.length) {
+        text('NO SCORES YET', W / 2, mid - 2, PAL.cream, { align: 'center', sp: 2 });
+        text(online ? 'THE ONLINE BOARD IS EMPTY' : 'FINISH A RALLY TO ADD YOURS', W / 2, mid + 12, PAL.dim, { align: 'center' });
       }
       // Ten rows; if the new score ranks lower, slide the window down to it.
-      const top = clamp(S.board.rank - 9, 0, Math.max(0, board.length - 10));
-      board.slice(top, top + 10).forEach((e, i) => {
-        const ry = y + 38 + i * 16;
-        const mine = top + i === S.board.rank;
+      const first = clamp(mineAt - 9, 0, Math.max(0, board.length - 10));
+      const shown = online && S.online.state !== 'ok' ? [] : board.slice(first, first + 10);
+      shown.forEach((e, i) => {
+        const ry = top0 + i * 16;
+        const mine = first + i === mineAt;
         if (mine) rect(x + 10, ry - 1, w - 20, 15, PAL.panelHi);
         const c = mine ? PAL.yellow : PAL.cream;
-        text(String(top + i + 1), x + 28, ry + 3, mine ? PAL.yellow : PAL.dim, { align: 'right' });
+        text(String(first + i + 1), x + 28, ry + 3, mine ? PAL.yellow : PAL.dim, { align: 'right' });
         text(e.name, x + 36, ry + 3, c, { sp: 2 });
         text('C' + e.court, x + 122, ry + 3, PAL.dim);
         text(String(e.score), x + w - 16, ry + 3, c, { align: 'right' });
       });
-      text('SAVED ON THIS DEVICE', W / 2, y + 202, '#56695a', { align: 'center' });
+      text(online ? 'ONLINE BOARD: VIEW ONLY FOR NOW' : 'SAVED ON THIS DEVICE', W / 2, y + h - 48, '#56695a', { align: 'center' });
       if (S.board.fromRun) {
         ghost('home', 'HOME', x + 38, y + h - 31, 50, 17, home);
         pill('again', 'PLAY AGAIN', W / 2 + 28, y + h - 32, 118, 18, again);
@@ -1080,6 +1124,6 @@ async function boot() {
   S.ready = true;
 }
 
-if (debug) window.__court = { S, save, audio, ui, LEVELS, go, beginRun, proj, size: () => [W, H] };
+if (debug) window.__court = { S, save, audio, ui, LEVELS, go, beginRun, proj, size: () => [W, H], onlineEnabled };
 
 boot();

@@ -21,6 +21,18 @@ from playwright.sync_api import sync_playwright
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHOTS = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else None
 results = []
+MOCK = {
+    "mode": "ok",
+    "key": "test-anon-key",
+    "requests": [],
+    # What a database might hand back, including things the game must not trust.
+    "rows": [{"name": "AANYA", "score": 9100, "court": 14, "created_at": "2026-10-01T10:00:00Z"},
+             {"name": "<script>x", "score": 7200, "court": 9, "created_at": "2026-10-02T10:00:00Z"},
+             {"name": "", "score": 6100, "court": 7, "created_at": "2026-10-03T10:00:00Z"},
+             {"name": "averyveryverylongname", "score": 5000, "court": "5", "created_at": "2026-10-04T10:00:00Z"},
+             {"name": "BAD", "score": "abc", "court": 2}, None, {"name": "NEG", "score": -5, "court": 1}]
+    + [{"name": f"P{i}", "score": 4000 - i * 100, "court": 3} for i in range(30)],
+}
 
 
 def check(name, ok, detail=""):
@@ -32,6 +44,32 @@ def serve():
     class Quiet(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *args):
             pass
+
+        # A stand-in for the Supabase REST endpoint, so the online leaderboard
+        # can be tested without a real project. MOCK["mode"] picks the reply.
+        def do_GET(self):
+            if not self.path.startswith("/rest/v1/"):
+                return super().do_GET()
+            MOCK["requests"].append({"method": "GET", "path": self.path, "apikey": self.headers.get("apikey"), "auth": self.headers.get("Authorization")})
+            if MOCK["mode"] == "slow":
+                time.sleep(1.2)
+            if MOCK["mode"] == "fail":
+                return self.reply(500, {"message": "boom"})
+            if self.headers.get("apikey") != MOCK["key"]:
+                return self.reply(401, {"message": "Invalid API key"})
+            self.reply(200, [] if MOCK["mode"] == "empty" else MOCK["rows"])
+
+        def do_POST(self):
+            MOCK["requests"].append({"method": "POST", "path": self.path})
+            self.reply(401, {"message": "new row violates row-level security policy"})
+
+        def reply(self, code, body):
+            data = json.dumps(body).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
 
     handler = functools.partial(Quiet, directory=str(ROOT))
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -714,6 +752,129 @@ def rules_menu(d, where, tap=False):
     check(f"{where}: Done closes it", d.ev("__court.S.overlay") is False)
 
 
+def online_board(browser, url):
+    """Read-only online leaderboard, against the stand-in endpoint above."""
+    print("online leaderboard - read only")
+    origin = url.split("/?")[0]
+    seed = RETURNING + "; if(!localStorage.getItem('seeded')){localStorage.setItem('seeded','1'); const d=JSON.parse(localStorage.getItem('the-court.save')); d.leaderboard=[{name:'LOCAL',score:321,court:2,at:1}]; localStorage.setItem('the-court.save', JSON.stringify(d));}"
+
+    # 1. Not configured: nothing changes and nothing is requested.
+    MOCK["requests"].clear()
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(seed)
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.4)
+    d.click("play")
+    d.screen("courts", 0.6)
+    d.click("scores")
+    d.screen("scores", 0.8)
+    ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
+    check("online off (empty config): leaderboard is the device board, no tabs, no network calls", ids == "back" and d.ev("__court.onlineEnabled()") is False and not MOCK["requests"], ids)
+    ctx.close()
+
+    def open_board(vp, touch=False, mode="ok", key=None):
+        MOCK["mode"] = mode
+        MOCK["requests"].clear()
+        c = browser.new_context(viewport=vp, has_touch=touch, is_mobile=touch)
+        c.add_init_script(seed + f"; window.COURT_CONFIG={{supabaseUrl:'{origin}', supabaseAnonKey:'{key or MOCK['key']}'}}")
+        dd = Driver(c.new_page())
+        dd.pg.goto(url)
+        dd.screen("title", 1.4)
+        (dd.tap if touch else dd.click)("play")
+        dd.screen("courts", 0.6, 20000)
+        (dd.tap if touch else dd.click)("scores")
+        dd.screen("scores", 0.8)
+        return c, dd
+
+    # 2. Configured: reads and shows the online rows.
+    ctx, d = open_board({"width": 1280, "height": 800})
+    d.wait("__court.S.online.state==='ok'")
+    rows = d.ev("__court.S.online.rows")
+    req = MOCK["requests"][0]
+    check("online on: opens on the Online tab and sends the anon key", d.ev("__court.S.boardTab") == "online" and req["apikey"] == MOCK["key"] and req["auth"] == "Bearer " + MOCK["key"], req)
+    check("request asks for the top 20, best first", "order=score.desc" in req["path"] and "limit=20" in req["path"] and "select=name,score,court" in req["path"], req["path"])
+    names = [r["name"] for r in rows[:4]]
+    check("rows shown in score order with unsafe names cleaned", names == ["AANYA", "SCRIPTX", "PLAYER", "AVERYVER"] and rows[3]["court"] == 5 and [r["score"] for r in rows] == sorted([r["score"] for r in rows], reverse=True), names)
+    check("malformed rows dropped and the list capped at 20", len(rows) == 20 and all(isinstance(r["score"], int) and r["score"] >= 0 for r in rows) and "BAD" not in [r["name"] for r in rows])
+    d.shot("online-1-board")
+    d.click("tablocal")
+    time.sleep(0.2)
+    check("This Device tab still shows the local board, untouched", d.ev("__court.S.boardTab") == "local" and d.ev("__court.save.data.leaderboard[0].name") == "LOCAL")
+    d.shot("online-2-device")
+    n = len(MOCK["requests"])
+    d.click("tabonline")
+    time.sleep(0.4)
+    check("switching back reuses the recent result instead of re-fetching", len(MOCK["requests"]) == n and d.ev("__court.S.online.state") == "ok")
+    d.pg.keyboard.press("Escape")
+    d.screen("title", 0.6)
+
+    # Finishing a run must not send anything.
+    d.pg.evaluate(BOT)
+    d.ev("__court.S.timeScale=3; __bot.mode='win'; __bot.on=true; __court.beginRun(0)")
+    d.wait("__court.S.screen==='play' && __court.S.game.score>60", 60000)
+    d.ev("__bot.mode='lose'")
+    d.screen("name", 0.8, 240000)
+    d.pg.keyboard.type("me")
+    d.pg.keyboard.press("Enter")
+    d.screen("scores", 0.8)
+    time.sleep(0.5)
+    posts = [r for r in MOCK["requests"] if r["method"] != "GET"]
+    check("saving a score writes to the device only: no insert is sent online", not posts and d.ev("__court.S.boardTab") == "local" and d.saved()["leaderboard"][0]["name"] in ("ME", "LOCAL") and any(e["name"] == "ME" for e in d.saved()["leaderboard"]), posts)
+    check("no console errors (online, desktop)", not d.errors, d.errors[:3])
+    ctx.close()
+
+    # 3. Failures are shown, not thrown.
+    ctx, d = open_board({"width": 1280, "height": 800}, mode="fail")
+    d.wait("__court.S.online.state==='error'")
+    check("server error: friendly message with Try Again", d.ev("__court.S.online.error") == "http-500" and d.ev("__court.ui.regions.some(r=>r.id==='retryonline')"))
+    d.shot("online-3-error")
+    MOCK["mode"] = "ok"
+    d.click("retryonline")
+    d.wait("__court.S.online.state==='ok'")
+    check("Try Again recovers once the server answers", d.ev("__court.S.online.rows.length") == 20)
+    ctx.close()
+    ctx, d = open_board({"width": 1280, "height": 800}, key="wrong-key")
+    d.wait("__court.S.online.state==='error'")
+    check("wrong key: handled as an error (401), game keeps working", d.ev("__court.S.online.error") == "http-401")
+    d.click("tablocal")
+    d.pg.keyboard.press("Escape")
+    d.screen("title", 0.6)
+    ctx.close()
+    ctx, d = open_board({"width": 1280, "height": 800}, mode="empty")
+    d.wait("__court.S.online.state==='ok'")
+    check("empty online board: says so", d.ev("__court.S.online.rows.length") == 0)
+    ctx.close()
+    c = browser.new_context(viewport={"width": 1280, "height": 800})
+    c.add_init_script(seed + "; window.COURT_CONFIG={supabaseUrl:'http://127.0.0.1:9', supabaseAnonKey:'k'}")
+    d = Driver(c.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.4)
+    d.click("play")
+    d.screen("courts", 0.6, 20000)
+    d.click("scores")
+    d.wait("__court.S.online.state==='error'", 20000)
+    check("unreachable server: network error state, no crash", d.ev("__court.S.online.error") in ("network", "timeout"), d.ev("__court.S.online.error"))
+    c.close()
+
+    # 4. Loading state, touch and small screens.
+    for name, vp in (("tablet", {"width": 820, "height": 1180}), ("mobile", {"width": 390, "height": 844})):
+        ctx, d = open_board(vp, touch=True, mode="slow")
+        seen = d.ev("__court.S.online.state")
+        d.wait("__court.S.online.state==='ok'")
+        box = d.ev("(()=>{const r=__court.ui.regions; const s=__court.size(); return r.every(q=>q.x>=0&&q.y>=0&&q.x+q.w<=s[0]&&q.y+q.h<=s[1])})()")
+        d.shot(f"online-{name}")
+        d.tap("tablocal")
+        time.sleep(0.2)
+        t1 = d.ev("__court.S.boardTab")
+        d.tap("tabonline")
+        time.sleep(0.2)
+        check(f"{name}: shows Loading, then rows; tabs work by touch and fit the screen", seen == "loading" and t1 == "local" and d.ev("__court.S.boardTab") == "online" and box, seen)
+        check(f"no console errors (online, {name})", not d.errors, d.errors[:3])
+        ctx.close()
+    MOCK["mode"] = "ok"
+
+
 def first_time(browser, url):
     print("first-time journey - new and returning players")
     ctx = browser.new_context(viewport={"width": 1280, "height": 800})
@@ -807,6 +968,7 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome", headless=True)
         try:
+            online_board(browser, url)
             first_time(browser, url)
             desktop(browser, url)
             touch_device(browser, url, "tablet", 820, 1180)

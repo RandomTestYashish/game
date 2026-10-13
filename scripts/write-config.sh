@@ -1,0 +1,22 @@
+#!/bin/sh
+# Fills js/config.js from two environment variables. A plain static site has
+# no environment at runtime, so this is how the values get into the game.
+#
+#   SUPABASE_URL=https://abcd1234.supabase.co \
+#   SUPABASE_ANON_KEY=eyJ... \
+#   sh scripts/write-config.sh
+#
+# Run it with neither variable set to switch the online board off again.
+set -e
+cd "$(dirname "$0")/.."
+case "$SUPABASE_ANON_KEY" in *service_role*) echo "Refusing: that looks like a service_role key." >&2; exit 1;; esac
+python3 - "$SUPABASE_URL" "$SUPABASE_ANON_KEY" <<'PY'
+import json, re, sys
+url, key = sys.argv[1], sys.argv[2]
+p = 'js/config.js'
+s = open(p).read()
+s = re.sub(r"supabaseUrl: '[^']*'", "supabaseUrl: " + json.dumps(url).replace('"', "'"), s, 1)
+s = re.sub(r"supabaseAnonKey: '[^']*'", "supabaseAnonKey: " + json.dumps(key).replace('"', "'"), s, 1)
+open(p, 'w').write(s)
+print('js/config.js:', 'online board ON for ' + url if url and key else 'online board OFF (device-only leaderboard)')
+PY

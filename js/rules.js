@@ -1,7 +1,7 @@
 // The "How to play" text. Every number here is read from the game's own
 // constants, so the rules screen cannot drift from what the game does.
 
-import { BLOCKS, TOOLS, TOOL_TIME, START_LIVES, MAX_LIVES, MAX_BALLS, MAX_DROPS, LIFE_BONUS, COMBO_STEP, COMBO_CAP, SPEED_UP, SPEED_CAP, comboMult, brickPoints } from './game.js';
+import { BLOCKS, TOOLS, TOOL_TIME, START_LIVES, MAX_BALLS, MAX_DROPS, LIFE_BONUS, COMBO_STEP, COMBO_CAP, SPEED_UP, SPEED_CAP, comboMult, brickPoints } from './game.js';
 import { COUNT } from './levels.js';
 import { BOARD_SIZE } from './save.js';
 
@@ -25,7 +25,6 @@ export function facts() {
     comboMaxAt: COMBO_CAP + 1,
     lifeBonus: LIFE_BONUS,
     startLives: START_LIVES,
-    maxLives: MAX_LIVES,
     maxBalls: MAX_BALLS,
     maxDrops: MAX_DROPS,
     toolTime: { ...TOOL_TIME },
@@ -73,8 +72,8 @@ export function sections() {
       lines: [
         `CLEAR A COURT TO UNLOCK THE NEXT. THERE ARE ${f.courts}.`,
         `A RUN STARTS WITH ${f.startLives} LIVES ON ANY UNLOCKED COURT.`,
-        `NEXT KEEPS YOUR SCORE AND ADDS A LIFE, UP TO ${f.maxLives}.`,
-        'REPLAY, RETRY AND RESTART BEGIN A NEW RUN FROM 0.',
+        'NEXT KEEPS YOUR SCORE AND THE LIVES YOU HAVE LEFT. A LOST LIFE NEVER COMES BACK.',
+        `REPLAY, RETRY AND RESTART BEGIN A NEW RUN: ${f.startLives} LIVES, SCORE 0.`,
         `A RUN ENDS WHEN YOUR LAST LIFE IS LOST OR YOU GO HOME. ITS TOTAL CAN GO ON THE TOP ${f.boardSize} LEADERBOARD.`,
         `COURTS GET FASTER, WITH A SMALLER PADDLE AND FEWER TOOLS. THE BALL ALSO SPEEDS UP ${f.speedUpPct}% ON EACH PADDLE HIT, UP TO ${f.speedCap}X.`,
       ],

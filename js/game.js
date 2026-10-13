@@ -21,8 +21,7 @@ export const TOOLS = [
   { id: 'lowgrav', name: 'LOW GRAVITY', desc: ['BALLS AND TOOLS DRIFT', 'DOWN SLOWLY.'] },
 ];
 
-export const MAX_LIVES = 5;
-export const START_LIVES = 3;
+export const START_LIVES = 3; // a run's lives; a lost life never comes back
 export const MAX_BALLS = 9;
 export const MAX_DROPS = 2; // tools falling at once
 export const LIFE_BONUS = 100; // per life left when a court is cleared

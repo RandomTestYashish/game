@@ -155,8 +155,11 @@ async () => {
   out.win = g.state === 'won' && g.bonus === 300 && g.stars === 3 && ev.includes('win');
 
   // A run carries score and lives into the next court
-  g = new Game(LEVELS[1], () => {}, rng(3), { lives: 4, score: 900 });
-  out.runCarries = g.lives === 4 && g.score === 900 && g.startScore === 900;
+  g = new Game(LEVELS[1], () => {}, rng(3), { lives: 1, score: 900 });
+  out.runCarries = g.lives === 1 && g.score === 900 && g.startScore === 900;
+  // ...and one more lost ball on the next court ends the run.
+  g.launch(); g.balls = []; g.loseLife();
+  out.lastLifeEndsRun = g.lives === 0 && g.state === 'over';
 
   // 3D motion: blocks float on every court, and drifting formations advance
   g = fresh(0); run(g, 0.4);
@@ -249,7 +252,7 @@ async () => {
   // Life bonus and stars.
   const winWith = (lives, lost) => { const q = fresh(0); q.launch(); q.lives = lives; q.lost = lost; const b0 = q.blocks[0];
     q.blocks.slice(1).forEach(k => (k.alive = false)); q.remaining = 1; const s0 = q.score; q.combo = 0; shoot(q, b0); return [q.score - s0 - BLOCKS[b0.type].pts, q.stars, q.state]; };
-  out.rulesLifeBonus = [1, 2, 3, 5].every(l => winWith(l, 0)[0] === l * f.lifeBonus) && txt.includes('+' + f.lifeBonus);
+  out.rulesLifeBonus = [1, 2, 3].every(l => winWith(l, 0)[0] === l * f.lifeBonus) && txt.includes('+' + f.lifeBonus);
   out.rulesStars = winWith(3, 0)[1] === 3 && winWith(2, 1)[1] === 2 && winWith(1, 2)[1] === 1 && winWith(3, 4)[1] === 1;
 
   // Tool durations, measured.
@@ -270,7 +273,7 @@ async () => {
   for (let i = 0; i < 30; i++) { Object.assign(b, { x: g.paddle.x, y: g.paddle.y - 14, vx: 0, vy: 1 }); run(g, 0.05); speeds.push(b.speed); }
   out.measured.speedFirst = speeds[0] / v0; out.measured.speedMax = Math.max(...speeds) / LEVELS[0].speed;
   out.rulesSpeed = Math.abs(speeds[0] / v0 - (1 + f.speedUpPct / 100)) < 1e-9 && Math.abs(out.measured.speedMax - f.speedCap) < 1e-9;
-  out.rulesProgressionNumbers = f.courts === LEVELS.length && f.startLives === new Game(LEVELS[0]).lives && txt.includes('THERE ARE ' + LEVELS.length) && txt.includes('UP TO ' + f.maxLives);
+  out.rulesProgressionNumbers = f.courts === LEVELS.length && f.startLives === new Game(LEVELS[0]).lives && txt.includes('THERE ARE ' + LEVELS.length) && txt.includes('A LOST LIFE NEVER COMES BACK');
 
   // Every wrapped line fits the panel.
   const { wrap } = await import('/js/gfx.js');
@@ -518,7 +521,7 @@ def desktop(browser, url):
     d.click("next")
     d.screen("play", 0.1, 20000)
     g = d.ev("[__court.S.level, __court.S.game.score, __court.S.game.lives]")
-    check("Next carries score and adds a ball", g[0] == 1 and g[1] >= r["run"] and g[2] == min(5, lives + 1), g)
+    check("Next carries score; a lost life is not given back", g[0] == 1 and g[1] >= r["run"] and g[2] == lives and lives < 3, {"lives before": lives, "after Next": g[2]})
     d.ev("__bot.mode='lose'")
     d.screen("name", 1.0, 240000)
     run = d.ev("__court.S.run.score")

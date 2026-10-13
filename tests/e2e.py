@@ -21,6 +21,7 @@ from playwright.sync_api import sync_playwright
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHOTS = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else None
 results = []
+SUPABASE_CALLS = []  # any request a test page makes to a real *.supabase.co host
 MOCK = {
     "mode": "ok",
     "key": "test-anon-key",
@@ -302,7 +303,10 @@ async () => {
 
 
 # The main suites run as a returning player, so they see the normal menus.
-RETURNING = "if(!localStorage.getItem('the-court.save')) localStorage.setItem('the-court.save', JSON.stringify({version:3,onboarded:true}))"
+# The tests never touch a real database: every page starts with the online board
+# switched off, and the online suite points it at the stand-in endpoint instead.
+OFFLINE = "window.COURT_CONFIG={supabaseUrl:'',supabaseAnonKey:''}"
+RETURNING = OFFLINE + "; if(!localStorage.getItem('the-court.save')) localStorage.setItem('the-court.save', JSON.stringify({version:3,onboarded:true}))"
 
 
 class Driver:
@@ -311,6 +315,7 @@ class Driver:
         self.errors = []
         page.on("console", lambda m: self.errors.append(m.text) if m.type == "error" else None)
         page.on("pageerror", lambda e: self.errors.append("PAGEERROR " + str(e)))
+        page.on("request", lambda r: SUPABASE_CALLS.append(r.url.split("?")[0]) if ".supabase.co" in r.url else None)
 
     def ev(self, js):
         return self.pg.evaluate(js)
@@ -876,11 +881,14 @@ def online_board(browser, url):
         check(f"no console errors (online, {name})", not d.errors, d.errors[:3])
         ctx.close()
     MOCK["mode"] = "ok"
+    real = [r for r in SUPABASE_CALLS]
+    check("the whole test run sent nothing to a real Supabase project", not real, real[:3])
 
 
 def first_time(browser, url):
     print("first-time journey - new and returning players")
     ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(OFFLINE)
     d = Driver(ctx.new_page())
     pg = d.pg
     pg.goto(url)
@@ -930,6 +938,7 @@ def first_time(browser, url):
 
     # Skipping the tips.
     ctx = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    ctx.add_init_script(OFFLINE)
     d = Driver(ctx.new_page())
     d.pg.goto(url)
     d.screen("title", 1.4)
@@ -950,7 +959,7 @@ def first_time(browser, url):
 
     # Returning player whose save predates the tutorial.
     ctx = browser.new_context(viewport={"width": 1280, "height": 800})
-    ctx.add_init_script("if(!localStorage.getItem('the-court.save')) localStorage.setItem('the-court.save', JSON.stringify({version:2,settings:{music:0.3,sfx:0.8,muted:false},progress:{unlocked:3,levels:{baseline:{best:500,stars:2}}},stats:{plays:4,wins:2,blocks:60},leaderboard:[{name:'OLD',score:900,court:2,at:1}]}))")
+    ctx.add_init_script(OFFLINE + "; if(!localStorage.getItem('the-court.save')) localStorage.setItem('the-court.save', JSON.stringify({version:2,settings:{music:0.3,sfx:0.8,muted:false},progress:{unlocked:3,levels:{baseline:{best:500,stars:2}}},stats:{plays:4,wins:2,blocks:60},leaderboard:[{name:'OLD',score:900,court:2,at:1}]}))")
     d = Driver(ctx.new_page())
     d.pg.goto(url)
     d.screen("title", 1.4)
@@ -971,11 +980,11 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome", headless=True)
         try:
-            online_board(browser, url)
             first_time(browser, url)
             desktop(browser, url)
             touch_device(browser, url, "tablet", 820, 1180)
             touch_device(browser, url, "mobile", 390, 844)
+            online_board(browser, url)
         finally:
             browser.close()
             srv.shutdown()

@@ -339,7 +339,7 @@ const PYRAMID = [
 ];
 
 function drawPyramid(vis) {
-  const base = H - 60;
+  const base = H - 54;
   drawShadow(W / 2, base + 1, 50, 4, 0.3 * vis);
   let i = 0;
   PYRAMID.forEach((row, r) => {
@@ -417,14 +417,8 @@ const SCREENS = {
       ctx.restore();
     }
     rect(W / 2 - 22, top + 58, 44, 1, PAL.cream);
-    const y = H - 50 + Math.round((1 - k) * 8);
+    const y = H - 42 + Math.round((1 - k) * 8);
     pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3 });
-    ghost('courts', 'COURTS', W / 2 - 58, H - 19, 54, 13, () => go('courts'));
-    ghost('scores', 'SCORES', W / 2, H - 19, 54, 13, () => {
-      S.board = { rank: -1, fromRun: false };
-      go('scores');
-    });
-    ghost('sound', 'SOUND', W / 2 + 58, H - 19, 54, 13, openSound);
     ctx.globalAlpha = 1;
     S.primary = play;
   },
@@ -478,9 +472,15 @@ const SCREENS = {
           go('tools');
         });
       }
-      if (S.page > 0) ghost('prev', '<', x + 28, y + h - 28, 30, 15, () => turn(-1));
-      if (S.page < pages - 1) ghost('nextpage', '>', x + w - 28, y + h - 28, 30, 15, () => turn(1));
-      ghost('back', 'BACK', W / 2, y + h - 28, 60, 15, back);
+      if (S.page > 0) ghost('prev', '<', x + 34, y + 29, 26, 13, () => turn(-1));
+      if (S.page < pages - 1) ghost('nextpage', '>', x + w - 34, y + 29, 26, 13, () => turn(1));
+      // Leaderboard and sound live here so the landing screen can stay bare.
+      ghost('scores', 'SCORES', x + 40, y + h - 28, 54, 15, () => {
+        S.board = { rank: -1, fromRun: false };
+        go('scores');
+      });
+      ghost('back', 'BACK', W / 2, y + h - 28, 54, 15, back);
+      ghost('sound', 'SOUND', x + w - 40, y + h - 28, 54, 15, openSound);
     });
     S.back = back;
     S.primary = () => {

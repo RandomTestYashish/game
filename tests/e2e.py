@@ -244,9 +244,12 @@ def desktop(browser, url):
     check("loading screen shows first", True)
     d.screen("title", 1.4)
     d.shot("02-title")
-    check("title screen reached", True)
+    ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
+    check("landing screen is minimal: Play is the only control", ids == "play", ids)
 
-    # --- sound controls
+    # --- sound controls (reached from the courts screen)
+    d.click("play")
+    d.screen("courts", 0.6)
     d.click("sound")
     d.wait("__court.S.overlayT>=1")
     x, y = d.point("music")
@@ -280,6 +283,9 @@ def desktop(browser, url):
     s = d.saved()
     check("sound settings are saved", s and s["settings"]["music"] == music and s["settings"]["sfx"] == sfx and s["settings"]["muted"] is False, s and s["settings"])
     check("music is scheduled", d.ev("__court.audio.playing && __court.audio.step>0"))
+    pg.keyboard.press("Escape")
+    d.screen("title")
+    d.ev("__court.S.introSeen=false")
 
     # --- menu flow
     d.click("play")
@@ -305,7 +311,7 @@ def desktop(browser, url):
     pg.keyboard.press("Escape")
     d.screen("title")
     check("back navigation (button and Escape)", True)
-    d.click("courts")
+    d.click("play")
     d.screen("courts", 0.6)
     d.click("court0")
     d.screen("tools", 0.6)
@@ -439,12 +445,14 @@ def desktop(browser, url):
     pg.reload()
     d.screen("title", 1.4)
     check("save survives a reload", d.ev("__court.save.data.progress.unlocked") == 2 and d.ev("__court.save.data.settings.music") == music and d.ev("__court.save.data.leaderboard.length") == 2)
+    d.click("play")
+    d.screen("courts", 0.6)
     d.click("scores")
     d.screen("scores", 0.6)
-    check("leaderboard opens from the title", d.ev("__court.ui.regions.some(r=>r.id==='back')"))
+    check("leaderboard opens from the courts screen", d.ev("__court.ui.regions.some(r=>r.id==='back')"))
     pg.keyboard.press("Escape")
     d.screen("title", 0.6)
-    d.click("courts")
+    d.click("play")
     d.screen("courts", 0.6)
     check("court 2 is now selectable", d.ev("__court.ui.regions.some(r=>r.id==='court1') && !__court.ui.regions.some(r=>r.id==='court2')"))
 
@@ -480,6 +488,8 @@ def desktop(browser, url):
     d.screen("title", 0.6)
 
     # --- erase save
+    d.click("play")
+    d.screen("courts", 0.6)
     d.click("sound")
     d.wait("__court.S.overlayT>=1")
     d.click("erase")

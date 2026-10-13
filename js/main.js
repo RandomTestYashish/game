@@ -1,7 +1,7 @@
 // Boot, screen flow, input and the frame loop.
 
 import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, text, textW, wrap, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
-import { P, setCam, buildLayers, drawScene, drawMeadow, meadowHorizon, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
+import { P, setCam, buildLayers, drawScene, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
 import { Game, TOOLS, MAX_LIVES, START_LIVES } from './game.js';
 import { sections } from './rules.js';
 import { LEVELS } from './levels.js';
@@ -39,7 +39,7 @@ const S = {
   game: null,
   gameVis: 0,
   titleVis: 0,
-  meadow: 1, // 1 on the landing screen (open meadow), 0 once the court is in view
+  landing: 1, // 1 on the first screen (no net or canopy yet), easing to 0 after Play
   overlay: false, // false | 'sound' | 'rules'
   overlayKind: 'sound',
   rulesTab: 0,
@@ -289,7 +289,7 @@ function update(dt) {
   const step = (v, on, rate) => clamp(v + (on ? dt : -dt) * rate, 0, 1);
   S.overlayT = step(S.overlayT, S.overlay, 4);
   S.gameVis = step(S.gameVis, GAME_SCREENS.has(S.screen), 4);
-  S.meadow = step(S.meadow, (S.next || S.screen) === 'title' || S.screen === 'loading', 1.8);
+  S.landing = step(S.landing, (S.next || S.screen) === 'title' || S.screen === 'loading', 1.6);
   S.titleVis = step(S.titleVis, S.screen === 'title' && !S.leaving, S.screen === 'title' ? 1.5 : 3.5);
   if (S.eraseArmed > 0) S.eraseArmed -= dt;
 
@@ -357,7 +357,7 @@ const PYRAMID = [
 ];
 
 function drawPyramid(vis) {
-  const base = meadowHorizon() + 22;
+  const base = P.wb + 46;
   drawShadow(W / 2, base + 1, 50, 4, 0.3 * vis);
   let i = 0;
   PYRAMID.forEach((row, r) => {
@@ -414,7 +414,7 @@ function drawIntroBall(t) {
 
 const SCREENS = {
   loading(k) {
-    const cy = meadowHorizon() + (H - meadowHorizon()) * 0.42;
+    const cy = P.wb + (H - P.wb) * 0.42;
     ctx.globalAlpha = k;
     const lead = Math.floor(S.time * 10) % 12;
     for (let i = 0; i < 12; i++) {
@@ -429,8 +429,8 @@ const SCREENS = {
   },
 
   title(k) {
-    const hz = meadowHorizon();
-    const top = Math.min(Math.round(hz * 0.44), hz - 115) - Math.round((1 - k) * 10);
+    const wb = P.wb;
+    const top = Math.max(Math.round(wb * 0.16), Math.min(Math.round(H * 0.24), wb - 176)) - Math.round((1 - k) * 10);
     ctx.globalAlpha = k;
     serif('THE', W / 2 + 3, top, 15, PAL.cream, { align: 'center', sp: 5, shadow: PAL.ink });
     serif('COURT', W / 2 + 2, top + 20, 40, PAL.cream, { align: 'center', sp: 3, shadow: PAL.ink });
@@ -452,8 +452,8 @@ const SCREENS = {
       ctx.restore();
     }
     rect(W / 2 - 22, top + 58, 44, 1, PAL.cream);
-    const y = hz + 22 + Math.round(H * 0.045) + Math.round((1 - k) * 8);
-    pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3 });
+    const y = wb + 46 + Math.round(H * 0.04) + Math.round((1 - k) * 8);
+    pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3, pulse: S.time });
     ctx.globalAlpha = 1;
     S.primary = play;
   },
@@ -828,7 +828,6 @@ function drawRulesOverlay(k) {
 // ---------------------------------------------------------------- draw
 
 let gameLayer = null;
-let fadeLayer = null;
 
 function draw() {
   // The camera never sits quite still: a slow pitch drift, plus a lean toward the ball.
@@ -836,6 +835,7 @@ function draw() {
   const ball = g0 && S.screen === 'play' && g0.balls[0];
   const pitch = Math.sin(S.time * 0.45) * 0.014 + (ball ? (ball.y - 120) / 240 * 0.02 : 0);
   S.pitch = (S.pitch || 0) + (pitch - (S.pitch || 0)) * 0.05;
+  P.landing = easeInOut(S.landing);
   setCam(S.cam + S.pitch, S.shift);
   beginUI();
   S.primary = null;
@@ -844,19 +844,7 @@ function draw() {
   const g = S.game;
   const shake = g && g.shake > 0 ? Math.round(Math.sin(S.time * 90) * g.shake * 8) : 0;
   ctx.setTransform(1, 0, 0, 1, shake, 0);
-  if (S.meadow < 1) drawScene(S.time);
-  if (S.meadow >= 1) {
-    drawMeadow(S.time);
-  } else if (S.meadow > 0) {
-    // Cross-fade from the landing meadow to the court.
-    if (!fadeLayer || fadeLayer.canvas.height !== H || fadeLayer.canvas.width !== W) fadeLayer = makeLayer(W, H);
-    setTarget(fadeLayer);
-    drawMeadow(S.time);
-    setTarget(null);
-    ctx.globalAlpha = easeInOut(S.meadow);
-    ctx.drawImage(fadeLayer.canvas, 0, 0);
-    ctx.globalAlpha = 1;
-  }
+  drawScene(S.time);
 
   if (S.titleVis > 0.01) drawPyramid(S.titleVis);
 

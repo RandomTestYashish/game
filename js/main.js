@@ -1,6 +1,6 @@
 // Boot, screen flow, input and the frame loop.
 
-import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, text, textW, wrap, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
+import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, ellipse, text, textW, wrap, blockTitle, sparkle, racket, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
 import { P, setCam, buildLayers, drawScene, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
 import { Game, TOOLS, START_LIVES } from './game.js';
 import { sections } from './rules.js';
@@ -527,54 +527,96 @@ const SCREENS = {
   },
 
   courts(k) {
-    const w = 212;
-    const h = 250;
+    const w = 228;
+    const h = 292;
     const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
     const unlocked = save.data.progress.unlocked;
+    const current = Math.min(unlocked, LEVELS.length) - 1; // the court to play next
     const pages = Math.ceil(LEVELS.length / PER_PAGE);
     const back = () => go('title');
     const turn = (d) => (S.page = clamp(S.page + d, 0, pages - 1));
     panel(k, x, y, w, h, 'dark', () => {
-      serif('COURTS', W / 2 + 2, y + 13, 16, PAL.cream, { align: 'center', sp: 4 });
+      // Heading with rackets and sparkles.
+      blockTitle('COURTS', W / 2, y + 12, 3);
+      racket(W / 2 - 74, y + 19, 1);
+      racket(W / 2 + 74, y + 19, -1);
+      const tw = Math.floor(S.time * 2) % 2;
+      sparkle(W / 2 - 92, y + 14, 1 + tw);
+      sparkle(W / 2 - 97, y + 26, 2 - tw);
+      sparkle(W / 2 + 92, y + 14, 2 - tw);
+      sparkle(W / 2 + 97, y + 26, 1 + tw);
+
+      // Page row: arrows either side of the range.
       const first = S.page * PER_PAGE;
       const last = Math.min(LEVELS.length, first + PER_PAGE);
-      text(first + 1 + ' - ' + last + ' OF ' + LEVELS.length, W / 2, y + 32, PAL.dim, { align: 'center' });
+      const py = y + 40;
+      text(first + 1 + ' - ' + last + ' OF ' + LEVELS.length, W / 2, py + 3, '#9fb7a2', { align: 'center', sp: 2 });
+      const arrow = (id, name, cx, on, fn) => {
+        const hot = on && (ui.hover === id || ui.pressed === id);
+        rrect(cx - 15, py - 1, 30, 15, 5, on ? (id === 'nextpage' ? PAL.ink : PAL.cream) : '#2a4a38');
+        rrect(cx - 14, py, 28, 13, 4, on && id === 'nextpage' ? (hot ? PAL.yellowHi : PAL.yellow) : hot ? PAL.panelHi : PAL.panel);
+        icon(name, cx - 5, py + 1, on ? (id === 'nextpage' ? PAL.ink : PAL.cream) : '#2a4a38');
+        if (on) region(id, cx - 18, py - 4, 36, 21, fn);
+      };
+      arrow('prev', 'back', W / 2 - 62, S.page > 0, () => turn(-1));
+      arrow('nextpage', 'fwd', W / 2 + 62, S.page < pages - 1, () => turn(1));
+      rect(x + 10, y + 59, w - 20, 1, '#1f4630');
+
+      // 4 x 5 grid of court tiles.
       for (let i = first; i < last; i++) {
-        const cx = x + 11 + ((i - first) % 4) * 48;
-        const cy = y + 44 + Math.floor((i - first) / 4) * 33;
+        const cx = x + 9 + ((i - first) % 4) * 53;
+        const cy = y + 64 + Math.floor((i - first) / 4) * 38;
         const open = i < unlocked;
         const id = 'court' + i;
-        const on = open && (ui.hover === id || ui.pressed === id);
-        rect(cx, cy, 46, 30, on ? PAL.panelHi : '#0c2016');
-        rect(cx, cy + 29, 46, 1, '#06120c');
+        const hot = open && (ui.hover === id || ui.pressed === id);
+        const now = i === current;
+        rrect(cx, cy, 51, 35, 4, now ? PAL.yellow : hot ? PAL.cream : open ? '#2f6b47' : '#1a3a2a');
+        rrect(cx + 1, cy + 1, 49, 33, 3, open ? '#143424' : '#0f2318');
+        if (now) {
+          // The next court to play gets a dusk sky.
+          rect(cx + 2, cy + 2, 47, 8, '#4a3560');
+          rect(cx + 2, cy + 10, 47, 8, '#7d4668');
+          rect(cx + 2, cy + 18, 47, 5, '#b85a5e');
+        }
+        if (open) {
+          // A faint treeline along the bottom of each tile.
+          const dark = now ? '#1a2a22' : '#0f2a1c';
+          rect(cx + 2, cy + 23, 47, 10, dark);
+          for (let t = 0; t < 6; t++) {
+            const tx = cx + 5 + ((t * 9 + i * 7) % 43);
+            const th = 3 + ((t * 5 + i * 3) % 5);
+            rect(tx, cy + 23 - th, 3, th, dark);
+            rect(tx + 1, cy + 22 - th, 1, 1, dark);
+          }
+        }
+        serif(String(i + 1), cx + 26, cy + 5, 14, open ? PAL.cream : '#3f5545', { align: 'center', shadow: open ? PAL.ink : null });
         if (!open) {
-          serif(String(i + 1), cx + 23, cy + 5, 13, '#3f5545', { align: 'center' });
-          icon('lock', cx + 18, cy + 17, '#3f5545');
+          icon('lock', cx + 20, cy + 20, '#3f5545');
           continue;
         }
         const rec = save.data.progress.levels[LEVELS[i].id];
-        serif(String(i + 1), cx + 23, cy + 5, 13, rec ? PAL.cream : PAL.yellow, { align: 'center' });
-        for (let st = 0; st < 3; st++) text('*', cx + 12 + st * 8, cy + 19, rec && st < rec.stars ? PAL.yellow : '#2c4a36');
-        region(id, cx, cy, 46, 30, () => {
+        for (let st = 0; st < 3; st++) icon('star', cx + 9 + st * 11, cy + 22, rec && st < rec.stars ? '#f2b632' : '#2c5a40');
+        region(id, cx, cy, 51, 35, () => {
           S.level = i;
           go('tools');
         });
       }
-      if (S.page > 0) ghost('prev', '<', x + 34, y + 29, 26, 13, () => turn(-1));
-      if (S.page < pages - 1) ghost('nextpage', '>', x + w - 34, y + 29, 26, 13, () => turn(1));
-      // Leaderboard and sound live here so the landing screen can stay bare.
-      ghost('scores', 'SCORES', W / 2 - 75, y + h - 28, 46, 15, () => {
+      rect(x + 10, y + h - 37, w - 20, 1, '#1f4630');
+
+      // Leaderboard, rules and sound live here so the landing screen can stay bare.
+      const by = y + h - 30;
+      ghost('scores', 'SCORES', x + 34, by, 53, 17, () => {
         S.board = { rank: -1, fromRun: false };
         go('scores');
-      }, { sp: 0 });
-      ghost('rules', 'RULES', W / 2 - 25, y + h - 28, 46, 15, openRules, { sp: 0 });
-      ghost('sound', 'SOUND', W / 2 + 25, y + h - 28, 46, 15, openSound, { sp: 0 });
-      ghost('back', 'BACK', W / 2 + 75, y + h - 28, 46, 15, back, { sp: 0 });
+      }, { sp: 0, icon: 'trophy' });
+      ghost('rules', 'RULES', x + 89, by, 51, 17, openRules, { sp: 0, icon: 'list' });
+      ghost('sound', 'SOUND', x + 142, by, 51, 17, openSound, { sp: 0, icon: 'sound' });
+      ghost('back', 'BACK', x + 194, by, 49, 17, back, { sp: 0, icon: 'back' });
     });
     S.back = back;
     S.primary = () => {
-      S.level = Math.min(unlocked, LEVELS.length) - 1;
+      S.level = current;
       go('tools');
     };
   },
@@ -847,6 +889,33 @@ function drawSoundOverlay(k) {
   S.back = closeSound;
 }
 
+// How to Play: numbered cards per tab, laid out first so the panel can size
+// itself and drop the tip on short screens instead of overflowing.
+function ruleCardLayout(sec, card, CARD_W, LH) {
+  const artW = card.art === 'crack' ? 66 : card.art === 'float' ? 40 : 0;
+  const textW0 = CARD_W - 12 - (artW ? artW + 4 : 0);
+  const paras = card.lines.map((p) => wrap(p, textW0));
+  let body = paras.reduce((n, p) => n + p.length * LH + 3, 0);
+  if (card.art) body = Math.max(body, 26);
+  if (card.showRows) body += sec.rows[0].kind === 'brick' ? Math.ceil(sec.rows.length / 2) * 24 : sec.rows.length * 19;
+  return { artW, paras, h: 17 + body + 2 };
+}
+
+function drawRuleArt(kind, x, y) {
+  if (kind === 'crack') {
+    drawBlock(x, x + 20, y + 20, x + 1, x + 19, y + 16, 9, 9, 'T', 4242);
+    text('>', x + 23, y + 9, PAL.cream);
+    drawBlock(x + 30, x + 50, y + 20, x + 31, x + 49, y + 16, 9, 9, 'T', 4242, { damage: 1 });
+    text('>', x + 53, y + 9, PAL.cream);
+    const bits = [[60, 8, 3], [64, 13, 2], [59, 16, 2], [65, 6, 2], [62, 19, 3], [58, 11, 1]];
+    bits.forEach(([dx, dy, sz], n) => rect(x + dx, y + dy + (Math.floor(S.time * 3 + n) % 2), sz, sz, n % 2 ? '#cf6f4f' : '#a04d37'));
+  } else if (kind === 'float') {
+    const bob = Math.round((1 + Math.sin(S.time * 2.2)) * 2);
+    drawShadow(x + 16, y + 24, 12 - bob, 2, 0.5);
+    drawBlock(x + 4, x + 28, y + 18 - bob, x + 5, x + 27, y + 14 - bob, 9, 9, 'T', 99);
+  }
+}
+
 function drawRulesOverlay(k) {
   ctx.globalAlpha = 0.55 * k;
   rect(0, 0, W, H, '#06120c');
@@ -854,45 +923,98 @@ function drawRulesOverlay(k) {
   checker(0, 0, W, H, 'rgba(6,18,12,' + (0.35 * k).toFixed(2) + ')');
   const all = sections();
   const sec = all[S.rulesTab];
-  const w = 216;
-  const h = 284;
+  // Wide screens get a wider panel (fewer wrapped lines); if a tab is still
+  // too tall, the line spacing tightens by a pixel.
+  const RW = clamp(W - 12, 228, 300);
+  const CARD_W = RW - 16;
+  const maxH = H - 12;
+  const measure = (lh) => sec.cards.map((c) => ({ card: c, ...ruleCardLayout(sec, c, CARD_W, lh) }));
+  let LH = 9;
+  let cards = measure(LH);
+  if (87 + cards.reduce((n, c) => n + c.h + 4, 0) > maxH) cards = measure((LH = 8));
+  const tipLines = wrap(sec.tip, CARD_W - 34);
+  const tipH = Math.max(22, tipLines.length * LH + 15);
+  const fixed = 37 + 20 + 30; // heading, tabs, Done
+  const need = fixed + cards.reduce((n, c) => n + c.h + 4, 0);
+  const showTip = need + tipH + 4 <= maxH;
+  const h = Math.min(maxH, need + (showTip ? tipH + 4 : 0));
+  S.rulesFits = need <= maxH; // checked by the tests at every screen size
+  const w = RW;
   const x = Math.round((W - w) / 2);
   const y = Math.round((H - h) / 2);
   panel(easeBack(k), x, y, w, h, 'dark', () => {
-    serif('HOW TO PLAY', W / 2 + 1, y + 12, 14, PAL.cream, { align: 'center', sp: 2 });
+    blockTitle('HOW TO PLAY', W / 2, y + 10, 2);
+    const tw = Math.floor(S.time * 2) % 2;
+    sparkle(W / 2 - 84, y + 15, 1 + tw);
+    sparkle(W / 2 - 92, y + 22, 2 - tw);
+    sparkle(W / 2 + 84, y + 15, 2 - tw);
+    sparkle(W / 2 + 92, y + 22, 1 + tw);
     all.forEach((t, i) => {
       const on = i === S.rulesTab;
-      ghost('tab' + i, t.tab, x + 28 + i * 40, y + 32, 37, 13, () => (S.rulesTab = i), on ? { fill: PAL.yellow, color: PAL.ink, line: PAL.yellow, sp: 0 } : { sp: 0 });
+      const tw5 = Math.floor((w - 18) / 5);
+      ghost('tab' + i, t.tab, x + 9 + Math.round(tw5 / 2) + i * tw5, y + 34, tw5 - 3, 14, () => (S.rulesTab = i), on ? { fill: PAL.yellow, color: PAL.ink, line: PAL.yellow, sp: 0 } : { sp: 0, line: '#2f6b47' });
     });
+
     let cy = y + 54;
-    for (const r of sec.rows) {
-      if (r.kind === 'brick') {
-        const bh = r.type === 'S' ? 5 : 9;
-        drawBlock(x + 13, x + 35, cy + 16, x + 14, x + 34, cy + 12, bh, bh, r.type, 4242);
-        text(r.name, x + 43, cy + 2, PAL.cream, { sp: 2 });
-        text(r.left, x + 43, cy + 12, PAL.dim);
-        text(r.right, x + w - 13, cy + 7, PAL.yellow, { align: 'right' });
-        cy += 23;
-      } else {
-        disc(x + 20, cy + 9, 8, PAL.cream);
-        disc(x + 20, cy + 9, 7, PAL.panel);
-        icon(r.id, x + 15, cy + 4, PAL.yellow);
-        text(r.name, x + 34, cy + 1, PAL.cream, { sp: 1 });
-        text(r.left, x + 34, cy + 11, PAL.dim, { sp: 0 });
-        text(r.right, x + w - 13, cy + 1, PAL.yellow, { align: 'right' });
-        cy += 22;
+    const cx = x + 8;
+    cards.forEach(({ card, artW, paras, h: ch }, n) => {
+      rrect(cx, cy, CARD_W, ch, 4, '#2a5a3c');
+      rrect(cx + 1, cy + 1, CARD_W - 2, ch - 2, 3, '#0c2016');
+      // Numbered badge and heading.
+      rrect(cx + 5, cy + 4, 11, 11, 2, PAL.yellow);
+      text(String(n + 1), cx + 11, cy + 6, PAL.ink, { align: 'center' });
+      text(card.title, cx + 21, cy + 6, PAL.cream, { sp: 2 });
+      let ty = cy + 18;
+      if (card.showRows && sec.rows[0].kind === 'brick') {
+        // Two by two: picture, name, hits, points pill.
+        sec.rows.forEach((r, i) => {
+          const half = Math.floor((CARD_W - 4) / 2);
+          const bx = cx + 4 + (i % 2) * half;
+          const by = ty + Math.floor(i / 2) * 24;
+          const bh = r.type === 'S' ? 4 : 8;
+          drawBlock(bx, bx + 16, by + 16, bx + 1, bx + 15, by + 13, bh, bh, r.type, 4242);
+          text(r.name, bx + 19, by + 2, PAL.cream, { sp: 0 });
+          text(r.left, bx + 19, by + 12, '#9fb7a2', { sp: 0 });
+          const pw = textW(r.right, 1, 0) + 6;
+          rrect(bx + half - 2 - pw, by + 1, pw, 9, 3, PAL.yellow);
+          text(r.right, bx + half + 1 - pw, by + 2, PAL.ink, { sp: 0 });
+        });
+        ty += Math.ceil(sec.rows.length / 2) * 24;
+      } else if (card.showRows) {
+        sec.rows.forEach((r, i) => {
+          const ry = ty + i * 19;
+          disc(cx + 13, ry + 8, 8, '#2f6b47');
+          disc(cx + 13, ry + 8, 7, PAL.panel);
+          icon(r.id, cx + 8, ry + 3, PAL.yellow);
+          text(r.name, cx + 26, ry + 1, PAL.cream, { sp: 1 });
+          text(r.left, cx + 26, ry + 10, '#9fb7a2', { sp: 0 });
+          const pw = textW(r.right, 1, 0) + 6;
+          rrect(cx + CARD_W - 6 - pw, ry, pw, 9, 3, PAL.yellow);
+          text(r.right, cx + CARD_W - 3 - pw, ry + 1, PAL.ink, { sp: 0 });
+        });
+        ty += sec.rows.length * 19;
       }
-    }
-    if (sec.rows.length) cy += 3;
-    for (const para of sec.lines) {
-      for (const ln of wrap(para, w - 28)) {
-        text(ln, x + 14, cy, PAL.cream);
-        cy += 10;
+      if (card.art) drawRuleArt(card.art, cx + 6, cy + 16);
+      const tx = cx + 6 + (artW ? artW + 4 : 0);
+      for (const para of paras) {
+        for (const ln of para) {
+          text(ln, tx, ty, '#b9c9b4');
+          ty += LH;
+        }
+        ty += 3;
       }
-      cy += 5;
+      cy += ch + 4;
+    });
+
+    if (showTip) {
+      rrect(cx, cy, CARD_W, tipH, 4, '#6b6a2c');
+      rrect(cx + 1, cy + 1, CARD_W - 2, tipH - 2, 3, '#18301c');
+      rrect(cx + 5, cy + Math.round((tipH - 15) / 2), 15, 15, 3, '#0c2016');
+      icon('bulb', cx + 7, cy + Math.round((tipH - 11) / 2), PAL.yellow);
+      text('TIP', cx + 26, cy + 4, PAL.yellow, { sp: 2 });
+      tipLines.forEach((ln, i) => text(ln, cx + 26, cy + 13 + i * LH, '#b9c9b4'));
     }
-    S.rulesFits = cy - 5 <= y + h - 32; // checked by the tests at every screen size
-    pill('done', 'DONE', W / 2, y + h - 27, 80, 17, closeRules);
+    pill('done', 'DONE', W / 2, y + h - 26, 96, 17, closeRules, { sp: 3 });
   });
   S.primary = closeRules;
   S.back = closeRules;

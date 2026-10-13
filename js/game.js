@@ -362,7 +362,10 @@ export class Game {
 
   maybeDrop(b) {
     this.sinceDrop++;
-    if (this.firstTool && this.total - this.remaining >= 3) {
+    if (this.firstTool) {
+      // Guided first rally: no random tools until the known one has dropped,
+      // so the hint that names it is always right.
+      if (this.total - this.remaining < 3) return;
       this.drops.push({ type: this.firstTool, x: b.x + b.w / 2, y: b.y + b.d / 2, t: 0 });
       this.firstTool = null;
       this.sinceDrop = 0;

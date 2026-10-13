@@ -364,6 +364,49 @@ export function serif(str, x, y, size, color, o = {}) {
   return w;
 }
 
+// Chunky two-tone arcade heading in the bitmap font: pale top, gold bottom,
+// dark drop edge.
+export function blockTitle(str, cx, y, scale = 3) {
+  const w = textW(str, scale, 1);
+  const x = Math.round(cx - w / 2);
+  glyphs(str, x, y + scale, '#5a3410', scale, 1);
+  glyphs(str, x + 1, y + scale, '#5a3410', scale, 1);
+  glyphs(str, x, y, '#f2b632', scale, 1);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x - 1, y, w + 2, scale * 3);
+  ctx.clip();
+  glyphs(str, x, y, '#fff3c4', scale, 1);
+  ctx.restore();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x - 1, y + scale * 3, w + 2, scale);
+  ctx.clip();
+  glyphs(str, x, y, PAL.yellow, scale, 1);
+  ctx.restore();
+  return w;
+}
+
+// A four-point sparkle; arm 1 or 2.
+export function sparkle(x, y, arm = 2, c = PAL.yellow) {
+  rect(x - arm, y, arm * 2 + 1, 1, c);
+  rect(x, y - arm, 1, arm * 2 + 1, c);
+}
+
+// A small tennis racket, leaning left (dir -1) or right (dir 1).
+export function racket(cx, cy, dir = 1) {
+  disc(cx, cy, 6, PAL.cream);
+  disc(cx, cy, 5, PAL.panel);
+  ctx.fillStyle = '#9fb7a2';
+  for (let dy = -4; dy <= 4; dy++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      if (dx * dx + dy * dy <= 18 && (dx & 1) === 0 && (dy & 1) === 0) ctx.fillRect(cx + dx, cy + dy, 1, 1);
+    }
+  }
+  line(cx - dir * 4, cy + 5, cx - dir * 9, cy + 11, PAL.cream, 2);
+  rect(cx - dir * 9 - (dir > 0 ? 1 : 0), cy + 10, 3, 2, PAL.yellow);
+}
+
 // ---------------------------------------------------------------- icons
 
 const ICONS = {
@@ -380,6 +423,10 @@ const ICONS = {
   pause: '.........../..###.###../..###.###../..###.###../..###.###../..###.###../..###.###../..###.###../..###.###../.........../...........',
   sound: '.....#...../....##..#../...###...#./######.#.#./######.#.#./######.#.#./######.#.#./...###...#./....##..#../.....#...../...........',
   lock: '...#####.../..##...##../..#.....#../..#.....#../.#########./.#########./.####.####./.####.####./.#########./.#########./...........',
+  trophy: '..#######../###########/#.#######.#/#.#######.#/.#.#####.#./...#####.../....###..../.....#...../.....#...../...#####.../..#######..',
+  list: '.........../.#########./.#.......#./.#.#####.#./.#.......#./.#.#####.#./.#.......#./.#.#####.#./.#.......#./.#########./...........',
+  fwd: '.........../......#..../......##.../......###../##########./###########/##########./......###../......##.../......#..../...........',
+  bulb: '...#####.../..#######../.#########./.#########./.#########./..#######../...#####.../...#####.../....###..../...#####.../....###....',
   star: '.....#...../.....#...../....###..../.#########./..#######../...#####.../...#####.../..###.###../..#.....#../.........../...........',
 };
 for (const k in ICONS) ICONS[k] = ICONS[k].split('/');

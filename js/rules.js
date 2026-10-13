@@ -35,25 +35,36 @@ export function facts() {
   };
 }
 
+// Each tab is a short stack of numbered cards plus a tip. A card may show the
+// tab's rows (the brick or tool table), a small picture (art), and text lines.
 export function sections() {
   const f = facts();
-  return [
+  const tabs = [
     {
       tab: 'BRICKS',
       rows: Object.entries(f.bricks).map(([type, b]) => ({ kind: 'brick', type, name: b.name, left: b.hits + (b.hits === 1 ? ' HIT' : ' HITS') + ' TO BREAK', right: b.pts + ' PTS' })),
-      lines: ['CRACKS SHOW A DAMAGED BRICK.', 'SOME ROWS SLIDE SIDEWAYS. SOME FORMATIONS MOVE TOWARD YOU AND BACK.', 'THE FLOATING IS FOR SHOW: BRICKS ARE HIT AT GROUND LEVEL.'],
+      cards: [
+        { title: 'BRICK TYPES', showRows: true, lines: [] },
+        { title: 'BRICK BEHAVIOUR', art: 'crack', lines: ['CRACKS SHOW A DAMAGED BRICK.', 'SOME ROWS SLIDE SIDEWAYS. SOME FORMATIONS MOVE TOWARD YOU AND BACK.'] },
+        { title: 'FLOATING BRICKS', art: 'float', lines: ['THE FLOATING IS FOR SHOW: BRICKS ARE HIT AT GROUND LEVEL.'] },
+      ],
+      tip: 'SLATE IS WORTH THE MOST. BREAK IT WHILE YOUR COMBO IS HIGH.',
     },
     {
       tab: 'SCORE',
       rows: [],
-      lines: [
-        'POINTS = BRICK VALUE X COMBO, ROUNDED TO THE NEAREST 5.',
-        `COMBO STARTS AT X1 AND GROWS ${f.comboStep} WITH EACH BRICK BROKEN, UP TO X${f.comboMax} FROM THE ${nth(f.comboMaxAt)}.`,
-        'IT RESETS WHEN A BALL TOUCHES THE PADDLE, OR WHEN YOUR LAST BALL IN PLAY IS LOST.',
-        `EXAMPLE: HEDGE AS THE 5TH BRICK = ${f.bricks.H.pts} X ${comboMult(5)} = ${brickPoints('H', 5)}.`,
-        `CLEARING A COURT: +${f.lifeBonus} FOR EACH LIFE LEFT.`,
-        'STARS: 3, MINUS 1 PER LIFE LOST ON THAT COURT, NEVER BELOW 1.',
+      cards: [
+        { title: 'POINTS', lines: ['POINTS = BRICK VALUE X COMBO, ROUNDED TO THE NEAREST 5.', `EXAMPLE: HEDGE AS THE 5TH BRICK = ${f.bricks.H.pts} X ${comboMult(5)} = ${brickPoints('H', 5)}.`] },
+        {
+          title: 'COMBO',
+          lines: [
+            `COMBO STARTS AT X1 AND GROWS ${f.comboStep} WITH EACH BRICK BROKEN, UP TO X${f.comboMax} FROM THE ${nth(f.comboMaxAt)}.`,
+            'IT RESETS WHEN A BALL TOUCHES THE PADDLE, OR WHEN YOUR LAST BALL IN PLAY IS LOST.',
+          ],
+        },
+        { title: 'BONUS AND STARS', lines: [`CLEARING A COURT: +${f.lifeBonus} FOR EACH LIFE LEFT.`, 'STARS: 3, MINUS 1 PER LIFE LOST ON THAT COURT, NEVER BELOW 1.'] },
       ],
+      tip: 'EVERY PADDLE TOUCH RESETS THE COMBO. KEEP THE BALL UP AMONG THE BRICKS.',
     },
     {
       tab: 'TOOLS',
@@ -64,31 +75,41 @@ export function sections() {
         left: TOOL_TEXT[t.id],
         right: f.toolTime[t.id] ? f.toolTime[t.id] + ' SEC' : t.id === 'multiball' ? 'MAX ' + f.maxBalls : 'ONE USE',
       })),
-      lines: [`BROKEN BRICKS SOMETIMES DROP A TOOL. CATCH IT WITH THE PADDLE. NO MORE THAN ${f.maxDrops} FALL AT ONCE.`, 'LOSING A LIFE CLEARS EVERY ACTIVE TOOL.'],
+      cards: [
+        { title: 'THE SIX TOOLS', showRows: true, lines: [] },
+        { title: 'CATCHING THEM', lines: [`BROKEN BRICKS SOMETIMES DROP A TOOL. CATCH IT WITH THE PADDLE. NO MORE THAN ${f.maxDrops} FALL AT ONCE.`, 'LOSING A LIFE CLEARS EVERY ACTIVE TOOL.'] },
+      ],
+      tip: 'FREEZE BREAKS ANY BRICK IN ONE HIT, EVEN SLATE.',
     },
     {
       tab: 'RUNS',
       rows: [],
-      lines: [
-        `CLEAR A COURT TO UNLOCK THE NEXT. THERE ARE ${f.courts}.`,
-        `A RUN STARTS WITH ${f.startLives} LIVES ON ANY UNLOCKED COURT.`,
-        'NEXT KEEPS YOUR SCORE AND THE LIVES YOU HAVE LEFT. A LOST LIFE NEVER COMES BACK.',
-        `REPLAY, RETRY AND RESTART BEGIN A NEW RUN: ${f.startLives} LIVES, SCORE 0.`,
-        `A RUN ENDS WHEN YOUR LAST LIFE IS LOST OR YOU GO HOME. ITS TOTAL CAN GO ON THE TOP ${f.boardSize} LEADERBOARD.`,
-        `COURTS GET FASTER, WITH A SMALLER PADDLE AND FEWER TOOLS. THE BALL ALSO SPEEDS UP ${f.speedUpPct}% ON EACH PADDLE HIT, UP TO ${f.speedCap}X.`,
+      cards: [
+        { title: 'COURTS', lines: [`CLEAR A COURT TO UNLOCK THE NEXT. THERE ARE ${f.courts}.`, `COURTS GET FASTER, WITH A SMALLER PADDLE AND FEWER TOOLS. THE BALL ALSO SPEEDS UP ${f.speedUpPct}% ON EACH PADDLE HIT, UP TO ${f.speedCap}X.`] },
+        {
+          title: 'LIVES',
+          lines: [
+            `A RUN STARTS WITH ${f.startLives} LIVES ON ANY UNLOCKED COURT.`,
+            'NEXT KEEPS YOUR SCORE AND THE LIVES YOU HAVE LEFT. A LOST LIFE NEVER COMES BACK.',
+            `REPLAY, RETRY AND RESTART BEGIN A NEW RUN: ${f.startLives} LIVES, SCORE 0.`,
+          ],
+        },
+        { title: 'LEADERBOARD', lines: [`A RUN ENDS WHEN YOUR LAST LIFE IS LOST OR YOU GO HOME. ITS TOTAL CAN GO ON THE TOP ${f.boardSize} LEADERBOARD.`] },
       ],
+      tip: 'LIVES DO NOT COME BACK, SO PLAY SAFE EARLY IN A RUN.',
     },
     {
       tab: 'KEYS',
       rows: [],
-      lines: [
-        'MOUSE: MOVE TO STEER. CLICK TO SERVE.',
-        'TOUCH: DRAG ANYWHERE TO STEER. TAP TO SERVE.',
-        'KEYBOARD: ARROWS OR A AND D TO STEER. SPACE OR ENTER TO SERVE.',
-        'P OR ESC PAUSES. M MUTES.',
-        'IN MENUS: ENTER CONFIRMS, ESC GOES BACK.',
-        'THE GAME PAUSES ITSELF WHEN YOU LEAVE THE TAB.',
+      cards: [
+        { title: 'MOUSE', lines: ['MOVE TO STEER. CLICK TO SERVE.'] },
+        { title: 'TOUCH', lines: ['DRAG ANYWHERE TO STEER. TAP TO SERVE.'] },
+        { title: 'KEYBOARD', lines: ['ARROWS OR A AND D TO STEER. SPACE OR ENTER TO SERVE.', 'P OR ESC PAUSES. M MUTES.', 'IN MENUS: ENTER CONFIRMS, ESC GOES BACK.'] },
+        { title: 'AUTO PAUSE', lines: ['THE GAME PAUSES ITSELF WHEN YOU LEAVE THE TAB.'] },
       ],
+      tip: 'ON A PHONE YOUR THUMB NEED NOT COVER THE PADDLE: DRAG ANYWHERE.',
     },
   ];
+  for (const t of tabs) t.lines = t.cards.flatMap((c) => c.lines);
+  return tabs;
 }

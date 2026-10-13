@@ -1,7 +1,7 @@
 // Immediate-mode widgets. Screens call these every frame; each widget paints
 // itself and registers a hit region that the pointer handlers consult.
 
-import { W, H, ctx, PAL, makeLayer, setTarget, rect, rrect, disc, ring, text, icon, clamp, mulberry } from './gfx.js';
+import { W, H, ctx, PAL, makeLayer, setTarget, rect, rrect, disc, ring, text, textW, icon, clamp, mulberry } from './gfx.js';
 
 export const ui = {
   regions: [],
@@ -57,7 +57,14 @@ export function ghost(id, label, cx, y, w, h, fn, o = {}) {
   const on = hot(id) || down(id);
   rrect(x - 1, y - 1, w + 2, h + 2, 5, on ? PAL.yellow : o.line || PAL.cream);
   rrect(x, y, w, h, 4, down(id) ? PAL.panelHi : o.fill || PAL.panel);
-  text(label, cx, y + Math.round((h - 7) / 2), on && !o.fill ? PAL.yellow : o.color || PAL.cream, { align: 'center', sp: o.sp ?? 1 });
+  const ink = on && !o.fill ? PAL.yellow : o.color || PAL.cream;
+  if (o.icon) {
+    // Icon on the left, label after it.
+    icon(o.icon, x + 4, y + Math.round((h - 11) / 2), ink);
+    text(label, x + 17 + Math.round((w - 20 - textW(label, 1, o.sp ?? 1)) / 2), y + Math.round((h - 7) / 2), ink, { sp: o.sp ?? 1 });
+  } else {
+    text(label, cx, y + Math.round((h - 7) / 2), ink, { align: 'center', sp: o.sp ?? 1 });
+  }
   region(id, x - 2, y - 2, w + 4, h + 4, fn);
 }
 

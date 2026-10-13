@@ -38,8 +38,39 @@ export class AudioSys {
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
       this.apply();
     }
-    if (this.ac.state === 'suspended' && !this.held) this.ac.resume();
+    // 'suspended' is the normal locked state; iOS also uses 'interrupted' after a call or alarm.
+    if (this.ac.state !== 'running' && !this.held) this.ac.resume().catch(() => {});
+    this.keepAwake();
     this.startMusic();
+  }
+
+  // iPhones and iPads silence Web Audio while the ring/silent switch is on
+  // silent. Playing an (inaudible) media element alongside it moves the page
+  // into the "playback" audio category, which the switch does not mute.
+  keepAwake() {
+    if (this.settings.muted || this.held) return;
+    if (!this.silent) {
+      const n = 4000; // half a second of 8-bit silence at 8 kHz
+      const wav = new Uint8Array(44 + n).fill(128);
+      const head = new DataView(wav.buffer);
+      const put = (at, str) => [...str].forEach((ch, i) => (wav[at + i] = ch.charCodeAt(0)));
+      put(0, 'RIFF');
+      head.setUint32(4, 36 + n, true);
+      put(8, 'WAVEfmt ');
+      head.setUint32(16, 16, true);
+      head.setUint16(20, 1, true);
+      head.setUint16(22, 1, true);
+      head.setUint32(24, 8000, true);
+      head.setUint32(28, 8000, true);
+      head.setUint16(32, 1, true);
+      head.setUint16(34, 8, true);
+      put(36, 'data');
+      head.setUint32(40, n, true);
+      this.silent = new Audio(URL.createObjectURL(new Blob([wav], { type: 'audio/wav' })));
+      this.silent.loop = true;
+      this.silent.setAttribute('playsinline', '');
+    }
+    if (this.silent.paused) this.silent.play().catch(() => {});
   }
 
   apply() {
@@ -49,14 +80,19 @@ export class AudioSys {
     this.master.gain.setTargetAtTime(s.muted ? 0 : 1, t, 0.02);
     this.musicG.gain.setTargetAtTime(s.music * 0.5, t, 0.02);
     this.sfxG.gain.setTargetAtTime(s.sfx * 0.6, t, 0.02);
+    if (this.silent && s.muted) this.silent.pause();
   }
 
   // Suspend while the tab is hidden.
   hold(on) {
     this.held = on;
     if (!this.ac) return;
-    if (on) this.ac.suspend();
-    else this.ac.resume();
+    if (on) {
+      this.ac.suspend();
+      if (this.silent) this.silent.pause();
+    } else {
+      this.ac.resume().catch(() => {});
+    }
   }
 
   tone(freq, dur, type, vol, o = {}) {

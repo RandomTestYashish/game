@@ -769,6 +769,9 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 function release(e, cancelled) {
+  // Phones only allow sound to start when a touch ENDS, not when it begins,
+  // so the audio is unlocked here as well as on pointerdown.
+  if (!cancelled) audio.unlock();
   if (!ptr) return;
   const p = toLogical(e);
   if (ptr.region) {
@@ -788,6 +791,8 @@ function release(e, cancelled) {
 canvas.addEventListener('pointerup', (e) => release(e, false));
 canvas.addEventListener('pointercancel', (e) => release(e, true));
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// Belt and braces for browsers that only count these as a user gesture.
+for (const type of ['touchend', 'click']) window.addEventListener(type, () => audio.unlock(), { passive: true });
 
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();

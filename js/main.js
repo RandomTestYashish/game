@@ -1,6 +1,6 @@
 // Boot, screen flow, input and the frame loop.
 
-import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, disc, text, serif, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
+import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, disc, text, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
 import { P, setCam, buildLayers, drawScene, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
 import { Game, TOOLS, MAX_LIVES } from './game.js';
 import { LEVELS } from './levels.js';
@@ -335,6 +335,23 @@ const SCREENS = {
     ctx.globalAlpha = k;
     serif('THE', W / 2 + 3, top, 15, PAL.cream, { align: 'center', sp: 5, shadow: PAL.ink });
     serif('COURT', W / 2 + 2, top + 20, 40, PAL.cream, { align: 'center', sp: 3, shadow: PAL.ink });
+    // A thin glint crosses the letters every few seconds: a stepped diagonal
+    // band, clipped to whole pixels, redrawing the glyphs a shade brighter.
+    const sweep = (S.time % 5) / 1.3;
+    if (sweep < 1) {
+      const tw = serifW('COURT', 40, 3);
+      const bx = W / 2 + 2 - tw / 2 - 16 + sweep * (tw + 32);
+      ctx.save();
+      ctx.beginPath();
+      for (let r = 0; r < 34; r++) {
+        const rx = Math.round(bx - r * 0.5);
+        ctx.rect(rx, top + 17 + r, 3, 1);
+        if (r & 1) ctx.rect(rx + 4, top + 17 + r, 1, 1);
+      }
+      ctx.clip();
+      serif('COURT', W / 2 + 2, top + 20, 40, '#ffffff', { align: 'center', sp: 3 });
+      ctx.restore();
+    }
     rect(W / 2 - 22, top + 58, 44, 1, PAL.cream);
     const y = H - 50 + Math.round((1 - k) * 8);
     pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3 });

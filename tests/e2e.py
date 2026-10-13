@@ -74,7 +74,7 @@ window.__bot = { mode: 'win', on: false };
 # Pure rules checks, run in the page against a fresh Game with a seeded RNG.
 RULES = """
 async () => {
-  const { Game, WW, WH, TOOL_TIME } = await import('/js/game.js');
+  const { Game, WW, WH, TOOL_TIME, BLOCKS } = await import('/js/game.js');
   const { LEVELS } = await import('/js/levels.js');
   const out = {};
   const rng = (seed) => () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
@@ -168,6 +168,76 @@ async () => {
   g = fresh(); g.launch(); g.balls[0].y = 40; const tok = { type: 'expand', x: g.paddle.x, y: g.paddle.y - 20, t: 0 }; g.drops.push(tok); run(g, 0.4);
   out.pickup = g.fx.expand > 0 && !g.drops.includes(tok);
 
+  // ---- "How to play" numbers checked against what the game actually does
+  const { facts, sections } = await import('/js/rules.js');
+  const { textW } = await import('/js/gfx.js');
+  const f = facts(); out.facts = f;
+  const txt = sections().map(s => s.rows.map(r => [r.name, r.left, r.right].join(' ')).concat(s.lines).join(' ')).join(' ');
+  const shoot = (q, blk) => { const s0 = q.score; Object.assign(q.balls[0], { x: blk.x + blk.w / 2, y: blk.y + blk.d + 10, vx: 0, vy: -1 }); run(q, 0.1); return q.score - s0; };
+  const lowest = (q, types) => q.blocks.filter(k => k.alive && types.includes(k.type)).sort((a, b) => b.y - a.y)[0];
+
+  // Brick durability and base value: hit one brick of each type until it breaks.
+  out.measured = { bricks: {}, combo: [], toolTime: {} };
+  for (const type of ['T', 'L', 'H', 'S']) {
+    const li = LEVELS.findIndex(l => l.rows.join('').includes(type));
+    g = fresh(li); g.launch(); blk = g.blocks.find(k => k.type === type); blk.amp = 0; blk.drift = 0;
+    for (const k of g.blocks) if (k !== blk) k.alive = false;
+    g.remaining = 2; // keep the court from being "won" by this one brick
+    let hits = 0, pts = 0;
+    while (blk.alive && hits < 9) { g.combo = 0; pts = shoot(g, blk); hits++; }
+    out.measured.bricks[type] = { hits, pts };
+  }
+  out.rulesBricks = ['T', 'L', 'H', 'S'].every(t => out.measured.bricks[t].hits === f.bricks[t].hits && out.measured.bricks[t].pts === f.bricks[t].pts
+    && txt.includes(f.bricks[t].name) && txt.includes(f.bricks[t].pts + ' PTS'));
+
+  // Combo: break ten one-hit bricks in a row without touching the paddle.
+  g = fresh(0); g.launch(); g.dropRate = 0; g.sinceDrop = -99;
+  const seq = [];
+  for (let n = 1; n <= 10; n++) { blk = lowest(g, ['T', 'L']); const got = shoot(g, blk); seq.push([n, blk.type, got]); out.measured.combo.push(got / BLOCKS[blk.type].pts); }
+  const round5 = (v) => Math.round(v / 5) * 5;
+  const mult = (n) => 1 + Math.min(n - 1, f.comboMaxAt - 1) * f.comboStep;
+  out.rulesCombo = seq.every(([n, t, got]) => got === round5(BLOCKS[t].pts * mult(n))) && mult(f.comboMaxAt) === f.comboMax && mult(20) === f.comboMax;
+  const hedge5 = round5(BLOCKS.H.pts * mult(5));
+  out.rulesComboExample = txt.includes(`${BLOCKS.H.pts} X ${mult(5)} = ${hedge5}`) && txt.includes('UP TO X' + f.comboMax);
+  // ...and the paddle resets it.
+  Object.assign(g.balls[0], { x: g.paddle.x, y: g.paddle.y - 14, vx: 0, vy: 1 }); run(g, 0.15);
+  blk = lowest(g, ['T', 'L']); const after = shoot(g, blk);
+  out.rulesComboResets = after === BLOCKS[blk.type].pts;
+  // Shield bounce does not reset it (the rules only name the paddle).
+  g = fresh(0); g.launch(); g.dropRate = 0; g.sinceDrop = -99; shoot(g, lowest(g, ['T', 'L'])); shoot(g, lowest(g, ['T', 'L']));
+  g.applyTool('shield'); g.movePaddleTo(190); Object.assign(g.balls[0], { x: 10, y: WH - 12, vx: 0, vy: 1 }); run(g, 0.2);
+  out.shieldKeepsCombo = g.combo === 2;
+
+  // Life bonus and stars.
+  const winWith = (lives, lost) => { const q = fresh(0); q.launch(); q.lives = lives; q.lost = lost; const b0 = q.blocks[0];
+    q.blocks.slice(1).forEach(k => (k.alive = false)); q.remaining = 1; const s0 = q.score; q.combo = 0; shoot(q, b0); return [q.score - s0 - BLOCKS[b0.type].pts, q.stars, q.state]; };
+  out.rulesLifeBonus = [1, 2, 3, 5].every(l => winWith(l, 0)[0] === l * f.lifeBonus) && txt.includes('+' + f.lifeBonus);
+  out.rulesStars = winWith(3, 0)[1] === 3 && winWith(2, 1)[1] === 2 && winWith(1, 2)[1] === 1 && winWith(3, 4)[1] === 1;
+
+  // Tool durations, measured.
+  for (const id of Object.keys(f.toolTime)) { g = fresh(0); g.blocks.forEach(k => (k.alive = false)); g.applyTool(id); let t = 0; while (g.fx[id] > 0 && t < 60) { g.update(1 / 120); t += 1 / 120; } out.measured.toolTime[id] = Math.round(t * 10) / 10; }
+  out.rulesToolTimes = Object.keys(f.toolTime).every(id => Math.abs(out.measured.toolTime[id] - f.toolTime[id]) < 0.05 && txt.includes(f.toolTime[id] + ' SEC'));
+  // Multiball cap, life loss clearing tools, drop cap.
+  g = fresh(0); g.launch(); for (let i = 0; i < 6; i++) g.applyTool('multiball');
+  out.rulesMultiballCap = g.balls.length === f.maxBalls;
+  g = fresh(0); g.launch(); ['smash', 'freeze', 'expand', 'lowgrav', 'shield'].forEach(id => g.applyTool(id)); g.balls = []; g.loseLife();
+  out.rulesLifeLossClearsTools = Object.values(g.fx).every(v => v === 0) && !g.shield && g.drops.length === 0;
+  // Smash and freeze kills still score normally.
+  g = fresh(0); g.launch(); g.dropRate = 0; g.sinceDrop = -99; g.applyTool('freeze'); blk = g.blocks.find(k => k.type === 'H');
+  for (const k of g.blocks) if (k !== blk && k.r >= blk.r) k.alive = false;
+  out.freezeScoresFull = shoot(g, blk) === BLOCKS.H.pts && !blk.alive;
+
+  // Speed: +3% per paddle hit up to the cap.
+  g = fresh(0); g.blocks.forEach(k => (k.alive = false)); g.launch(); b = g.balls[0]; const v0 = b.speed; const speeds = [];
+  for (let i = 0; i < 30; i++) { Object.assign(b, { x: g.paddle.x, y: g.paddle.y - 14, vx: 0, vy: 1 }); run(g, 0.05); speeds.push(b.speed); }
+  out.measured.speedFirst = speeds[0] / v0; out.measured.speedMax = Math.max(...speeds) / LEVELS[0].speed;
+  out.rulesSpeed = Math.abs(speeds[0] / v0 - (1 + f.speedUpPct / 100)) < 1e-9 && Math.abs(out.measured.speedMax - f.speedCap) < 1e-9;
+  out.rulesProgressionNumbers = f.courts === LEVELS.length && f.startLives === new Game(LEVELS[0]).lives && txt.includes('THERE ARE ' + LEVELS.length) && txt.includes('UP TO ' + f.maxLives);
+
+  // Every wrapped line fits the panel.
+  const { wrap } = await import('/js/gfx.js');
+  out.rulesTextFits = sections().every(s => s.lines.every(p => wrap(p, 188).every(l => textW(l) <= 188)) && s.rows.every(r => r.kind === 'brick' ? 43 + textW(r.left) + textW(r.right) + 13 < 216 : 34 + textW(r.left, 1, 0) + 13 < 216 && 34 + textW(r.name) + textW(r.right) + 13 < 216));
+
   // Long soak on every level: a simple bot must be able to clear it, the ball
   // must stay finite and in bounds, and tools must actually drop.
   out.levels = [];
@@ -181,6 +251,7 @@ async () => {
       if (low) g.movePaddleTo(low.x + Math.sin(t * 1.7) * g.paddle.w * 0.3);
       g.update(1 / 60); t += 1 / 60;
       for (const q of g.balls) if (!isFinite(q.x + q.y) || q.x < 0 || q.x > WW || q.y < 0) bad = true;
+      if (g.drops.length > f.maxDrops || g.balls.length > f.maxBalls) bad = true;
     }
     out.levels.push({ n: i + 1, state: g.state, secs: Math.round(t), drops, bad });
   }
@@ -283,6 +354,22 @@ def desktop(browser, url):
     s = d.saved()
     check("sound settings are saved", s and s["settings"]["music"] == music and s["settings"]["sfx"] == sfx and s["settings"]["muted"] is False, s and s["settings"])
     check("music is scheduled", d.ev("__court.audio.playing && __court.audio.step>0"))
+
+    # --- How to Play, from the courts screen
+    rules_menu(d, "courts")
+    d.click("rules")
+    d.wait("__court.S.overlayT>=1")
+    pg.keyboard.press("ArrowRight")
+    pg.keyboard.press("ArrowRight")
+    t1 = d.ev("__court.S.rulesTab")
+    pg.keyboard.press("ArrowLeft")
+    page = d.ev("__court.S.page")
+    check("rules: arrow keys change section, not the court page behind", t1 == 1 and d.ev("__court.S.rulesTab") == 0 and page == 0, t1)
+    pg.keyboard.press("ArrowLeft")
+    check("rules: sections wrap around", d.ev("__court.S.rulesTab") == 4)
+    pg.keyboard.press("Escape")
+    d.wait("__court.S.overlayT<=0")
+    check("rules: Esc closes it and stays on courts", d.ev("__court.S.screen") == "courts")
     pg.keyboard.press("Escape")
     d.screen("title")
     d.ev("__court.S.introSeen=false")
@@ -349,6 +436,9 @@ def desktop(browser, url):
     d.click("pause")
     d.screen("paused", 0.5)
     check("pause button works", True)
+    a = d.ev("[__court.S.game.balls[0].x, __court.S.game.balls[0].y, __court.S.game.score]")
+    rules_menu(d, "pause")
+    check("rules from pause: game untouched and still paused", d.ev("[__court.S.game.balls[0].x, __court.S.game.balls[0].y, __court.S.game.score]") == a and d.ev("__court.S.screen") == "paused")
     d.click("restart")
     d.screen("countdown", 0.05)
     check("restart from pause gives a fresh rally", d.ev("__court.S.game.score===0 && __court.S.game.lives===3 && __court.S.game.remaining===__court.S.game.total"))
@@ -505,8 +595,10 @@ def desktop(browser, url):
     # --- rules, in isolation
     out = pg.evaluate(RULES)
     for k, v in out.items():
-        if k != "levels":
+        if k not in ("levels", "facts", "measured"):
             check("rules: " + k, v)
+    print("  measured:", json.dumps(out["measured"]))
+    print("  shown:   ", json.dumps(out["facts"]))
     bad = [lv for lv in out["levels"] if lv["state"] != "won" or lv["bad"] or lv["drops"] == 0]
     secs = [lv["secs"] for lv in out["levels"]]
     check(f"rules: all {len(out['levels'])} courts clearable, ball stays in court, tools drop", not bad, bad[:3] or f"{min(secs)}-{max(secs)}s of play each")
@@ -573,6 +665,7 @@ def touch_device(browser, url, name, w, h):
     check(f"{name}: sound toggle by touch", d.ev("__court.save.data.settings.muted") is True)
     d.tap("done")
     d.wait("__court.S.overlayT<=0")
+    rules_menu(d, name, tap=True)
     d.ev("__court.S.game.score=420; __court.S.run.score=420")
     d.tap("home")
     d.screen("name", 0.8)
@@ -599,6 +692,26 @@ def touch_device(browser, url, name, w, h):
     check(f"{name}: still interactive in landscape", True)
     check(f"no console errors ({name})", not d.errors, d.errors[:3])
     ctx.close()
+
+
+def rules_menu(d, where, tap=False):
+    """Open How to Play from the current screen, visit every section, close it."""
+    press = d.tap if tap else d.click
+    press("rules")
+    d.wait("__court.S.overlay==='rules' && __court.S.overlayT>=1")
+    ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
+    check(f"{where}: How to Play opens and blocks the screen behind it", ids == "tab0,tab1,tab2,tab3,tab4,done", ids)
+    fits = []
+    for i in range(5):
+        press(f"tab{i}")
+        time.sleep(0.15)
+        fits.append(d.ev(f"__court.S.rulesTab==={i} && __court.S.rulesFits"))
+        d.shot(f"rules-{where}-{i}")
+    box = d.ev("(()=>{const r=__court.ui.regions; const s=__court.size(); return r.every(q=>q.x>=0&&q.y>=0&&q.x+q.w<=s[0]&&q.y+q.h<=s[1])})()")
+    check(f"{where}: all five sections open, fit the panel and stay on screen", all(fits) and box, fits)
+    press("done")
+    d.wait("__court.S.overlayT<=0")
+    check(f"{where}: Done closes it", d.ev("__court.S.overlay") is False)
 
 
 def first_time(browser, url):

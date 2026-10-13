@@ -45,6 +45,10 @@ The game pauses itself when the tab or window loses focus.
 | Expand | Wider paddle (14 s) |
 | Low Gravity | Balls and tools come down slowly (10 s) |
 
+## How to Play screen
+
+"Rules" on the courts screen and "How to play" in the pause menu open a five-tab reference: Bricks, Score, Tools, Runs and Keys. Its numbers are not typed in: `js/rules.js` reads them from the constants `js/game.js` plays by (`BLOCKS`, `comboMult`, `TOOL_TIME`, `LIFE_BONUS` and so on), and the test measures each one in a simulated rally and compares it with what the screen shows.
+
 ## First-time journey
 
 A player with no save is not sent through the court grid and tools briefing. Play goes from the intro straight into court 1 with a ball 20% slower, and the ball waits on the paddle instead of serving itself. Short hints appear one at a time: move, serve, clear the blocks, catch the tool (the first tool is always Expand), and what to do after losing a ball. "Skip tips" ends it at once.
@@ -64,6 +68,7 @@ js/render.js      draws a Game into the court, plus the HUD
 js/ui.js          buttons, sliders, tilting panels
 js/gfx.js         low-res canvas, drawing primitives, fonts, icons
 js/audio.js       Web Audio effects and music
+js/rules.js       How to Play text, built from the game's constants
 js/save.js        save data, migration, storage adapter
 tests/e2e.py      browser test
 ```

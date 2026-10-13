@@ -49,7 +49,7 @@ export function ghost(id, label, cx, y, w, h, fn, o = {}) {
   const on = hot(id) || down(id);
   rrect(x - 1, y - 1, w + 2, h + 2, 5, on ? PAL.yellow : o.line || PAL.cream);
   rrect(x, y, w, h, 4, down(id) ? PAL.panelHi : o.fill || PAL.panel);
-  text(label, cx, y + Math.round((h - 7) / 2), on ? PAL.yellow : o.color || PAL.cream, { align: 'center', sp: o.sp ?? 1 });
+  text(label, cx, y + Math.round((h - 7) / 2), on && !o.fill ? PAL.yellow : o.color || PAL.cream, { align: 'center', sp: o.sp ?? 1 });
   region(id, x - 2, y - 2, w + 4, h + 4, fn);
 }
 

@@ -1,8 +1,9 @@
 // Boot, screen flow, input and the frame loop.
 
-import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, text, textW, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
+import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, text, textW, wrap, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
 import { P, setCam, buildLayers, drawScene, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
-import { Game, TOOLS, MAX_LIVES } from './game.js';
+import { Game, TOOLS, MAX_LIVES, START_LIVES } from './game.js';
+import { sections } from './rules.js';
 import { LEVELS } from './levels.js';
 import { drawGame, drawHUD } from './render.js';
 import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, panel } from './ui.js';
@@ -38,7 +39,10 @@ const S = {
   game: null,
   gameVis: 0,
   titleVis: 0,
-  overlay: false,
+  overlay: false, // false | 'sound' | 'rules'
+  overlayKind: 'sound',
+  rulesTab: 0,
+  rulesFits: true,
   overlayT: 0,
   tool: 0,
   count: 0,
@@ -105,7 +109,7 @@ function onGameEvent(type, arg) {
 // player loses, stops, or clears the last court.
 function beginRun(i) {
   if (S.coach) return firstRally(); // restarting mid-tutorial restarts the tutorial
-  S.run = { lives: 3, score: 0, saved: false };
+  S.run = { lives: START_LIVES, score: 0, saved: false };
   startLevel(i);
 }
 
@@ -120,7 +124,7 @@ function afterIntro() {
 
 function firstRally() {
   S.coach = { step: 'move', t: 0, moved: 0, lastX: null, toolSeen: false };
-  S.run = { lives: 3, score: 0, saved: false };
+  S.run = { lives: START_LIVES, score: 0, saved: false };
   startLevel(0, { ...LEVELS[0], speed: Math.round(LEVELS[0].speed * 0.8) }, { firstTool: 'expand' });
 }
 
@@ -230,8 +234,20 @@ function play() {
 }
 
 function openSound() {
-  S.overlay = true;
+  S.overlay = S.overlayKind = 'sound';
   S.eraseArmed = 0;
+}
+
+function openRules() {
+  S.overlay = S.overlayKind = 'rules';
+}
+
+function closeRules() {
+  S.overlay = false;
+}
+
+function turnRules(d) {
+  S.rulesTab = (S.rulesTab + d + sections().length) % sections().length;
 }
 
 function closeSound() {
@@ -475,12 +491,13 @@ const SCREENS = {
       if (S.page > 0) ghost('prev', '<', x + 34, y + 29, 26, 13, () => turn(-1));
       if (S.page < pages - 1) ghost('nextpage', '>', x + w - 34, y + 29, 26, 13, () => turn(1));
       // Leaderboard and sound live here so the landing screen can stay bare.
-      ghost('scores', 'SCORES', x + 40, y + h - 28, 54, 15, () => {
+      ghost('scores', 'SCORES', W / 2 - 75, y + h - 28, 46, 15, () => {
         S.board = { rank: -1, fromRun: false };
         go('scores');
-      });
-      ghost('back', 'BACK', W / 2, y + h - 28, 54, 15, back);
-      ghost('sound', 'SOUND', x + w - 40, y + h - 28, 54, 15, openSound);
+      }, { sp: 0 });
+      ghost('rules', 'RULES', W / 2 - 25, y + h - 28, 46, 15, openRules, { sp: 0 });
+      ghost('sound', 'SOUND', W / 2 + 25, y + h - 28, 46, 15, openSound, { sp: 0 });
+      ghost('back', 'BACK', W / 2 + 75, y + h - 28, 46, 15, back, { sp: 0 });
     });
     S.back = back;
     S.primary = () => {
@@ -566,7 +583,7 @@ const SCREENS = {
 
   paused(k) {
     const w = 150;
-    const h = 150;
+    const h = 171;
     const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
     const resume = () => go('play');
@@ -576,7 +593,8 @@ const SCREENS = {
       pill('resume', 'RESUME', W / 2, y + 46, 104, 19, resume);
       ghost('restart', 'RESTART', W / 2, y + 76, 104, 15, () => beginRun(S.level));
       ghost('sound', 'SOUND', W / 2, y + 97, 104, 15, openSound);
-      ghost('home', 'HOME', W / 2, y + 118, 104, 15, () => endRun('RALLY ENDED'));
+      ghost('rules', 'HOW TO PLAY', W / 2, y + 118, 104, 15, openRules);
+      ghost('home', 'HOME', W / 2, y + 139, 104, 15, () => endRun('RALLY ENDED'));
     });
     S.primary = resume;
     S.back = resume;
@@ -601,7 +619,7 @@ const SCREENS = {
       }
       text('SCORE ' + r.score, W / 2, y + 90, PAL.ink, { align: 'center', sp: 2 });
       text(r.newBest ? 'NEW BEST!' : 'BEST ' + r.best, W / 2, y + 101, r.newBest ? '#b3541e' : '#7d7354', { align: 'center' });
-      text('RUN TOTAL ' + r.run + (r.hasNext ? '  +1 BALL' : ''), W / 2, y + 112, '#7d7354', { align: 'center' });
+      text('RUN TOTAL ' + r.run + (r.hasNext ? '  +1 LIFE' : ''), W / 2, y + 112, '#7d7354', { align: 'center' });
       const xs = r.hasNext ? [-54, 0, 54] : [-30, 30];
       roundBtn('replay', 'replay', 'REPLAY', W / 2 + xs[0], y + 144, replay);
       roundBtn('home', 'home', 'HOME', W / 2 + xs[1], y + 144, home);
@@ -737,6 +755,57 @@ function drawSoundOverlay(k) {
   S.back = closeSound;
 }
 
+function drawRulesOverlay(k) {
+  ctx.globalAlpha = 0.55 * k;
+  rect(0, 0, W, H, '#06120c');
+  ctx.globalAlpha = 1;
+  checker(0, 0, W, H, 'rgba(6,18,12,' + (0.35 * k).toFixed(2) + ')');
+  const all = sections();
+  const sec = all[S.rulesTab];
+  const w = 216;
+  const h = 284;
+  const x = Math.round((W - w) / 2);
+  const y = Math.round((H - h) / 2);
+  panel(easeBack(k), x, y, w, h, 'dark', () => {
+    serif('HOW TO PLAY', W / 2 + 1, y + 12, 14, PAL.cream, { align: 'center', sp: 2 });
+    all.forEach((t, i) => {
+      const on = i === S.rulesTab;
+      ghost('tab' + i, t.tab, x + 28 + i * 40, y + 32, 37, 13, () => (S.rulesTab = i), on ? { fill: PAL.yellow, color: PAL.ink, line: PAL.yellow, sp: 0 } : { sp: 0 });
+    });
+    let cy = y + 54;
+    for (const r of sec.rows) {
+      if (r.kind === 'brick') {
+        const bh = r.type === 'S' ? 5 : 9;
+        drawBlock(x + 13, x + 35, cy + 16, x + 14, x + 34, cy + 12, bh, bh, r.type, 4242);
+        text(r.name, x + 43, cy + 2, PAL.cream, { sp: 2 });
+        text(r.left, x + 43, cy + 12, PAL.dim);
+        text(r.right, x + w - 13, cy + 7, PAL.yellow, { align: 'right' });
+        cy += 23;
+      } else {
+        disc(x + 20, cy + 9, 8, PAL.cream);
+        disc(x + 20, cy + 9, 7, PAL.panel);
+        icon(r.id, x + 15, cy + 4, PAL.yellow);
+        text(r.name, x + 34, cy + 1, PAL.cream, { sp: 1 });
+        text(r.left, x + 34, cy + 11, PAL.dim, { sp: 0 });
+        text(r.right, x + w - 13, cy + 1, PAL.yellow, { align: 'right' });
+        cy += 22;
+      }
+    }
+    if (sec.rows.length) cy += 3;
+    for (const para of sec.lines) {
+      for (const ln of wrap(para, w - 28)) {
+        text(ln, x + 14, cy, PAL.cream);
+        cy += 10;
+      }
+      cy += 5;
+    }
+    S.rulesFits = cy - 5 <= y + h - 32; // checked by the tests at every screen size
+    pill('done', 'DONE', W / 2, y + h - 27, 80, 17, closeRules);
+  });
+  S.primary = closeRules;
+  S.back = closeRules;
+}
+
 // ---------------------------------------------------------------- draw
 
 let gameLayer = null;
@@ -791,7 +860,8 @@ function draw() {
   if (S.overlayT > 0) {
     beginUI();
     ui.live = S.overlay && S.overlayT >= 1;
-    drawSoundOverlay(S.overlayT);
+    if (S.overlayKind === 'rules') drawRulesOverlay(S.overlayT);
+    else drawSoundOverlay(S.overlayT);
     ui.live = true;
   }
 }
@@ -875,6 +945,11 @@ window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   audio.unlock();
+  if (S.overlay === 'rules' && (k === 'arrowleft' || k === 'arrowright')) {
+    turnRules(k === 'arrowleft' ? -1 : 1);
+    e.preventDefault();
+    return;
+  }
   if (S.screen === 'name' && !S.leaving && !S.overlay && S.run && S.run.score > 0) {
     // Typing a name: letters are text here, not shortcuts.
     if (k === 'backspace') typeKey('del');
@@ -885,7 +960,7 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
-  if (S.screen === 'courts' && !S.leaving && (k === 'arrowleft' || k === 'arrowright')) {
+  if (S.screen === 'courts' && !S.leaving && !S.overlay && (k === 'arrowleft' || k === 'arrowright')) {
     S.page = clamp(S.page + (k === 'arrowleft' ? -1 : 1), 0, Math.ceil(LEVELS.length / PER_PAGE) - 1);
     e.preventDefault();
     return;

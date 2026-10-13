@@ -45,6 +45,12 @@ The game pauses itself when the tab or window loses focus.
 | Expand | Wider paddle (14 s) |
 | Low Gravity | Balls and tools come down slowly (10 s) |
 
+## First-time journey
+
+A player with no save is not sent through the court grid and tools briefing. Play goes from the intro straight into court 1 with a ball 20% slower, and the ball waits on the paddle instead of serving itself. Short hints appear one at a time: move, serve, clear the blocks, catch the tool (the first tool is always Expand), and what to do after losing a ball. "Skip tips" ends it at once.
+
+The tutorial is marked done (`onboarded` in the save) when that first rally ends or is skipped; from then on the game is exactly the normal one. Saves from before this feature count as returning if they show any play. "Erase save data" brings the tutorial back.
+
 ## Architecture
 
 ```
@@ -75,8 +81,9 @@ One JSON document in `localStorage` under `the-court.save`:
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "updatedAt": 1791901112459,
+  "onboarded": true,
   "settings": { "music": 0.6, "sfx": 0.8, "muted": false },
   "progress": { "unlocked": 2, "levels": { "baseline": { "best": 610, "stars": 2 } } },
   "stats": { "plays": 3, "wins": 1, "blocks": 51 },

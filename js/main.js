@@ -1,6 +1,6 @@
 // Boot, screen flow, input and the frame loop.
 
-import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, disc, text, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
+import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, text, textW, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
 import { P, setCam, buildLayers, drawScene, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
 import { Game, TOOLS, MAX_LIVES } from './game.js';
 import { LEVELS } from './levels.js';
@@ -59,6 +59,7 @@ const S = {
   name: '',
   nameTitle: 'RALLY OVER',
   board: { rank: -1, fromRun: false },
+  coach: null, // first-time guided rally: { step, t, moved, lastX, toolSeen }
 };
 
 // ---------------------------------------------------------------- flow
@@ -96,19 +97,70 @@ function onGameEvent(type, arg) {
     lastLand = S.time;
   }
   audio.sfx(type, arg);
+  if (S.coach) coachEvent(type);
   if (type === 'win' || type === 'over') finish(type === 'win');
 }
 
 // A run starts on any court and carries score and lives forward until the
 // player loses, stops, or clears the last court.
 function beginRun(i) {
+  if (S.coach) return firstRally(); // restarting mid-tutorial restarts the tutorial
   S.run = { lives: 3, score: 0, saved: false };
   startLevel(i);
 }
 
-function startLevel(i) {
+// ---- first-time journey ---------------------------------------------------
+// A new player skips the court grid and tools briefing and goes straight into
+// a gentler court 1 with a few hints. Everything else is the normal game.
+
+function afterIntro() {
+  if (save.data.onboarded) go('courts');
+  else firstRally();
+}
+
+function firstRally() {
+  S.coach = { step: 'move', t: 0, moved: 0, lastX: null, toolSeen: false };
+  S.run = { lives: 3, score: 0, saved: false };
+  startLevel(0, { ...LEVELS[0], speed: Math.round(LEVELS[0].speed * 0.8) }, { firstTool: 'expand' });
+}
+
+function endCoach() {
+  S.coach = null;
+  if (!save.data.onboarded) {
+    save.data.onboarded = true;
+    save.commit();
+  }
+}
+
+function coachEvent(type) {
+  const c = S.coach;
+  const to = (step) => {
+    c.step = step;
+    c.t = 0;
+  };
+  if (type === 'serve') to(c.step === 'lost' ? 'idle' : c.step === 'move' || c.step === 'serve' ? 'break' : c.step);
+  else if (type === 'drop' && !c.toolSeen) {
+    c.toolSeen = true;
+    to('tool');
+  } else if (type === 'power' && c.step === 'tool') to('caught');
+  else if (type === 'lost') to('lost');
+}
+
+function coachText() {
+  const serve = S.touch ? 'TAP TO SERVE' : 'CLICK OR PRESS SPACE TO SERVE';
+  return {
+    move: S.touch ? 'DRAG ANYWHERE TO MOVE' : 'MOVE THE MOUSE OR USE ARROW KEYS',
+    serve: 'NOW ' + serve,
+    break: 'KEEP THE BALL UP. CLEAR EVERY BLOCK.',
+    tool: 'A TOOL IS FALLING. CATCH IT!',
+    caught: 'WIDER PADDLE FOR A WHILE',
+    lost: 'BALL LOST. ' + serve,
+  }[S.coach.step];
+}
+
+function startLevel(i, level, extra) {
   S.level = clamp(i, 0, LEVELS.length - 1);
-  S.game = new Game(LEVELS[S.level], onGameEvent, Math.random, { lives: S.run.lives, score: S.run.score });
+  S.game = new Game(level || LEVELS[S.level], onGameEvent, Math.random, { lives: S.run.lives, score: S.run.score, ...extra });
   S.ending = 0;
   if (S.screen === 'countdown') enter('countdown');
   else go('countdown');
@@ -129,6 +181,7 @@ function finish(won) {
     blocks: g.total - g.remaining,
   });
   S.run.score = g.score;
+  if (S.coach) endCoach(); // the first rally is over, win or lose
   S.result = {
     won,
     score,
@@ -153,6 +206,7 @@ function endRun(title) {
   } else {
     go('title');
   }
+  S.coach = null; // leaving mid-tutorial: it will be offered again next time
 }
 
 function saveScore() {
@@ -172,7 +226,7 @@ function pause() {
 
 function play() {
   if (!S.introSeen) go('intro');
-  else go('courts');
+  else afterIntro();
 }
 
 function openSound() {
@@ -222,7 +276,7 @@ function update(dt) {
   if (S.eraseArmed > 0) S.eraseArmed -= dt;
 
   if (S.screen === 'loading' && S.ready && S.t > 1.5) go('title');
-  if (S.screen === 'intro' && S.t > 2.6) go('courts');
+  if (S.screen === 'intro' && S.t > 2.6 && !S.leaving) afterIntro();
 
   const g = S.game;
   if (g && !GAME_SCREENS.has(S.next || S.screen) && S.gameVis <= 0) S.game = null;
@@ -249,8 +303,18 @@ function update(dt) {
       S.screen = 'play';
       S.t = 0;
       audio.sfx('go');
-      g.launch();
+      // A first-timer serves by hand, once they have found the paddle.
+      if (!(S.coach && S.coach.step === 'move')) g.launch();
     }
+  }
+
+  const c = S.coach;
+  if (c && S.screen === 'play') {
+    c.t += dt;
+    if (c.lastX !== null) c.moved += Math.abs(g.paddle.x - c.lastX);
+    c.lastX = g.paddle.x;
+    if (c.step === 'move' && c.moved > 40) (c.step = 'serve'), (c.t = 0);
+    if ((c.step === 'break' && c.t > 4) || (c.step === 'tool' && c.t > 7) || (c.step === 'caught' && c.t > 2.5)) c.step = 'idle';
   }
 
   if (S.ending > 0 && S.screen === 'play') {
@@ -373,7 +437,7 @@ const SCREENS = {
     rect(W / 2 + 54, y + 36, 30, 1, PAL.cream);
     ctx.globalAlpha = 1;
     drawIntroBall(S.t);
-    const skip = () => go('courts');
+    const skip = afterIntro;
     region('skip', 0, 0, W, H, skip);
     S.primary = skip;
     S.back = () => go('title');
@@ -474,7 +538,25 @@ const SCREENS = {
   play() {
     iconBtn('pause', 'pause', W - 23, 7, pause);
     const g = S.game;
-    if (g && g.state === 'serve' && Math.floor(S.time * 2.5) % 3 !== 0) {
+    if (g && S.coach) {
+      // Guided first rally: one short hint at a time, above the paddle.
+      const p = proj(g.paddle.x, g.paddle.y);
+      const msg = !S.ending && coachText();
+      if (msg) {
+        const w = textW(msg) + 16;
+        const y = Math.round(p.y) - 58;
+        rrect(W / 2 - w / 2 - 1, y - 1, w + 2, 17, 5, PAL.ink);
+        rrect(W / 2 - w / 2, y, w, 15, 4, PAL.panel);
+        text(msg, W / 2, y + 4, PAL.cream, { align: 'center' });
+      }
+      if (S.coach.step === 'move') {
+        const hw = (g.paddle.w / 2) * p.s;
+        const bob = Math.floor(S.time * 3) % 2;
+        text('<', p.x - hw - 10 - bob, p.y - 9, PAL.yellow, { align: 'center', shadow: PAL.ink });
+        text('>', p.x + hw + 10 + bob, p.y - 9, PAL.yellow, { align: 'center', shadow: PAL.ink });
+      }
+      ghost('skiptips', 'SKIP TIPS', W - 36, 32, 60, 13, endCoach);
+    } else if (g && g.state === 'serve' && Math.floor(S.time * 2.5) % 3 !== 0) {
       const p = proj(g.paddle.x, g.paddle.y);
       text(S.touch ? 'TAP TO SERVE' : 'CLICK OR SPACE TO SERVE', W / 2, p.y - 46, PAL.white, { align: 'center', shadow: PAL.ink });
     }

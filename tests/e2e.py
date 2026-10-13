@@ -189,6 +189,10 @@ async () => {
 """
 
 
+# The main suites run as a returning player, so they see the normal menus.
+RETURNING = "if(!localStorage.getItem('the-court.save')) localStorage.setItem('the-court.save', JSON.stringify({version:3,onboarded:true}))"
+
+
 class Driver:
     def __init__(self, page):
         self.pg = page
@@ -231,6 +235,7 @@ class Driver:
 def desktop(browser, url):
     print("desktop 1280x800 - mouse and keyboard")
     ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(RETURNING)
     d = Driver(ctx.new_page())
     pg = d.pg
     pg.goto(url)
@@ -483,7 +488,7 @@ def desktop(browser, url):
     d.click("erase")
     time.sleep(0.3)
     s = d.saved()
-    check("erase clears progress and leaderboard but keeps sound settings", s["progress"]["unlocked"] == 1 and s["progress"]["levels"] == {} and s["leaderboard"] == [] and s["settings"]["music"] == music, s)
+    check("erase clears progress and leaderboard but keeps sound settings", s["progress"]["unlocked"] == 1 and s["progress"]["levels"] == {} and s["leaderboard"] == [] and s["settings"]["music"] == music and s["onboarded"] is False, s)
     pg.keyboard.press("Escape")
     d.wait("__court.S.overlayT<=0")
 
@@ -505,6 +510,7 @@ def desktop(browser, url):
 def touch_device(browser, url, name, w, h):
     print(f"{name} {w}x{h} - touch")
     ctx = browser.new_context(viewport={"width": w, "height": h}, has_touch=True, is_mobile=True, device_scale_factor=2)
+    ctx.add_init_script(RETURNING)
     d = Driver(ctx.new_page())
     pg = d.pg
     pg.goto(url)
@@ -585,6 +591,91 @@ def touch_device(browser, url, name, w, h):
     ctx.close()
 
 
+def first_time(browser, url):
+    print("first-time journey - new and returning players")
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    d = Driver(ctx.new_page())
+    pg = d.pg
+    pg.goto(url)
+    d.screen("title", 1.4)
+    check("new user: no save yet, not onboarded", d.saved() is None and d.ev("__court.save.data.onboarded") is False)
+    d.click("play")
+    d.screen("intro", 0.3)
+    d.wait("__court.S.screen==='countdown' || __court.S.screen==='courts' || __court.S.screen==='tools'", 15000)
+    check("new user: Play goes intro -> court 1, skipping courts and tools", d.ev("__court.S.screen") == "countdown" and d.ev("__court.S.level") == 0)
+    d.screen("play", 0.4)
+    g = d.ev("[__court.S.game.state, __court.S.coach.step, __court.S.game.level.speed, __court.LEVELS[0].speed, __court.ui.regions.some(r=>r.id==='skiptips')]")
+    check("new user: ball waits on the paddle with a 'move' hint and a slower ball", g[0] == "serve" and g[1] == "move" and g[2] < g[3] and g[4], g)
+    d.shot("ftue-1-move")
+    time.sleep(1.0)
+    check("new user: nothing happens until they act", d.ev("__court.S.game.state") == "serve")
+    box = d.ev("(()=>{const r=document.getElementById('court').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()")
+    pg.mouse.move(box[0] + box[2] * 0.4, box[1] + box[3] * 0.8)
+    pg.mouse.move(box[0] + box[2] * 0.6, box[1] + box[3] * 0.8, steps=8)
+    time.sleep(0.2)
+    check("new user: moving the paddle advances to the 'serve' hint", d.ev("__court.S.coach.step") == "serve")
+    d.shot("ftue-2-serve")
+    pg.keyboard.press("Space")
+    time.sleep(0.2)
+    check("new user: serving advances to the 'break' hint", d.ev("__court.S.game.state") == "play" and d.ev("__court.S.coach.step") == "break")
+    pg.evaluate(BOT)
+    d.ev("__court.S.timeScale=2; __bot.on=true")
+    d.wait("__court.S.coach && __court.S.coach.step==='tool'", 60000)
+    check("new user: the first tool is Expand, with a hint", d.ev("__court.S.game.drops[0].type") == "expand")
+    d.shot("ftue-3-tool")
+    check("new user: still not marked onboarded mid-rally", d.ev("__court.save.data.onboarded") is False)
+    d.wait("(__court.S.screen==='complete'||__court.S.screen==='name') && !__court.S.leaving && __court.S.t>1", 300000)
+    s = d.saved()
+    check("new user: finishing the first rally marks them onboarded and saves it", s["onboarded"] is True and d.ev("__court.S.coach") is None, s["onboarded"])
+    if d.ev("__court.S.screen") == "complete":
+        d.click("next")
+        d.screen("play", 0.3, 20000)
+        check("after the tutorial, court 2 is the normal game (auto-serve, full speed, no hints)", d.ev("__court.S.game.state==='play' && __court.S.game.level.speed===__court.LEVELS[1].speed && !__court.ui.regions.some(r=>r.id==='skiptips')"))
+    d.ev("__bot.on=false; __court.S.timeScale=1")
+
+    # Returning: same browser after a reload.
+    pg.reload()
+    d.screen("title", 1.4)
+    d.click("play")
+    d.screen("courts", 0.5, 20000)
+    check("returning user: Play goes to the court grid, as before", d.ev("__court.S.coach") is None)
+    ctx.close()
+
+    # Skipping the tips.
+    ctx = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.4)
+    d.tap("play")
+    d.screen("intro", 0.3)
+    d.pg.touchscreen.tap(195, 400)
+    d.screen("play", 0.4, 20000)
+    check("new user on touch: hint uses touch wording", d.ev("__court.S.coach.step") == "move" and d.ev("__court.S.touch") is True)
+    d.shot("ftue-4-mobile")
+    d.tap("skiptips")
+    time.sleep(0.3)
+    check("Skip Tips ends the tutorial, saves it, and leaves the rally running", d.ev("__court.S.coach") is None and d.saved()["onboarded"] is True and d.ev("__court.S.game.state") == "serve")
+    d.pg.touchscreen.tap(195, 400)
+    time.sleep(0.2)
+    check("after skipping, tap still serves", d.ev("__court.S.game.state") == "play")
+    check("no console errors (first-time, touch)", not d.errors, d.errors[:3])
+    ctx.close()
+
+    # Returning player whose save predates the tutorial.
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script("if(!localStorage.getItem('the-court.save')) localStorage.setItem('the-court.save', JSON.stringify({version:2,settings:{music:0.3,sfx:0.8,muted:false},progress:{unlocked:3,levels:{baseline:{best:500,stars:2}}},stats:{plays:4,wins:2,blocks:60},leaderboard:[{name:'OLD',score:900,court:2,at:1}]}))")
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.4)
+    old = d.ev("[__court.save.data.onboarded, __court.save.data.progress.unlocked, __court.save.data.settings.music, __court.save.data.leaderboard[0].name]")
+    check("older save: treated as returning, progress and leaderboard intact", old == [True, 3, 0.3, "OLD"], old)
+    d.click("play")
+    d.screen("courts", 0.5, 20000)
+    check("older save: Play goes to the court grid", d.ev("__court.ui.regions.some(r=>r.id==='court2')"))
+    check("no console errors (first-time, desktop)", not d.errors, d.errors[:3])
+    ctx.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -593,6 +684,7 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome", headless=True)
         try:
+            first_time(browser, url)
             desktop(browser, url)
             touch_device(browser, url, "tablet", 820, 1180)
             touch_device(browser, url, "mobile", 390, 844)

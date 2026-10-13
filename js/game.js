@@ -46,6 +46,7 @@ export class Game {
     this.lost = 0;
     this.padW = level.paddle ?? 54;
     this.dropRate = level.drop ?? 0.16;
+    this.firstTool = opts.firstTool || null; // guided first rally: a known tool, early
     this.combo = 0;
     this.bonus = 0;
     this.shield = false;
@@ -352,6 +353,13 @@ export class Game {
 
   maybeDrop(b) {
     this.sinceDrop++;
+    if (this.firstTool && this.total - this.remaining >= 3) {
+      this.drops.push({ type: this.firstTool, x: b.x + b.w / 2, y: b.y + b.d / 2, t: 0 });
+      this.firstTool = null;
+      this.sinceDrop = 0;
+      this.emit('drop');
+      return;
+    }
     if (this.drops.length >= 2) return;
     if (this.sinceDrop < 7 && this.rng() >= this.dropRate) return;
     let total = 0;

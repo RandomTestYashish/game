@@ -1,6 +1,6 @@
 // Low-resolution pixel canvas, drawing primitives, bitmap font and icon sprites.
 
-export const W = 240;
+export let W = 240;
 export let H = 270;
 export let ctx = null;
 
@@ -16,8 +16,10 @@ export function initCanvas(canvas) {
   ctx = main;
 }
 
-export function setHeight(h) {
+export function setSize(w, h) {
+  W = w;
   H = h;
+  canvasEl.width = w;
   canvasEl.height = h;
   main.imageSmoothingEnabled = false;
 }

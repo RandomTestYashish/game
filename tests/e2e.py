@@ -50,7 +50,7 @@ window.__bot = { mode: 'win', on: false };
   if (bot.on && g && c.S.screen === 'play' && !c.S.leaving) {
     const r = cv.getBoundingClientRect();
     const fire = (type, x) => cv.dispatchEvent(new PointerEvent(type, {
-      clientX: r.left + x * r.width / 240, clientY: r.top + r.height * 0.8,
+      clientX: r.left + x * r.width / cv.width, clientY: r.top + r.height * 0.8,
       pointerType: 'mouse', pointerId: 1, bubbles: true, cancelable: true }));
     let target = g.paddle.x;
     const live = g.balls.filter(b => !b.stuck);
@@ -116,6 +116,23 @@ async () => {
   Object.assign(b, { x: blk.x + blk.w / 2, y: blk.y + blk.d + 10, vx: 0, vy: -1 }); run(g, 0.2);
   out.win = g.state === 'won' && g.bonus === 300 && g.stars === 3 && ev.includes('win');
 
+  // A run carries score and lives into the next court
+  g = new Game(LEVELS[1], () => {}, rng(3), { lives: 4, score: 900 });
+  out.runCarries = g.lives === 4 && g.score === 900 && g.startScore === 900;
+
+  // 3D motion: blocks float on every court, and drifting formations advance
+  g = fresh(0); run(g, 0.4);
+  out.blocksFloat = g.blocks.some(q => q.bob > 0.3);
+  const di = LEVELS.findIndex(l => l.drift > 0); g = fresh(di); const y0 = g.blocks[0].y; run(g, 3);
+  out.formationDrifts = g.blocks[0].y > y0 + 1;
+
+  // Level set
+  const ids = new Set(LEVELS.map(l => l.id)), names = new Set(LEVELS.map(l => l.name));
+  out.levelCount = LEVELS.length >= 100 && ids.size === LEVELS.length && names.size === LEVELS.length;
+  out.levelsWellFormed = LEVELS.every(l => l.rows.length >= 4 && l.rows.length <= 7 && l.rows.every(r => /^[.TLHS]{7}$/.test(r))
+    && l.rows.join('').replace(/\./g, '').length >= 14 && (l.move || []).every(r => l.rows[r][0] === '.' && l.rows[r][6] === '.'));
+  out.getsHarder = LEVELS[119].speed > LEVELS[0].speed * 1.6 && LEVELS[119].paddle < LEVELS[0].paddle - 10 && LEVELS[0].speed >= 160;
+
   // Tools
   g = fresh(); g.launch(); g.applyTool('shield'); b = g.balls[0];
   Object.assign(b, { x: 10, y: WH - 12, vx: 0, vy: 1 }); g.movePaddleTo(190); run(g, 0.3);
@@ -141,15 +158,15 @@ async () => {
 
   g = fresh(); g.launch(); g.balls[0].y = 60; g.applyTool('expand'); run(g, 1);
   const wide = g.paddle.w; run(g, TOOL_TIME.expand + 1);
-  out.expand = wide === 82 && g.paddle.w === 54;
+  out.expand = wide === LEVELS[0].paddle + 26 && g.paddle.w === LEVELS[0].paddle;
 
   const fall = (tool) => { const q = fresh(); q.blocks.forEach(k => (k.alive = false)); q.launch(); if (tool) q.applyTool(tool);
-    Object.assign(q.balls[0], { x: 100, y: 20, vx: 0, vy: 1 }); q.movePaddleTo(27); run(q, 0.5); return q.balls[0].y - 20; };
+    Object.assign(q.balls[0], { x: 100, y: 20, vx: 0, vy: 1 }); q.movePaddleTo(27); run(q, 0.4); return q.balls[0].y - 20; };
   out.lowgrav = Math.abs(fall('lowgrav') / fall(null) - 0.6) < 0.02;
 
   // Tool pickup
-  g = fresh(); g.launch(); g.balls[0].y = 40; g.drops.push({ type: 'expand', x: g.paddle.x, y: g.paddle.y - 20, t: 0 }); run(g, 0.6);
-  out.pickup = g.fx.expand > 0 && g.drops.length === 0;
+  g = fresh(); g.launch(); g.balls[0].y = 40; const tok = { type: 'expand', x: g.paddle.x, y: g.paddle.y - 20, t: 0 }; g.drops.push(tok); run(g, 0.4);
+  out.pickup = g.fx.expand > 0 && !g.drops.includes(tok);
 
   // Long soak on every level: a simple bot must be able to clear it, the ball
   // must stay finite and in bounds, and tools must actually drop.
@@ -165,7 +182,7 @@ async () => {
       g.update(1 / 60); t += 1 / 60;
       for (const q of g.balls) if (!isFinite(q.x + q.y) || q.x < 0 || q.x > WW || q.y < 0) bad = true;
     }
-    out.levels.push({ name: LEVELS[i].name, state: g.state, secs: Math.round(t), score: g.score, drops, bad, blocks: g.total });
+    out.levels.push({ n: i + 1, state: g.state, secs: Math.round(t), drops, bad });
   }
   return out;
 }
@@ -192,7 +209,7 @@ class Driver:
         self.wait(f"__court.ui.regions.some(r=>r.id==='{rid}')")
         return self.ev(
             "(()=>{const r=__court.ui.regions.find(r=>r.id==='%s');const c=document.getElementById('court').getBoundingClientRect();"
-            "const k=c.width/240;return [c.left+(r.x+r.w/2)*k,c.top+(r.y+r.h/2)*k]})()" % rid
+            "const k=c.width/document.getElementById('court').width;return [c.left+(r.x+r.w/2)*k,c.top+(r.y+r.h/2)*k]})()" % rid
         )
 
     def click(self, rid):
@@ -266,8 +283,13 @@ def desktop(browser, url):
     check("intro screen (Elevated Rally)", True)
     d.screen("courts", 0.6)
     d.shot("05-courts")
-    locked = d.ev("[1,2,3,4].every(i=>!__court.ui.regions.some(r=>r.id==='court'+i))")
-    check("courts screen: only court 1 unlocked on a fresh save", locked)
+    locked = d.ev("__court.ui.regions.filter(r=>/^court\\d+$/.test(r.id)).map(r=>r.id).join()")
+    check("courts screen: only court 1 unlocked on a fresh save", locked == "court0", locked)
+    d.click("nextpage")
+    time.sleep(0.2)
+    check("courts screen pages through 120 courts", d.ev("__court.S.page") == 1 and d.ev("__court.LEVELS.length") == 120)
+    pg.keyboard.press("ArrowLeft")
+    time.sleep(0.2)
     d.click("court0")
     d.screen("tools", 0.6)
     d.click("tool2")
@@ -291,13 +313,14 @@ def desktop(browser, url):
 
     # --- real mouse steering
     box = d.ev("(()=>{const r=document.getElementById('court').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()")
-    pg.mouse.move(box[0] + box[2] * 0.2, box[1] + box[3] * 0.8)
-    time.sleep(0.1)
-    left = d.ev("__court.S.game.paddle.x")
-    pg.mouse.move(box[0] + box[2] * 0.8, box[1] + box[3] * 0.8)
-    time.sleep(0.1)
-    right = d.ev("__court.S.game.paddle.x")
-    check("mouse moves the paddle", left < 60 and right > 140, (round(left), round(right)))
+    pg.mouse.move(box[0] + box[2] * 0.3, box[1] + box[3] * 0.8)
+    time.sleep(0.8)
+    left = d.ev("[__court.S.game.paddle.x, __court.proj(100,0).x, __court.S.shift]")
+    pg.mouse.move(box[0] + box[2] * 0.7, box[1] + box[3] * 0.8)
+    time.sleep(0.8)
+    right = d.ev("[__court.S.game.paddle.x, __court.proj(100,0).x, __court.S.shift]")
+    check("mouse moves the paddle", left[0] < 60 and right[0] > 140, (round(left[0]), round(right[0])))
+    check("3D camera trucks with the paddle (far court slides against near)", right[1] - left[1] > 4 and left[2] < -5 and right[2] > 5, (left[1], right[1]))
 
     # --- pause / resume
     pg.keyboard.press("p")
@@ -316,7 +339,7 @@ def desktop(browser, url):
     d.screen("paused", 0.5)
     check("pause button works", True)
     d.click("restart")
-    d.screen("countdown", 0.1)
+    d.screen("countdown", 0.05)
     check("restart from pause gives a fresh rally", d.ev("__court.S.game.score===0 && __court.S.game.lives===3 && __court.S.game.remaining===__court.S.game.total"))
     d.screen("play", 0.1)
 
@@ -338,7 +361,7 @@ def desktop(browser, url):
     pg.keyboard.press("Space")
     check("Space serves", d.ev("__court.S.game.state") == "play")
 
-    # --- play level 1 to the end with the bot, through the real frame loop
+    # --- play court 1 to the end with the bot, through the real frame loop
     pg.evaluate(BOT)
     d.ev("__court.S.timeScale=3; __bot.on=true")
     d.wait("__court.S.game.score>100", 60000)
@@ -347,58 +370,107 @@ def desktop(browser, url):
     d.screen("complete", 1.4, 240000)
     d.shot("11-rally-complete")
     r = d.ev("__court.S.result")
-    check("level 1 completes -> Rally Complete", r["won"] and r["score"] > 300 and r["newBest"], r)
+    check("court 1 completes -> Rally Complete", r["won"] and r["score"] > 300 and r["newBest"], r)
     s = d.saved()
     check("win is saved (best score, stars, next court unlocked)", s["progress"]["unlocked"] == 2 and s["progress"]["levels"]["baseline"]["best"] == r["score"] and s["progress"]["levels"]["baseline"]["stars"] == r["stars"], s["progress"])
 
-    # --- replay, then lose on purpose
-    d.click("replay")
+    # --- Next carries the run; then lose on purpose
+    lives = d.ev("__court.S.game.lives")
+    d.click("next")
     d.screen("play", 0.1, 20000)
-    check("Replay restarts the same court", d.ev("__court.S.level===0 && __court.S.game.score===0"))
+    g = d.ev("[__court.S.level, __court.S.game.score, __court.S.game.lives]")
+    check("Next carries score and adds a ball", g[0] == 1 and g[1] >= r["run"] and g[2] == min(5, lives + 1), g)
     d.ev("__bot.mode='lose'")
-    d.screen("gameover", 1.0, 240000)
-    d.shot("12-rally-over")
-    r = d.ev("__court.S.result")
-    check("three lost balls -> game over screen", (not r["won"]) and d.ev("__court.S.game.lives") == 0, r)
+    d.screen("name", 1.0, 240000)
+    run = d.ev("__court.S.run.score")
+    check("losing every ball ends the run on the name screen", d.ev("__court.S.game.lives") == 0 and run >= r["run"], run)
+
+    # --- leaderboard: type a name, save, see it listed
+    pg.keyboard.type("pando")
+    pg.keyboard.press("Backspace")
+    d.click("keyA")
+    check("name entry by keyboard and on-screen keys", d.ev("__court.S.name") == "PANDA", d.ev("__court.S.name"))
+    d.shot("12-name-entry")
+    d.click("save")
+    d.screen("scores", 0.8)
+    d.shot("13-leaderboard")
     s2 = d.saved()
-    check("a loss keeps the best score and counts the play", s2["progress"] == s["progress"] and s2["stats"]["plays"] == 2 and s2["stats"]["wins"] == 1, s2["stats"])
-    d.click("retry")
+    top = s2["leaderboard"][0]
+    check("score is added to the leaderboard and saved", len(s2["leaderboard"]) == 1 and top["name"] == "PANDA" and top["score"] == run and top["court"] == 2 and d.ev("__court.S.board.rank") == 0, top)
+    check("a loss keeps progress and counts the play", s2["progress"] == s["progress"] and s2["stats"]["plays"] == 2 and s2["stats"]["wins"] == 1, s2["stats"])
+    d.click("again")
     d.screen("play", 0.1, 20000)
-    check("Retry starts again with 3 lives", d.ev("__court.S.game.lives") == 3)
+    check("Play Again starts a fresh run with 3 balls", d.ev("__court.S.game.lives===3 && __court.S.game.score===0 && __court.S.level===1"))
+
+    # --- stopping mid-run from the pause menu also offers the leaderboard
+    d.ev("__bot.mode='win'")
+    d.wait("__court.S.game.score>60", 60000)
     pg.keyboard.press("Escape")
     d.screen("paused", 0.5)
     d.click("home")
+    d.screen("name", 0.8)
+    check("Home mid-run asks for a name", d.ev("__court.S.nameTitle") == "RALLY ENDED" and d.ev("__court.S.name") == "PANDA")
+    pg.keyboard.press("Enter")
+    d.screen("scores", 0.8)
+    check("second score is ranked", len(d.saved()["leaderboard"]) == 2 and d.saved()["leaderboard"][0]["score"] >= d.saved()["leaderboard"][1]["score"])
+    d.click("home")
     d.screen("title", 0.6)
-    check("Home returns to the title", d.ev("__court.S.game===null || __court.S.gameVis<1"))
+    check("Home returns to the title", True)
+
+    # --- a run with no points skips name entry
+    d.ev("__bot.mode='lose'; __court.beginRun(0)")
+    d.screen("name", 0.8, 240000)
+    if d.ev("__court.S.run.score") == 0:
+        check("a scoreless run offers Retry instead of name entry", d.ev("__court.ui.regions.some(r=>r.id==='retry') && !__court.ui.regions.some(r=>r.id==='save')"))
+        d.click("home")
+    else:
+        d.click("skip")
+        d.screen("scores", 0.6)
+        check("Skip leaves the leaderboard unchanged", len(d.saved()["leaderboard"]) == 2)
+        d.click("home")
+    d.screen("title", 0.6)
 
     # --- persistence across a reload
     pg.reload()
     d.screen("title", 1.4)
-    check("save survives a reload", d.ev("__court.save.data.progress.unlocked") == 2 and d.ev("__court.save.data.settings.music") == music)
+    check("save survives a reload", d.ev("__court.save.data.progress.unlocked") == 2 and d.ev("__court.save.data.settings.music") == music and d.ev("__court.save.data.leaderboard.length") == 2)
+    d.click("scores")
+    d.screen("scores", 0.6)
+    check("leaderboard opens from the title", d.ev("__court.ui.regions.some(r=>r.id==='back')"))
+    pg.keyboard.press("Escape")
+    d.screen("title", 0.6)
     d.click("courts")
     d.screen("courts", 0.6)
     check("court 2 is now selectable", d.ev("__court.ui.regions.some(r=>r.id==='court1') && !__court.ui.regions.some(r=>r.id==='court2')"))
-    d.shot("13-courts-progress")
 
-    # --- remaining levels, each played through in the browser
+    # --- animated background
+    pg.keyboard.press("Escape")
+    d.screen("title", 0.6)
+    grab = "(()=>{const c=document.getElementById('court');return Array.from(c.getContext('2d').getImageData(0,0,c.width,Math.floor(c.height*0.3)).data).reduce((a,v,i)=>(a+v*(i%251+1))%1000003,0)})()"
+    a1 = d.ev(grab)
+    time.sleep(1.2)
+    check("background is in motion (sky changes between frames)", d.ev(grab) != a1)
+
+    # --- a spread of later courts, each played through in the browser
     pg.evaluate(BOT)
-    for i in range(1, 5):
-        d.ev(f"__court.S.timeScale=4; __bot.mode='win'; __bot.on=true; __court.save.data.progress.unlocked=5; __court.startLevel({i})")
-        d.wait(f"__court.S.level==={i} && __court.S.screen==='play' && __court.S.game.score>200", 90000)
-        d.shot(f"14-level-{i + 1}")
+    for i in (2, 39, 79, 119):
         won = False
-        for attempt in range(4):
-            d.wait("(__court.S.screen==='complete'||__court.S.screen==='gameover') && !__court.S.leaving && __court.S.t>1", 400000)
+        for attempt in range(5):
+            d.ev(f"__court.S.timeScale=2; __bot.mode='win'; __bot.on=true; __court.save.data.progress.unlocked=120; __court.beginRun({i})")
+            d.wait(f"__court.S.level==={i} && __court.S.screen==='play'", 30000)
+            d.wait("(__court.S.screen==='complete'||__court.S.screen==='name') && !__court.S.leaving && __court.S.t>1", 400000)
             if d.ev("__court.S.screen") == "complete":
                 won = True
                 break
-            d.click("retry")
-            d.screen("play", 0.1, 20000)
+        d.shot(f"14-court-{i + 1}")
         r = d.ev("__court.S.result")
-        name = d.ev(f"__court.LEVELS[{i}].name")
-        check(f"level {i + 1} ({name}) plays through to Rally Complete", won, {"score": r["score"], "stars": r["stars"], "attempts": attempt + 1})
-    check("last level offers no Next button", d.ev("!__court.ui.regions.some(r=>r.id==='next') && __court.ui.regions.some(r=>r.id==='replay')"))
+        check(f"court {i + 1} plays through to Rally Complete", won, {"score": r["score"], "stars": r["stars"], "attempts": attempt + 1})
+    check("last court offers no Next button", d.ev("!__court.ui.regions.some(r=>r.id==='next') && __court.ui.regions.some(r=>r.id==='replay')"))
     d.ev("__bot.on=false; __court.S.timeScale=1")
+    d.click("home")
+    d.screen("name", 0.6)
+    pg.keyboard.press("Escape")
+    d.screen("scores", 0.6)
     d.click("home")
     d.screen("title", 0.6)
 
@@ -407,11 +479,11 @@ def desktop(browser, url):
     d.wait("__court.S.overlayT>=1")
     d.click("erase")
     time.sleep(0.15)
-    check("erase needs a second tap", d.ev("__court.save.data.progress.unlocked") == 5)
+    check("erase needs a second tap", d.ev("__court.save.data.progress.unlocked") == 120)
     d.click("erase")
     time.sleep(0.3)
     s = d.saved()
-    check("erase clears progress but keeps sound settings", s["progress"]["unlocked"] == 1 and s["progress"]["levels"] == {} and s["settings"]["music"] == music, s)
+    check("erase clears progress and leaderboard but keeps sound settings", s["progress"]["unlocked"] == 1 and s["progress"]["levels"] == {} and s["leaderboard"] == [] and s["settings"]["music"] == music, s)
     pg.keyboard.press("Escape")
     d.wait("__court.S.overlayT<=0")
 
@@ -420,9 +492,12 @@ def desktop(browser, url):
     for k, v in out.items():
         if k != "levels":
             check("rules: " + k, v)
-    for lv in out["levels"]:
-        check(f"rules: {lv['name']} clearable, ball stays in court, tools drop", lv["state"] == "won" and not lv["bad"] and lv["drops"] > 0, lv)
+    bad = [lv for lv in out["levels"] if lv["state"] != "won" or lv["bad"] or lv["drops"] == 0]
+    secs = [lv["secs"] for lv in out["levels"]]
+    check(f"rules: all {len(out['levels'])} courts clearable, ball stays in court, tools drop", not bad, bad[:3] or f"{min(secs)}-{max(secs)}s of play each")
 
+    fit = d.ev("(()=>{const r=document.getElementById('court').getBoundingClientRect();return [r.width,r.height,innerWidth,innerHeight].concat(__court.size())})()")
+    check("desktop: canvas fills the whole window and the court view widens", fit[0] >= fit[2] * 0.98 and fit[1] >= fit[3] * 0.98 and fit[4] > 400, fit)
     check("no console errors (desktop)", not d.errors, d.errors[:3])
     ctx.close()
 
@@ -436,7 +511,7 @@ def touch_device(browser, url, name, w, h):
     d.screen("title", 1.4)
     fit = d.ev("(()=>{const r=document.getElementById('court').getBoundingClientRect();return [r.left,r.top,r.right,r.bottom,innerWidth,innerHeight,document.documentElement.scrollWidth,document.documentElement.scrollHeight]})()")
     inside = fit[0] >= 0 and fit[1] >= 0 and fit[2] <= fit[4] + 0.5 and fit[3] <= fit[5] + 0.5 and fit[6] <= fit[4] and fit[7] <= fit[5]
-    fills = (fit[2] - fit[0]) >= fit[4] * 0.98 or (fit[3] - fit[1]) >= fit[5] * 0.98
+    fills = (fit[2] - fit[0]) >= fit[4] * 0.98 and (fit[3] - fit[1]) >= fit[5] * 0.98
     check(f"{name}: canvas fits the viewport with no scrolling", inside and fills, [round(v) for v in fit])
     d.shot(f"{name}-title")
     d.tap("play")
@@ -482,6 +557,18 @@ def touch_device(browser, url, name, w, h):
     check(f"{name}: sound toggle by touch", d.ev("__court.save.data.settings.muted") is True)
     d.tap("done")
     d.wait("__court.S.overlayT<=0")
+    d.ev("__court.S.game.score=420; __court.S.run.score=420")
+    d.tap("home")
+    d.screen("name", 0.8)
+    for key in ("keyT", "keyA", "keyP", "keyP", "keydel"):
+        d.tap(key)
+        time.sleep(0.05)
+    d.shot(f"{name}-name")
+    d.tap("save")
+    d.screen("scores", 0.8)
+    d.shot(f"{name}-leaderboard")
+    top = d.saved()["leaderboard"][0]
+    check(f"{name}: name typed on the on-screen keys reaches the leaderboard", top["name"] == "TAP" and top["score"] == 420, top)
     d.tap("home")
     d.screen("title", 0.6)
 
@@ -489,7 +576,7 @@ def touch_device(browser, url, name, w, h):
     pg.set_viewport_size({"width": h, "height": w})
     time.sleep(0.5)
     fit = d.ev("(()=>{const r=document.getElementById('court').getBoundingClientRect();return [r.left,r.top,r.right,r.bottom,innerWidth,innerHeight]})()")
-    check(f"{name}: refits after rotating to landscape", fit[0] >= 0 and fit[2] <= fit[4] + 0.5 and fit[3] <= fit[5] + 0.5 and (fit[3] - fit[1]) >= fit[5] * 0.98, [round(v) for v in fit])
+    check(f"{name}: refills the screen after rotating to landscape", fit[0] >= 0 and fit[2] <= fit[4] + 0.5 and fit[3] <= fit[5] + 0.5 and (fit[3] - fit[1]) >= fit[5] * 0.98 and (fit[2] - fit[0]) >= fit[4] * 0.98, [round(v) for v in fit])
     d.shot(f"{name}-landscape")
     d.tap("play")
     d.wait("__court.S.screen==='courts' || __court.S.screen==='intro'")

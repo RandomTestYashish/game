@@ -21,33 +21,38 @@ export const TOOLS = [
   { id: 'lowgrav', name: 'LOW GRAVITY', desc: ['BALLS AND TOOLS DRIFT', 'DOWN SLOWLY.'] },
 ];
 
+export const MAX_LIVES = 5;
+
 export const TOOL_TIME = { smash: 7, freeze: 8, expand: 14, lowgrav: 10 };
 
 const COLS = 7;
 const CELL = 28;
 const ROW = 20;
-const PADDLE_W = 54;
-const PADDLE_WIDE = 82;
 const MAX_BALLS = 9;
 const WEIGHTS = { shield: 1, multiball: 1.2, smash: 0.9, freeze: 0.9, expand: 1.2, lowgrav: 0.9 };
 
 export class Game {
-  constructor(level, emit = () => {}, rng = Math.random) {
+  // opts carry a run across courts: { lives, score }
+  constructor(level, emit = () => {}, rng = Math.random, opts = {}) {
     this.level = level;
     this.emit = emit;
     this.rng = rng;
     this.t = 0;
     this.moveT = 0;
     this.state = 'serve'; // serve | play | won | over
-    this.lives = 3;
-    this.score = 0;
+    this.lives = opts.lives ?? 3;
+    this.score = opts.score ?? 0;
+    this.startScore = this.score;
+    this.lost = 0;
+    this.padW = level.paddle ?? 54;
+    this.dropRate = level.drop ?? 0.16;
     this.combo = 0;
     this.bonus = 0;
     this.shield = false;
     this.fx = { smash: 0, freeze: 0, expand: 0, lowgrav: 0 };
     this.sinceDrop = 0;
     this.shake = 0;
-    this.paddle = { x: WW / 2, y: WH - 14, w: PADDLE_W, d: 8 };
+    this.paddle = { x: WW / 2, y: WH - 14, w: this.padW, d: 8 };
     this.balls = [];
     this.drops = [];
     this.parts = [];
@@ -62,6 +67,8 @@ export class Game {
   buildBlocks() {
     const { rows, move = [] } = this.level;
     const top = 30 + Math.max(0, 6 - rows.length) * 6;
+    const drift = this.level.drift || 0;
+    const wave = this.level.wave ?? 2;
     rows.forEach((row, r) => {
       const moving = move.includes(r);
       for (let c = 0; c < COLS; c++) {
@@ -74,7 +81,11 @@ export class Game {
           r,
           bx: x,
           x,
+          by: top + r * ROW,
           y: top + r * ROW,
+          bob: 0,
+          drift,
+          wave,
           w: CELL - 2,
           d: ROW - 6,
           hz: BLOCKS[type].hz,
@@ -145,7 +156,7 @@ export class Game {
 
     if (this.state === 'serve' || this.state === 'play') {
       for (const k in this.fx) this.fx[k] = Math.max(0, this.fx[k] - dt);
-      const target = this.fx.expand > 0 ? PADDLE_WIDE : PADDLE_W;
+      const target = this.padW + (this.fx.expand > 0 ? 26 : 0);
       p.w += (target - p.w) * Math.min(1, dt * 10);
       if (Math.abs(target - p.w) < 0.2) p.w = target;
       this.movePaddleTo(p.x + axis * 290 * dt);
@@ -156,7 +167,13 @@ export class Game {
       if (!b.alive) continue;
       b.flash = Math.max(0, b.flash - dt);
       if (b.amp) b.x = b.bx + Math.sin(this.moveT * b.freq + b.phase) * b.amp;
-      if (b.landed) continue;
+      if (b.landed) {
+        // The whole formation breathes toward the player; each block also
+        // floats a little (the float is visual only).
+        if (b.drift) b.y = b.by + (1 - Math.cos(this.moveT * 0.55)) * 0.5 * b.drift;
+        b.bob = (1 + Math.sin(this.t * 2.2 + b.c * 0.9 + b.r * 0.7)) * 0.5 * b.wave;
+        continue;
+      }
       b.delay -= dt;
       if (b.delay > 0) continue;
       b.vz -= 900 * dt;
@@ -252,7 +269,7 @@ export class Game {
       ball.vx = Math.sin(a);
       ball.vy = -Math.cos(a);
       ball.y = p.y - p.d / 2 - ball.r;
-      ball.speed = Math.min(ball.speed * 1.02, this.level.speed * 1.5);
+      ball.speed = Math.min(ball.speed * 1.03, this.level.speed * 1.55);
       ball.vz = 70;
       this.combo = 0;
       this.emit('paddle');
@@ -336,7 +353,7 @@ export class Game {
   maybeDrop(b) {
     this.sinceDrop++;
     if (this.drops.length >= 2) return;
-    if (this.sinceDrop < 6 && this.rng() >= 0.16) return;
+    if (this.sinceDrop < 7 && this.rng() >= this.dropRate) return;
     let total = 0;
     for (const t of TOOLS) total += this.weight(t.id);
     let pick = this.rng() * total;
@@ -407,6 +424,7 @@ export class Game {
 
   loseLife() {
     this.lives--;
+    this.lost++;
     this.combo = 0;
     this.shake = 0.3;
     this.shield = false;
@@ -434,7 +452,7 @@ export class Game {
   }
 
   get stars() {
-    return Math.max(1, Math.min(3, this.lives));
+    return Math.max(1, 3 - this.lost);
   }
 
   // ------------------------------------------------------------- particles

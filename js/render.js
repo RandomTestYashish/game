@@ -2,7 +2,7 @@
 
 import { W, ctx, PAL, rect, disc, ring, rrect, text, serif, serifW, icon } from './gfx.js';
 import { proj, drawBlock, drawBall, drawPaddle, drawShadow, MAT } from './scene.js';
-import { WW, WH, TOOL_TIME } from './game.js';
+import { WW, WH, TOOL_TIME, MAX_LIVES } from './game.js';
 
 export function drawGame(g, time) {
   const frozen = g.fx.freeze > 0;
@@ -14,7 +14,7 @@ export function drawGame(g, time) {
     const a = proj(b.x, b.y + b.d);
     const a2 = proj(b.x + b.w, b.y + b.d);
     ctx.globalAlpha = 0.3 * Math.max(0.25, 1 - b.z / 170);
-    rect(a.x + 1, a.y, a2.x - a.x, 2, '#0a1a0c');
+    rect(a.x + 1, a.y, a2.x - a.x, 2 + Math.round(b.bob * 0.6), '#0a1a0c');
     ctx.globalAlpha = 1;
     items.push({ k: b.y + b.d, b });
   }
@@ -43,7 +43,7 @@ export function drawGame(g, time) {
       const a2 = proj(b.x + b.w, b.y + b.d);
       const f = proj(b.x, b.y);
       const f2 = proj(b.x + b.w, b.y);
-      const lift = b.z * a.s;
+      const lift = (b.z + b.bob) * a.s;
       drawBlock(a.x, a2.x, a.y - lift, f.x, f2.x, f.y - lift, b.hz * a.s, b.hz * f.s, b.type, b.seed, {
         damage: 1 - b.hp / b.max,
         frozen,
@@ -107,8 +107,9 @@ export function drawHUD(g, levelLabel) {
   rrect(x - 1, 4, 110, 26, 5, PAL.ink);
   rrect(x, 5, 108, 24, 4, PAL.panel);
   text('LIVES', x + 9, 8, PAL.white, { sp: 2 });
-  for (let i = 0; i < 3; i++) {
-    const cx = x + 12 + i * 11;
+  const shown = Math.max(3, Math.min(MAX_LIVES, g.lives));
+  for (let i = 0; i < shown; i++) {
+    const cx = x + 11 + i * 8;
     if (i < g.lives) {
       disc(cx, 22, 3, PAL.yellow);
       rect(cx - 1, 20, 1, 1, PAL.yellowHi);

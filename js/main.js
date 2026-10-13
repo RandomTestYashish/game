@@ -1,8 +1,8 @@
 // Boot, screen flow, input and the frame loop.
 
-import { W, H, ctx, PAL, initCanvas, setHeight, setTarget, makeLayer, rect, disc, text, serif, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
+import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, disc, text, serif, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
 import { P, setCam, buildLayers, drawScene, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
-import { Game, TOOLS } from './game.js';
+import { Game, TOOLS, MAX_LIVES } from './game.js';
 import { LEVELS } from './levels.js';
 import { drawGame, drawHUD } from './render.js';
 import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, panel } from './ui.js';
@@ -16,8 +16,10 @@ const save = new Save();
 const audio = new AudioSys(save.data.settings);
 const debug = new URLSearchParams(location.search).has('debug');
 
-const CAM = { loading: 0, title: 0, intro: 0.14, courts: 0.38, tools: 0.5, countdown: 1, play: 1, paused: 1, complete: 0.82, gameover: 0.82 };
-const GAME_SCREENS = new Set(['countdown', 'play', 'paused', 'complete', 'gameover']);
+const CAM = { loading: 0, title: 0, intro: 0.14, courts: 0.38, tools: 0.5, countdown: 1, play: 1, paused: 1, complete: 0.82, name: 0.82, scores: 0.55 };
+const GAME_SCREENS = new Set(['countdown', 'play', 'paused', 'complete', 'name']);
+const PER_PAGE = 20;
+const KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ-';
 const LEAVE = 0.2;
 const BEAT = 0.75; // seconds per countdown number
 
@@ -51,6 +53,12 @@ const S = {
   primary: null,
   back: null,
   timeScale: 1,
+  shift: 0,
+  run: null, // { lives, score, saved } carried from court to court
+  page: 0,
+  name: '',
+  nameTitle: 'RALLY OVER',
+  board: { rank: -1, fromRun: false },
 };
 
 // ---------------------------------------------------------------- flow
@@ -77,6 +85,8 @@ function enter(name) {
     S.beat = 4;
   }
   if (name === 'intro') S.introSeen = true;
+  if (name === 'courts') S.page = Math.floor((Math.min(save.data.progress.unlocked, LEVELS.length) - 1) / PER_PAGE);
+  if (name === 'name') S.name = save.data.lastName;
 }
 
 let lastLand = 0;
@@ -89,25 +99,40 @@ function onGameEvent(type, arg) {
   if (type === 'win' || type === 'over') finish(type === 'win');
 }
 
+// A run starts on any court and carries score and lives forward until the
+// player loses, stops, or clears the last court.
+function beginRun(i) {
+  S.run = { lives: 3, score: 0, saved: false };
+  startLevel(i);
+}
+
 function startLevel(i) {
   S.level = clamp(i, 0, LEVELS.length - 1);
-  S.game = new Game(LEVELS[S.level], onGameEvent);
+  S.game = new Game(LEVELS[S.level], onGameEvent, Math.random, { lives: S.run.lives, score: S.run.score });
   S.ending = 0;
   if (S.screen === 'countdown') enter('countdown');
   else go('countdown');
 }
 
+function nextLevel() {
+  S.run.lives = Math.min(MAX_LIVES, S.game.lives + 1);
+  startLevel(S.level + 1);
+}
+
 function finish(won) {
   const g = S.game;
+  const score = g.score - g.startScore;
   const res = save.recordResult(S.level, LEVELS[S.level].id, LEVELS.length, {
     won,
-    score: g.score,
+    score,
     stars: g.stars,
     blocks: g.total - g.remaining,
   });
+  S.run.score = g.score;
   S.result = {
     won,
-    score: g.score,
+    score,
+    run: g.score,
     bonus: g.bonus,
     stars: won ? g.stars : 0,
     cleared: g.total - g.remaining,
@@ -117,6 +142,28 @@ function finish(won) {
     hasNext: won && S.level + 1 < LEVELS.length,
   };
   S.ending = won ? 1.2 : 0.9;
+}
+
+// The player is done: offer the leaderboard if there is a score to post.
+function endRun(title) {
+  if (S.run && S.game) S.run.score = S.game.score; // a run stopped mid-court still counts
+  if (S.run && S.run.score > 0 && !S.run.saved) {
+    S.nameTitle = title;
+    go('name');
+  } else {
+    go('title');
+  }
+}
+
+function saveScore() {
+  S.run.saved = true;
+  S.board = { rank: save.addScore(S.name, S.run.score, S.level + 1), fromRun: true };
+  go('scores');
+}
+
+function typeKey(ch) {
+  if (ch === 'del') S.name = S.name.slice(0, -1);
+  else if (S.name.length < 8) S.name += ch;
 }
 
 function pause() {
@@ -179,6 +226,11 @@ function update(dt) {
 
   const g = S.game;
   if (g && !GAME_SCREENS.has(S.next || S.screen) && S.gameVis <= 0) S.game = null;
+
+  // Camera truck: follows the paddle in play, idles gently in the menus.
+  const inPlay = g && (S.screen === 'play' || S.screen === 'countdown');
+  const want = inPlay ? (g.paddle.x - 100) * 0.22 : Math.sin(S.time * 0.25) * 7;
+  S.shift += (want - S.shift) * Math.min(1, dt * 3);
   if (!g) return;
 
   const frozen = S.overlay || S.screen === 'paused' || S.next === 'paused';
@@ -205,7 +257,11 @@ function update(dt) {
     S.ending -= dt;
     if (S.ending <= 0) {
       S.ending = 0;
-      go(S.result.won ? 'complete' : 'gameover');
+      if (S.result.won) go('complete');
+      else {
+        S.nameTitle = 'RALLY OVER';
+        go('name');
+      }
     }
   }
 }
@@ -245,7 +301,7 @@ function drawIntroBall(t) {
   const at = (v) => {
     const a = 1 - v;
     return {
-      x: a * a * 178 + 2 * a * v * 30 + v * v * 196,
+      x: W / 2 + a * a * 58 + 2 * a * v * -90 + v * v * 76,
       y: a * a * (H - 12) + 2 * a * v * (P.wb + (H - P.wb) * 0.3) + v * v * (P.wb - 54),
     };
   };
@@ -282,8 +338,12 @@ const SCREENS = {
     rect(W / 2 - 22, top + 58, 44, 1, PAL.cream);
     const y = H - 50 + Math.round((1 - k) * 8);
     pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3 });
-    ghost('courts', 'COURTS', W / 2 - 31, H - 19, 56, 13, () => go('courts'));
-    ghost('sound', 'SOUND', W / 2 + 31, H - 19, 56, 13, openSound);
+    ghost('courts', 'COURTS', W / 2 - 58, H - 19, 54, 13, () => go('courts'));
+    ghost('scores', 'SCORES', W / 2, H - 19, 54, 13, () => {
+      S.board = { rank: -1, fromRun: false };
+      go('scores');
+    });
+    ghost('sound', 'SOUND', W / 2 + 58, H - 19, 54, 13, openSound);
     ctx.globalAlpha = 1;
     S.primary = play;
   },
@@ -291,9 +351,9 @@ const SCREENS = {
   intro(k) {
     ctx.globalAlpha = k;
     const y = Math.round(P.wb * 0.42);
-    serif('ELEVATED', W - 20, y, 15, PAL.cream, { align: 'right', sp: 3, shadow: PAL.ink });
-    serif('RALLY', W - 20, y + 18, 15, PAL.cream, { align: 'right', sp: 3, shadow: PAL.ink });
-    rect(W - 66, y + 36, 30, 1, PAL.cream);
+    serif('ELEVATED', W / 2 + 100, y, 15, PAL.cream, { align: 'right', sp: 3, shadow: PAL.ink });
+    serif('RALLY', W / 2 + 100, y + 18, 15, PAL.cream, { align: 'right', sp: 3, shadow: PAL.ink });
+    rect(W / 2 + 54, y + 36, 30, 1, PAL.cream);
     ctx.globalAlpha = 1;
     drawIntroBall(S.t);
     const skip = () => go('courts');
@@ -303,40 +363,43 @@ const SCREENS = {
   },
 
   courts(k) {
-    const rowH = 27;
-    const h = 46 + LEVELS.length * rowH + 30;
-    const x = 20;
-    const w = W - 40;
+    const w = 212;
+    const h = 250;
+    const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
     const unlocked = save.data.progress.unlocked;
+    const pages = Math.ceil(LEVELS.length / PER_PAGE);
     const back = () => go('title');
+    const turn = (d) => (S.page = clamp(S.page + d, 0, pages - 1));
     panel(k, x, y, w, h, 'dark', () => {
-      serif('COURTS', W / 2 + 2, y + 14, 16, PAL.cream, { align: 'center', sp: 4 });
-      rect(W / 2 - 14, y + 32, 28, 1, PAL.cream);
-      LEVELS.forEach((lv, i) => {
-        const ry = y + 42 + i * rowH;
+      serif('COURTS', W / 2 + 2, y + 13, 16, PAL.cream, { align: 'center', sp: 4 });
+      const first = S.page * PER_PAGE;
+      const last = Math.min(LEVELS.length, first + PER_PAGE);
+      text(first + 1 + ' - ' + last + ' OF ' + LEVELS.length, W / 2, y + 32, PAL.dim, { align: 'center' });
+      for (let i = first; i < last; i++) {
+        const cx = x + 11 + ((i - first) % 4) * 48;
+        const cy = y + 44 + Math.floor((i - first) / 4) * 33;
         const open = i < unlocked;
         const id = 'court' + i;
         const on = open && (ui.hover === id || ui.pressed === id);
-        rect(x + 10, ry, w - 20, rowH - 4, on ? PAL.panelHi : '#0c2016');
-        rect(x + 10, ry + rowH - 5, w - 20, 1, '#06120c');
-        const col = open ? PAL.cream : '#56695a';
-        serif(String(i + 1), x + 17, ry + 5, 15, open ? PAL.yellow : '#56695a');
-        text(lv.name, x + 36, ry + 4, col, { sp: 2 });
-        const rec = save.data.progress.levels[lv.id];
+        rect(cx, cy, 46, 30, on ? PAL.panelHi : '#0c2016');
+        rect(cx, cy + 29, 46, 1, '#06120c');
         if (!open) {
-          icon('lock', x + w - 27, ry + 6, '#56695a');
-          text('LOCKED', x + 36, ry + 14, '#56695a');
-        } else {
-          for (let s = 0; s < 3; s++) icon('star', x + w - 50 + s * 12, ry + 2, rec && s < rec.stars ? PAL.yellow : '#2c4a36');
-          text(rec ? 'BEST ' + rec.best : 'NOT PLAYED', x + 36, ry + 14, PAL.dim);
-          region(id, x + 10, ry, w - 20, rowH - 4, () => {
-            S.level = i;
-            go('tools');
-          });
+          serif(String(i + 1), cx + 23, cy + 5, 13, '#3f5545', { align: 'center' });
+          icon('lock', cx + 18, cy + 17, '#3f5545');
+          continue;
         }
-      });
-      ghost('back', 'BACK', W / 2, y + h - 26, 60, 14, back);
+        const rec = save.data.progress.levels[LEVELS[i].id];
+        serif(String(i + 1), cx + 23, cy + 5, 13, rec ? PAL.cream : PAL.yellow, { align: 'center' });
+        for (let st = 0; st < 3; st++) text('*', cx + 12 + st * 8, cy + 19, rec && st < rec.stars ? PAL.yellow : '#2c4a36');
+        region(id, cx, cy, 46, 30, () => {
+          S.level = i;
+          go('tools');
+        });
+      }
+      if (S.page > 0) ghost('prev', '<', x + 28, y + h - 28, 30, 15, () => turn(-1));
+      if (S.page < pages - 1) ghost('nextpage', '>', x + w - 28, y + h - 28, 30, 15, () => turn(1));
+      ghost('back', 'BACK', W / 2, y + h - 28, 60, 15, back);
     });
     S.back = back;
     S.primary = () => {
@@ -348,9 +411,9 @@ const SCREENS = {
   tools(k) {
     const w = 204;
     const h = 214;
-    const x = (W - w) / 2;
+    const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
-    const begin = () => startLevel(S.level);
+    const begin = () => beginRun(S.level);
     const back = () => go('courts');
     panel(k, x, y, w, h, 'dark', () => {
       serif('TOOLS', W / 2 + 3, y + 14, 16, PAL.cream, { align: 'center', sp: 5 });
@@ -405,16 +468,16 @@ const SCREENS = {
   paused(k) {
     const w = 150;
     const h = 150;
-    const x = (W - w) / 2;
+    const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
     const resume = () => go('play');
     panel(k, x, y, w, h, 'dark', () => {
       serif('PAUSED', W / 2 + 2, y + 15, 16, PAL.cream, { align: 'center', sp: 4 });
       rect(W / 2 - 12, y + 33, 24, 1, PAL.cream);
       pill('resume', 'RESUME', W / 2, y + 46, 104, 19, resume);
-      ghost('restart', 'RESTART', W / 2, y + 76, 104, 15, () => startLevel(S.level));
+      ghost('restart', 'RESTART', W / 2, y + 76, 104, 15, () => beginRun(S.level));
       ghost('sound', 'SOUND', W / 2, y + 97, 104, 15, openSound);
-      ghost('home', 'HOME', W / 2, y + 118, 104, 15, () => go('title'));
+      ghost('home', 'HOME', W / 2, y + 118, 104, 15, () => endRun('RALLY ENDED'));
     });
     S.primary = resume;
     S.back = resume;
@@ -424,11 +487,11 @@ const SCREENS = {
     const r = S.result;
     if (!r) return;
     const w = 184;
-    const h = 176;
-    const x = (W - w) / 2;
+    const h = 188;
+    const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2) - 4;
-    const next = () => startLevel(S.level + 1);
-    const replay = () => startLevel(S.level);
+    const replay = () => beginRun(S.level);
+    const home = () => endRun('WELL PLAYED');
     panel(k, x, y, w, h, 'cream', () => {
       serif('RALLY', W / 2 + 1, y + 14, 22, PAL.ink, { align: 'center', sp: 2 });
       serif('COMPLETE', W / 2 + 1, y + 36, 22, PAL.ink, { align: 'center', sp: 1 });
@@ -439,34 +502,98 @@ const SCREENS = {
       }
       text('SCORE ' + r.score, W / 2, y + 90, PAL.ink, { align: 'center', sp: 2 });
       text(r.newBest ? 'NEW BEST!' : 'BEST ' + r.best, W / 2, y + 101, r.newBest ? '#b3541e' : '#7d7354', { align: 'center' });
+      text('RUN TOTAL ' + r.run + (r.hasNext ? '  +1 BALL' : ''), W / 2, y + 112, '#7d7354', { align: 'center' });
       const xs = r.hasNext ? [-54, 0, 54] : [-30, 30];
-      roundBtn('replay', 'replay', 'REPLAY', W / 2 + xs[0], y + 132, replay);
-      roundBtn('home', 'home', 'HOME', W / 2 + xs[1], y + 132, () => go('title'));
-      if (r.hasNext) roundBtn('next', 'next', 'NEXT', W / 2 + xs[2], y + 132, next);
+      roundBtn('replay', 'replay', 'REPLAY', W / 2 + xs[0], y + 144, replay);
+      roundBtn('home', 'home', 'HOME', W / 2 + xs[1], y + 144, home);
+      if (r.hasNext) roundBtn('next', 'next', 'NEXT', W / 2 + xs[2], y + 144, nextLevel);
     });
-    S.primary = r.hasNext ? next : replay;
-    S.back = () => go('title');
+    S.primary = r.hasNext ? nextLevel : home;
+    S.back = home;
   },
 
-  gameover(k) {
-    const r = S.result;
-    if (!r) return;
-    const w = 184;
-    const h = 160;
-    const x = (W - w) / 2;
-    const y = Math.round((H - h) / 2) - 4;
-    const retry = () => startLevel(S.level);
+  // End of a run: enter a name for the leaderboard.
+  name(k) {
+    const run = S.run;
+    if (!run) return;
+    const scored = run.score > 0;
+    const w = 206;
+    const h = scored ? 200 : 150;
+    const x = Math.round((W - w) / 2);
+    const y = Math.round((H - h) / 2) - 2;
+    const retry = () => beginRun(S.level);
+    const skip = () => {
+      S.board = { rank: -1, fromRun: true };
+      go('scores');
+    };
     panel(k, x, y, w, h, 'cream', () => {
-      serif('RALLY', W / 2 + 1, y + 14, 22, PAL.ink, { align: 'center', sp: 2 });
-      serif('OVER', W / 2 + 1, y + 36, 22, PAL.ink, { align: 'center', sp: 2 });
-      rect(W / 2 - 16, y + 59, 32, 1, PAL.ink);
-      text('SCORE ' + r.score, W / 2, y + 68, PAL.ink, { align: 'center', sp: 2 });
-      text(r.cleared + ' OF ' + r.total + ' BLOCKS CLEARED', W / 2, y + 80, '#7d7354', { align: 'center' });
-      roundBtn('retry', 'replay', 'RETRY', W / 2 - 30, y + 116, retry);
-      roundBtn('home', 'home', 'HOME', W / 2 + 30, y + 116, () => go('title'));
+      serif(S.nameTitle, W / 2 + 1, y + 13, 20, PAL.ink, { align: 'center', sp: 1 });
+      text('SCORE ' + run.score + '   COURT ' + (S.level + 1), W / 2, y + 37, PAL.ink, { align: 'center', sp: 1 });
+      if (!scored) {
+        text('NO POINTS THIS TIME', W / 2, y + 52, '#7d7354', { align: 'center' });
+        roundBtn('retry', 'replay', 'RETRY', W / 2 - 30, y + 96, retry);
+        roundBtn('home', 'home', 'HOME', W / 2 + 30, y + 96, () => go('title'));
+        return;
+      }
+      text('YOUR NAME FOR THE LEADERBOARD', W / 2, y + 49, '#7d7354', { align: 'center' });
+      rect(W / 2 - 58, y + 60, 116, 21, PAL.ink);
+      rect(W / 2 - 57, y + 61, 114, 19, PAL.panel);
+      const shown = S.name + (S.name.length < 8 && Math.floor(S.time * 2.5) % 2 ? '_' : '');
+      text(shown || ' ', W / 2 - 50, y + 64, PAL.yellow, { scale: 2, sp: 1 });
+      [...KEYS, 'del'].forEach((ch, i) => {
+        const kx = x + 12 + (i % 7) * 26;
+        const ky = y + 88 + Math.floor(i / 7) * 19;
+        const id = 'key' + ch;
+        const on = ui.hover === id || ui.pressed === id;
+        rect(kx, ky, 25, 18, PAL.creamLo);
+        rect(kx, ky, 25, 17, on ? PAL.yellow : '#f8f2dd');
+        text(ch === 'del' ? '<' : ch, kx + 13, ky + 5, PAL.ink, { align: 'center' });
+        region(id, kx, ky, 26, 19, () => typeKey(ch));
+      });
+      ghost('skip', 'SKIP', x + 38, y + h - 30, 50, 17, skip);
+      pill('save', 'SAVE SCORE', W / 2 + 28, y + h - 31, 118, 18, saveScore);
     });
-    S.primary = retry;
-    S.back = () => go('title');
+    S.primary = scored ? saveScore : retry;
+    S.back = scored ? skip : () => go('title');
+  },
+
+  scores(k) {
+    const w = 206;
+    const h = 250;
+    const x = Math.round((W - w) / 2);
+    const y = Math.round((H - h) / 2);
+    const board = save.data.leaderboard;
+    const again = () => beginRun(S.level);
+    const home = () => go('title');
+    panel(k, x, y, w, h, 'dark', () => {
+      serif('LEADERBOARD', W / 2 + 1, y + 14, 14, PAL.cream, { align: 'center', sp: 2 });
+      rect(W / 2 - 14, y + 30, 28, 1, PAL.cream);
+      if (!board.length) {
+        text('NO SCORES YET', W / 2, y + 86, PAL.cream, { align: 'center', sp: 2 });
+        text('FINISH A RALLY TO ADD YOURS', W / 2, y + 100, PAL.dim, { align: 'center' });
+      }
+      // Ten rows; if the new score ranks lower, slide the window down to it.
+      const top = clamp(S.board.rank - 9, 0, Math.max(0, board.length - 10));
+      board.slice(top, top + 10).forEach((e, i) => {
+        const ry = y + 38 + i * 16;
+        const mine = top + i === S.board.rank;
+        if (mine) rect(x + 10, ry - 1, w - 20, 15, PAL.panelHi);
+        const c = mine ? PAL.yellow : PAL.cream;
+        text(String(top + i + 1), x + 28, ry + 3, mine ? PAL.yellow : PAL.dim, { align: 'right' });
+        text(e.name, x + 36, ry + 3, c, { sp: 2 });
+        text('C' + e.court, x + 122, ry + 3, PAL.dim);
+        text(String(e.score), x + w - 16, ry + 3, c, { align: 'right' });
+      });
+      text('SAVED ON THIS DEVICE', W / 2, y + 202, '#56695a', { align: 'center' });
+      if (S.board.fromRun) {
+        ghost('home', 'HOME', x + 38, y + h - 31, 50, 17, home);
+        pill('again', 'PLAY AGAIN', W / 2 + 28, y + h - 32, 118, 18, again);
+      } else {
+        ghost('back', 'BACK', W / 2, y + h - 31, 60, 17, home);
+      }
+    });
+    S.primary = S.board.fromRun ? again : home;
+    S.back = home;
   },
 };
 
@@ -478,7 +605,7 @@ function drawSoundOverlay(k) {
   const s = save.data.settings;
   const w = 176;
   const h = 178;
-  const x = (W - w) / 2;
+  const x = Math.round((W - w) / 2);
   const y = Math.round((H - h) / 2);
   panel(easeBack(k), x, y, w, h, 'dark', () => {
     serif('SOUND', W / 2 + 3, y + 14, 16, PAL.cream, { align: 'center', sp: 5 });
@@ -516,7 +643,12 @@ function drawSoundOverlay(k) {
 let gameLayer = null;
 
 function draw() {
-  setCam(S.cam);
+  // The camera never sits quite still: a slow pitch drift, plus a lean toward the ball.
+  const g0 = S.game;
+  const ball = g0 && S.screen === 'play' && g0.balls[0];
+  const pitch = Math.sin(S.time * 0.45) * 0.014 + (ball ? (ball.y - 120) / 240 * 0.02 : 0);
+  S.pitch = (S.pitch || 0) + (pitch - (S.pitch || 0)) * 0.05;
+  setCam(S.cam + S.pitch, S.shift);
   beginUI();
   S.primary = null;
   S.back = null;
@@ -644,6 +776,21 @@ window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   audio.unlock();
+  if (S.screen === 'name' && !S.leaving && !S.overlay && S.run && S.run.score > 0) {
+    // Typing a name: letters are text here, not shortcuts.
+    if (k === 'backspace') typeKey('del');
+    else if (k === 'enter') S.primary && S.primary();
+    else if (k === 'escape') S.back && S.back();
+    else if (k.length === 1 && KEYS.includes(k.toUpperCase())) typeKey(k.toUpperCase());
+    else return;
+    e.preventDefault();
+    return;
+  }
+  if (S.screen === 'courts' && !S.leaving && (k === 'arrowleft' || k === 'arrowright')) {
+    S.page = clamp(S.page + (k === 'arrowleft' ? -1 : 1), 0, Math.ceil(LEVELS.length / PER_PAGE) - 1);
+    e.preventDefault();
+    return;
+  }
   if (k === 'arrowleft' || k === 'a') S.left = true;
   else if (k === 'arrowright' || k === 'd') S.right = true;
   else if (k === ' ' || k === 'enter' || k === 'arrowup') {
@@ -674,18 +821,21 @@ document.addEventListener('visibilitychange', () => {
 
 // ---------------------------------------------------------------- layout
 
+// The canvas fills the window. One game pixel is sized so that at least
+// 240 x 320 of them fit; any spare room becomes more court and garden.
 function resize() {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const h = clamp(Math.round((W * vh) / vw), 320, 520);
-  if (h !== H || !S.ready) {
-    setHeight(h);
+  const unit = Math.min(vw / 240, vh / 320);
+  const w = clamp(Math.floor(vw / unit), 240, 760);
+  const h = clamp(Math.floor(vh / unit), 320, 520);
+  if (w !== W || h !== H || !S.ready) {
+    setSize(w, h);
     buildLayers();
   }
-  let scale = Math.min(vw / W, vh / h);
-  if (scale >= 2 && Math.floor(scale) / scale > 0.9) scale = Math.floor(scale); // crisp whole pixels on big screens
-  canvas.style.width = Math.floor(W * scale) + 'px';
-  canvas.style.height = Math.floor(h * scale) + 'px';
+  const scale = Math.min(vw / w, vh / h);
+  canvas.style.width = Math.round(w * scale) + 'px';
+  canvas.style.height = Math.round(h * scale) + 'px';
 }
 window.addEventListener('resize', resize);
 
@@ -709,6 +859,6 @@ async function boot() {
   S.ready = true;
 }
 
-if (debug) window.__court = { S, save, audio, ui, LEVELS, go, startLevel, proj };
+if (debug) window.__court = { S, save, audio, ui, LEVELS, go, beginRun, proj, size: () => [W, H] };
 
 boot();

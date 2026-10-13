@@ -30,9 +30,6 @@ canvas {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
-  outline: 1px solid #efe6c8;
-  outline-offset: 0;
-  box-shadow: 0 0 0 6px #0c1f16, 0 12px 60px rgba(0, 0, 0, 0.55);
 }
 
 #fallback,

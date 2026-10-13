@@ -3,7 +3,8 @@
 // LocalStore without touching the game. See README "Database upgrade path".
 
 const KEY = 'the-court.save';
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
+export const BOARD_SIZE = 20;
 
 export function defaultSave() {
   return {
@@ -12,7 +13,17 @@ export function defaultSave() {
     settings: { music: 0.6, sfx: 0.8, muted: false },
     progress: { unlocked: 1, levels: {} }, // levels[id] = { best, stars }
     stats: { plays: 0, wins: 0, blocks: 0 },
+    leaderboard: [], // { name, score, court, at } best first
+    lastName: '',
   };
+}
+
+export function cleanName(v) {
+  return String(v ?? '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9 .-]/g, '')
+    .trim()
+    .slice(0, 8);
 }
 
 // Bring any older or partial save up to the current shape.
@@ -32,6 +43,19 @@ export function migrate(raw) {
   }
   const st = raw.stats || {};
   for (const k of Object.keys(d.stats)) d.stats[k] = Math.floor(num(st[k], 0, 0, 1e12));
+  // v1 saves have no leaderboard; they simply start with an empty one.
+  for (const e of Array.isArray(raw.leaderboard) ? raw.leaderboard : []) {
+    if (!e || typeof e !== 'object') continue;
+    d.leaderboard.push({
+      name: cleanName(e.name) || 'PLAYER',
+      score: Math.floor(num(e.score, 0, 0, 1e9)),
+      court: Math.floor(num(e.court, 1, 1, 9999)),
+      at: num(e.at, 0, 0, Number.MAX_SAFE_INTEGER),
+    });
+  }
+  d.leaderboard.sort((a, b) => b.score - a.score || a.at - b.at);
+  d.leaderboard.length = Math.min(d.leaderboard.length, BOARD_SIZE);
+  d.lastName = cleanName(raw.lastName);
   d.updatedAt = num(raw.updatedAt, 0, 0, Number.MAX_SAFE_INTEGER);
   return d;
 }
@@ -101,6 +125,19 @@ export class Save {
     }
     this.commit();
     return { newBest, best: (progress.levels[levelId] || prev).best };
+  }
+
+  // Adds a finished run to the leaderboard. Returns its row index, or -1 if
+  // it did not make the board.
+  addScore(name, score, court) {
+    const entry = { name: cleanName(name) || 'PLAYER', score, court, at: Date.now() };
+    const board = this.data.leaderboard;
+    board.push(entry);
+    board.sort((a, b) => b.score - a.score || a.at - b.at);
+    board.length = Math.min(board.length, BOARD_SIZE);
+    this.data.lastName = entry.name;
+    this.commit();
+    return board.indexOf(entry);
   }
 
   async erase() {

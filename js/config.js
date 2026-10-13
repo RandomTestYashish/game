@@ -13,9 +13,9 @@
 // NEVER put a secret key here: nothing starting "sb_secret_", and not "service_role".
 
 const DEFAULTS = {
-  supabaseUrl: '',
-  supabaseAnonKey: '',
-  table: 'scores',
+  supabaseUrl: 'https://cbbdhnzbqocckyyymszc.supabase.co',
+  supabaseAnonKey: 'sb_publishable_-i24A5KT1-sMIuI8_f38mA_V3eYeQSm',
+  table: 'thecourt',
 };
 
 // window.COURT_CONFIG, if a page sets it before the game loads, wins (used by the tests).

@@ -9,7 +9,7 @@
 # Run it with neither variable set to switch the online board off again.
 set -e
 cd "$(dirname "$0")/.."
-case "$SUPABASE_ANON_KEY" in *service_role*) echo "Refusing: that looks like a service_role key." >&2; exit 1;; esac
+case "$SUPABASE_ANON_KEY" in *service_role*|sb_secret_*) echo "Refusing: that is a secret key. Use the publishable (anon) key." >&2; exit 1;; esac
 python3 - "$SUPABASE_URL" "$SUPABASE_ANON_KEY" <<'PY'
 import json, re, sys
 url, key = sys.argv[1], sys.argv[2]

@@ -9,7 +9,8 @@
 //
 // These two values are safe to publish: every visitor's browser receives them
 // anyway. What protects the data is the table's Row Level Security policy.
-// NEVER put the "service_role" key here.
+// The key to use starts with "sb_publishable_" (or is the older "anon" key).
+// NEVER put a secret key here: nothing starting "sb_secret_", and not "service_role".
 
 const DEFAULTS = {
   supabaseUrl: '',
@@ -20,4 +21,5 @@ const DEFAULTS = {
 // window.COURT_CONFIG, if a page sets it before the game loads, wins (used by the tests).
 export const CONFIG = { ...DEFAULTS, ...(globalThis.COURT_CONFIG || {}) };
 
-export const onlineEnabled = () => /^https?:\/\//.test(CONFIG.supabaseUrl) && CONFIG.supabaseAnonKey.length > 0;
+// A secret key pasted here by mistake keeps the online board off rather than shipping it to every visitor.
+export const onlineEnabled = () => /^https?:\/\//.test(CONFIG.supabaseUrl) && CONFIG.supabaseAnonKey.length > 0 && !CONFIG.supabaseAnonKey.startsWith('sb_secret_');

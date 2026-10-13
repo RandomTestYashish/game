@@ -11,7 +11,7 @@ const TIMEOUT_MS = 6000;
 export async function fetchTopScores(limit = BOARD_SIZE) {
   if (!onlineEnabled()) return { ok: false, error: 'not-configured' };
   const base = CONFIG.supabaseUrl.replace(/\/+$/, '');
-  const url = `${base}/rest/v1/${encodeURIComponent(CONFIG.table)}?select=name,score,court,created_at&order=score.desc,created_at.asc&limit=${limit}`;
+  const url = `${base}/rest/v1/${encodeURIComponent(CONFIG.table)}?select=name,score,court&order=score.desc&limit=${limit}`;
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
   try {

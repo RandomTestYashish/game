@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#0c1f16" />
+    <meta name="description" content="The Court - a 2.5D pixel-art block-breaking rally in a garden at dusk." />
+    <title>The Court</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230c1f16'/%3E%3Ccircle cx='8' cy='8' r='5' fill='%23d8f04a'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <main>
+      <canvas id="court" role="img" aria-label="The Court - block-breaking game. Arrow keys move the paddle, Space serves, P pauses, M mutes."></canvas>
+    </main>
+    <noscript>The Court needs JavaScript to run.</noscript>
+    <p id="fallback" hidden>
+      The Court could not start. Browsers block game scripts on pages opened straight from a file, so serve this folder
+      instead: run <code>python3 -m http.server 8000</code> here and open <code>http://localhost:8000</code>.
+    </p>
+    <script>
+      // A module that fails to load (e.g. opened from file://) leaves the canvas blank; say why.
+      setTimeout(function () {
+        var c = document.getElementById('court');
+        if (!c.dataset.ready) document.getElementById('fallback').hidden = false;
+      }, 1500);
+    </script>
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

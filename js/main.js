@@ -432,26 +432,53 @@ const SCREENS = {
     const wb = P.wb;
     const top = Math.max(Math.round(wb * 0.16), Math.min(Math.round(H * 0.24), wb - 176)) - Math.round((1 - k) * 10);
     ctx.globalAlpha = k;
-    serif('THE', W / 2 + 3, top, 15, PAL.cream, { align: 'center', sp: 5, shadow: PAL.ink });
-    serif('COURT', W / 2 + 2, top + 20, 40, PAL.cream, { align: 'center', sp: 3, shadow: PAL.ink });
-    // A thin glint crosses the letters every few seconds: a stepped diagonal
-    // band, clipped to whole pixels, redrawing the glyphs a shade brighter.
-    const sweep = (S.time % 5) / 1.3;
-    if (sweep < 1) {
+    // Title idle loop, every 4.5s: a wave lifts the letters one after another,
+    // then a glint sweeps across them and along the underline.
+    const cyc = S.time % 4.5;
+    const words = [
+      { str: 'THE', x: W / 2 + 3, y: top, size: 15, sp: 5, lift: 1 },
+      { str: 'COURT', x: W / 2 + 2, y: top + 20, size: 40, sp: 3, lift: 3 },
+    ];
+    const drawTitle = (color, shadow) => {
+      let n = 0;
+      for (const wd of words) {
+        let x = Math.round(wd.x - serifW(wd.str, wd.size, wd.sp) / 2);
+        for (const ch of wd.str) {
+          const ph = (cyc - n * 0.11) / 0.45; // each letter starts a beat after the last
+          const up = ph > 0 && ph < 1 ? Math.round(Math.sin(ph * Math.PI) * wd.lift) : 0;
+          serif(ch, x, wd.y - up, wd.size, color, { shadow });
+          x += serifW(ch, wd.size) + wd.sp;
+          n++;
+        }
+      }
+    };
+    drawTitle(PAL.cream, PAL.ink);
+    rect(W / 2 - 22, top + 58, 44, 1, PAL.cream);
+    const sweep = (cyc - 1.5) / 1.2;
+    if (sweep > 0 && sweep < 1) {
       const tw = serifW('COURT', 40, 3);
-      const bx = W / 2 + 2 - tw / 2 - 16 + sweep * (tw + 32);
+      const bx = W / 2 + 2 - tw / 2 - 20 + sweep * (tw + 40);
       ctx.save();
       ctx.beginPath();
-      for (let r = 0; r < 34; r++) {
+      for (let r = 0; r < 60; r++) {
         const rx = Math.round(bx - r * 0.5);
-        ctx.rect(rx, top + 17 + r, 3, 1);
-        if (r & 1) ctx.rect(rx + 4, top + 17 + r, 1, 1);
+        ctx.rect(rx, top - 6 + r, 6, 1);
+        if (r & 1) ctx.rect(rx + 8, top - 6 + r, 2, 1);
       }
       ctx.clip();
-      serif('COURT', W / 2 + 2, top + 20, 40, '#ffffff', { align: 'center', sp: 3 });
+      drawTitle('#ffffff', null);
       ctx.restore();
+      rect(W / 2 - 22 + Math.round(sweep * 40), top + 58, 4, 1, '#ffffff');
     }
-    rect(W / 2 - 22, top + 58, 44, 1, PAL.cream);
+    // A four-point sparkle pops on the last letter as the glint leaves.
+    const sp = (cyc - 2.6) / 0.5;
+    if (sp > 0 && sp < 1) {
+      const sx = Math.round(W / 2 + 2 + serifW('COURT', 40, 3) / 2) - 3;
+      const sy = top + 22;
+      const arm = sp < 0.5 ? 2 : 1;
+      rect(sx - arm, sy, arm * 2 + 1, 1, '#ffffff');
+      rect(sx, sy - arm, 1, arm * 2 + 1, '#ffffff');
+    }
     const y = wb + 46 + Math.round(H * 0.04) + Math.round((1 - k) * 8);
     pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3, pulse: S.time });
     ctx.globalAlpha = 1;

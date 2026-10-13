@@ -202,6 +202,52 @@ export function buildLayers() {
   canopy(LW - M + 4, 26, 24, 80);
   L.fore = fore.canvas;
 
+  // Landing meadow: a few cypress at the edges and plain grass with tufts.
+  const edge = makeLayer(LW, 72);
+  setTarget(edge);
+  const tree = (x, h, w) => {
+    for (let i = 0; i < h; i++) {
+      const t = i / h;
+      const half = Math.max(0, Math.round(w * Math.min(1, Math.pow(t * 1.9, 0.75)) * (t > 0.86 ? 1 - (t - 0.86) * 2 : 1)));
+      rect(x - half, 72 - h + i, half * 2 + 1, 1, '#123a25');
+      if (half > 1 && rnd() < 0.5) rect(x + half - 1, 72 - h + i, 1, 1, '#1f5a34');
+    }
+  };
+  for (const [dx, h, w] of [[14, 44, 5], [32, 26, 4], [44, 16, 3]]) {
+    tree(M + dx, h, w);
+    tree(M + W - dx, h - 2, w);
+  }
+  for (let i = 0; i < 10; i++) {
+    const side = i & 1;
+    const x = side ? M + W - 6 - rnd() * 56 : M + 6 + rnd() * 56;
+    disc(x, 70, 3 + rnd() * 3, '#164428');
+  }
+  L.edgeTrees = edge.canvas;
+
+  const mh = H - Math.round(H * 0.56);
+  const meadow = makeLayer(W, mh);
+  setTarget(meadow);
+  const GRASS = ['#2a6a2c', '#256128', '#205724', '#1b4d20'];
+  for (let y = 0; y < mh; y++) {
+    const f = (y / mh) * (GRASS.length - 1);
+    const i = Math.min(GRASS.length - 2, Math.floor(f));
+    const frac = Math.max(0, Math.min(1, (f - i - 0.3) / 0.4));
+    for (let x = 0; x < W; x++) {
+      meadow.fillStyle = bayer(x, y) < frac ? GRASS[i + 1] : GRASS[i];
+      meadow.fillRect(x, y, 1, 1);
+    }
+  }
+  rect(0, 0, W, 1, '#1b4d20');
+  for (let i = 0; i < Math.round((W * mh) / 900); i++) {
+    const x = 4 + rnd() * (W - 8);
+    const y = 8 + rnd() * (mh - 12);
+    rect(x, y, 1, 1, '#3f8a3a');
+    rect(x - 1, y - 1, 1, 1, '#3f8a3a');
+    rect(x + 1, y - 1, 1, 1, '#357a33');
+    if (rnd() < 0.5) rect(x + 2, y, 1, 1, '#357a33');
+  }
+  L.meadow = meadow.canvas;
+
   setTarget(null);
 
   speckles = [];
@@ -227,16 +273,9 @@ const COURT_LINES = [
 
 const wrap = (v, n) => ((v % n) + n) % n;
 
-export function drawScene(time) {
-  const cam = P.cam;
-  const wb = P.wb;
-  const sFar = P.kx / P.dFar;
-  // How far each depth slides as the camera trucks sideways.
-  const wallS = Math.round(P.shift * (P.sRef - sFar));
-  const treeS = Math.round(P.shift * (P.sRef - sFar * 0.6));
-  const hillS = Math.round(P.shift * (P.sRef - sFar * 0.3));
-
-  const skyY = Math.round(-cam * 12);
+// Sky, stars, drifting clouds and the occasional flock. ref is the horizon
+// height the flock keeps clear of.
+function drawSky(time, skyY, ref) {
   ctx.drawImage(L.sky, 0, skyY);
   for (const s of stars) {
     const tw = Math.sin(time * s.f + s.p);
@@ -247,19 +286,54 @@ export function drawScene(time) {
   const cx0 = -wrap(time * 2.6 - P.shift * P.sRef, cw);
   ctx.drawImage(L.clouds, Math.round(cx0), skyY);
   ctx.drawImage(L.clouds, Math.round(cx0) + cw, skyY);
-
-  // A small flock crossing the sky now and then.
   const bt = wrap(time, 23);
   if (bt < 14) {
     const flap = Math.floor(time * 5) & 1;
     for (let i = 0; i < 4; i++) {
       const bx = -20 + (bt / 14) * (W + 60) - i * 9 - (i & 1) * 3;
-      const by = wb * 0.22 + Math.sin(time * 0.9 + i) * 3 + i * 4 + skyY;
+      const by = ref * 0.22 + Math.sin(time * 0.9 + i) * 3 + i * 4 + skyY;
       rect(bx, by, 1, 1, '#2a1f33');
       rect(bx - 1, by - (flap ? 1 : -1), 1, 1, '#2a1f33');
       rect(bx + 1, by - (flap ? 1 : -1), 1, 1, '#2a1f33');
     }
   }
+}
+
+// ---------------------------------------------------------------- landing meadow
+// The first screen: an open meadow at dusk, with no court markings yet.
+
+export const meadowHorizon = () => Math.round(H * 0.56);
+
+export function drawMeadow(time) {
+  const hz = meadowHorizon();
+  const far = Math.round(P.shift * 0.9);
+  drawSky(time, 0, hz);
+  ctx.drawImage(L.hills, -M + far, hz - 34);
+  ctx.drawImage(L.edgeTrees, -M + Math.round(P.shift * 0.6), hz - 66);
+  ctx.drawImage(L.meadow, 0, hz);
+  for (const f of flies) {
+    const glow = Math.sin(time * f.f * 1.7 + f.p);
+    if (glow < 0) continue;
+    const x = wrap(f.x + Math.sin(time * 0.4 * f.f + f.p) * 16, W);
+    const y = hz - 14 + f.y * 40 + Math.cos(time * 0.6 * f.f + f.p) * 5;
+    ctx.globalAlpha = 0.25 * glow;
+    rect(x - 1, y - 1, 3, 3, '#fff3a0');
+    ctx.globalAlpha = glow;
+    rect(x, y, 1, 1, '#fffbd0');
+    ctx.globalAlpha = 1;
+  }
+}
+
+export function drawScene(time) {
+  const cam = P.cam;
+  const wb = P.wb;
+  const sFar = P.kx / P.dFar;
+  // How far each depth slides as the camera trucks sideways.
+  const wallS = Math.round(P.shift * (P.sRef - sFar));
+  const treeS = Math.round(P.shift * (P.sRef - sFar * 0.6));
+  const hillS = Math.round(P.shift * (P.sRef - sFar * 0.3));
+
+  drawSky(time, Math.round(-cam * 12), wb);
 
   const wallTop = wb - WALL_H;
   ctx.drawImage(L.hills, -M + hillS, Math.round(wallTop - 40 - 30 + cam * 16));

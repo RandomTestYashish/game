@@ -123,7 +123,7 @@ export function panel(k, x, y, w, h, style, draw) {
   const wasLive = ui.live;
   if (!full) {
     if (k <= 0.01) return;
-    if (!off || off.canvas.height !== H) off = makeLayer(W, H);
+    if (!off || off.canvas.height !== H || off.canvas.width !== W) off = makeLayer(W, H);
     off.clearRect(0, 0, W, H);
     setTarget(off);
     ui.live = false;

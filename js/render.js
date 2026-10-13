@@ -2,7 +2,7 @@
 
 import { W, ctx, PAL, rect, disc, ring, rrect, text, serif, serifW, icon } from './gfx.js';
 import { proj, drawBlock, drawBall, drawPaddle, drawShadow, MAT } from './scene.js';
-import { WW, WH, TOOL_TIME, MAX_LIVES } from './game.js';
+import { WW, WH, TOOL_TIME, START_LIVES } from './game.js';
 
 export function drawGame(g, time) {
   const frozen = g.fx.freeze > 0;
@@ -107,8 +107,7 @@ export function drawHUD(g, levelLabel) {
   rrect(x - 1, 4, 110, 26, 5, PAL.ink);
   rrect(x, 5, 108, 24, 4, PAL.panel);
   text('LIVES', x + 9, 8, PAL.white, { sp: 2 });
-  const shown = Math.max(3, Math.min(MAX_LIVES, g.lives));
-  for (let i = 0; i < shown; i++) {
+  for (let i = 0; i < START_LIVES; i++) {
     const cx = x + 11 + i * 8;
     if (i < g.lives) {
       disc(cx, 22, 3, PAL.yellow);

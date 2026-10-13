@@ -21,7 +21,7 @@ export const TOOLS = [
   { id: 'lowgrav', name: 'LOW GRAVITY', desc: ['BALLS AND TOOLS DRIFT', 'DOWN SLOWLY.'] },
 ];
 
-export const MAX_LIVES = 5;
+export const START_LIVES = 3; // a run's lives; a lost life never comes back
 
 export const TOOL_TIME = { smash: 7, freeze: 8, expand: 14, lowgrav: 10 };
 
@@ -40,7 +40,7 @@ export class Game {
     this.t = 0;
     this.moveT = 0;
     this.state = 'serve'; // serve | play | won | over
-    this.lives = opts.lives ?? 3;
+    this.lives = opts.lives ?? START_LIVES;
     this.score = opts.score ?? 0;
     this.startScore = this.score;
     this.lost = 0;

@@ -29,7 +29,7 @@ The game pauses itself when the tab or window loses focus.
 ## How it plays
 
 - Clear every block to finish a court. Stars are three minus the balls you lost on it.
-- A run starts on any unlocked court with three balls. Next carries your score forward and adds a ball (five at most). The run ends when you lose your last ball or go Home, and its total goes on the leaderboard under the name you enter.
+- A run starts on any unlocked court with three lives. Next carries your score and your remaining lives forward: a lost life never comes back, and nothing is refilled between courts. The run ends when you lose your last life or go Home, and its total goes on the leaderboard under the name you enter. Replay, Retry and Restart begin a new run: three lives again, score back to 0.
 - There are 120 courts: five hand-made, the rest generated from a fixed recipe so they are the same on every device. Each one is faster than the last, the paddle shrinks, tools get rarer, and slate gets more common.
 - Terracotta and limestone break in one hit, hedge in two, slate in three. Some rows slide sideways, and on many courts the whole formation advances toward you and back.
 - The ball speeds up 3% on every paddle hit, up to 1.55 times the court's speed.

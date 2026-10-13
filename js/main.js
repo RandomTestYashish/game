@@ -2,7 +2,7 @@
 
 import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, disc, text, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
 import { P, setCam, buildLayers, drawScene, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
-import { Game, TOOLS, MAX_LIVES } from './game.js';
+import { Game, TOOLS, START_LIVES } from './game.js';
 import { LEVELS } from './levels.js';
 import { drawGame, drawHUD } from './render.js';
 import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, panel } from './ui.js';
@@ -99,10 +99,11 @@ function onGameEvent(type, arg) {
   if (type === 'win' || type === 'over') finish(type === 'win');
 }
 
-// A run starts on any court and carries score and lives forward until the
-// player loses, stops, or clears the last court.
+// A run starts on any court with START_LIVES lives and carries score and lives
+// forward until the player loses, stops, or clears the last court. Lives are
+// only ever reset by starting a new run, which also resets the score to 0.
 function beginRun(i) {
-  S.run = { lives: 3, score: 0, saved: false };
+  S.run = { lives: START_LIVES, score: 0, saved: false };
   startLevel(i);
 }
 
@@ -115,7 +116,7 @@ function startLevel(i) {
 }
 
 function nextLevel() {
-  S.run.lives = Math.min(MAX_LIVES, S.game.lives + 1);
+  S.run.lives = S.game.lives; // lives carry over as they are: nothing is refilled between courts
   startLevel(S.level + 1);
 }
 
@@ -133,6 +134,7 @@ function finish(won) {
     won,
     score,
     run: g.score,
+    lives: g.lives,
     bonus: g.bonus,
     stars: won ? g.stars : 0,
     cleared: g.total - g.remaining,
@@ -519,7 +521,7 @@ const SCREENS = {
       }
       text('SCORE ' + r.score, W / 2, y + 90, PAL.ink, { align: 'center', sp: 2 });
       text(r.newBest ? 'NEW BEST!' : 'BEST ' + r.best, W / 2, y + 101, r.newBest ? '#b3541e' : '#7d7354', { align: 'center' });
-      text('RUN TOTAL ' + r.run + (r.hasNext ? '  +1 BALL' : ''), W / 2, y + 112, '#7d7354', { align: 'center' });
+      text('RUN TOTAL ' + r.run + '   LIVES LEFT ' + r.lives, W / 2, y + 112, '#7d7354', { align: 'center' });
       const xs = r.hasNext ? [-54, 0, 54] : [-30, 30];
       roundBtn('replay', 'replay', 'REPLAY', W / 2 + xs[0], y + 144, replay);
       roundBtn('home', 'home', 'HOME', W / 2 + xs[1], y + 144, home);

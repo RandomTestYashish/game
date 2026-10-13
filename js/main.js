@@ -1,13 +1,16 @@
 // Boot, screen flow, input and the frame loop.
 
-import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, disc, text, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
+import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, text, textW, wrap, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
 import { P, setCam, buildLayers, drawScene, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
 import { Game, TOOLS, START_LIVES } from './game.js';
+import { sections } from './rules.js';
 import { LEVELS } from './levels.js';
 import { drawGame, drawHUD } from './render.js';
 import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, panel } from './ui.js';
 import { AudioSys } from './audio.js';
 import { Save } from './save.js';
+import { onlineEnabled } from './config.js';
+import { fetchTopScores } from './remote.js';
 
 const canvas = document.getElementById('court');
 initCanvas(canvas);
@@ -38,7 +41,11 @@ const S = {
   game: null,
   gameVis: 0,
   titleVis: 0,
-  overlay: false,
+  landing: 1, // 1 on the first screen (no net or canopy yet), easing to 0 after Play
+  overlay: false, // false | 'sound' | 'rules'
+  overlayKind: 'sound',
+  rulesTab: 0,
+  rulesFits: true,
   overlayT: 0,
   tool: 0,
   count: 0,
@@ -59,6 +66,9 @@ const S = {
   name: '',
   nameTitle: 'RALLY OVER',
   board: { rank: -1, fromRun: false },
+  boardTab: 'local', // 'local' | 'online' (online only when js/config.js is filled in)
+  online: { state: 'idle', rows: [], error: '', at: -99 },
+  coach: null, // first-time guided rally: { step, t, moved, lastX, toolSeen }
 };
 
 // ---------------------------------------------------------------- flow
@@ -87,6 +97,11 @@ function enter(name) {
   if (name === 'intro') S.introSeen = true;
   if (name === 'courts') S.page = Math.floor((Math.min(save.data.progress.unlocked, LEVELS.length) - 1) / PER_PAGE);
   if (name === 'name') S.name = save.data.lastName;
+  if (name === 'scores') {
+    // After a run, show the device board (that is where the new score went).
+    S.boardTab = onlineEnabled() && !S.board.fromRun ? 'online' : 'local';
+    if (S.boardTab === 'online') loadOnline();
+  }
 }
 
 let lastLand = 0;
@@ -96,6 +111,7 @@ function onGameEvent(type, arg) {
     lastLand = S.time;
   }
   audio.sfx(type, arg);
+  if (S.coach) coachEvent(type);
   if (type === 'win' || type === 'over') finish(type === 'win');
 }
 
@@ -103,13 +119,63 @@ function onGameEvent(type, arg) {
 // forward until the player loses, stops, or clears the last court. Lives are
 // only ever reset by starting a new run, which also resets the score to 0.
 function beginRun(i) {
+  if (S.coach) return firstRally(); // restarting mid-tutorial restarts the tutorial
   S.run = { lives: START_LIVES, score: 0, saved: false };
   startLevel(i);
 }
 
-function startLevel(i) {
+// ---- first-time journey ---------------------------------------------------
+// A new player skips the court grid and tools briefing and goes straight into
+// a gentler court 1 with a few hints. Everything else is the normal game.
+
+function afterIntro() {
+  if (save.data.onboarded) go('courts');
+  else firstRally();
+}
+
+function firstRally() {
+  S.coach = { step: 'move', t: 0, moved: 0, lastX: null, toolSeen: false };
+  S.run = { lives: START_LIVES, score: 0, saved: false };
+  startLevel(0, { ...LEVELS[0], speed: Math.round(LEVELS[0].speed * 0.8) }, { firstTool: 'expand' });
+}
+
+function endCoach() {
+  S.coach = null;
+  if (!save.data.onboarded) {
+    save.data.onboarded = true;
+    save.commit();
+  }
+}
+
+function coachEvent(type) {
+  const c = S.coach;
+  const to = (step) => {
+    c.step = step;
+    c.t = 0;
+  };
+  if (type === 'serve') to(c.step === 'lost' ? 'idle' : c.step === 'move' || c.step === 'serve' ? 'break' : c.step);
+  else if (type === 'drop' && !c.toolSeen) {
+    c.toolSeen = true;
+    to('tool');
+  } else if (type === 'power' && c.step === 'tool') to('caught');
+  else if (type === 'lost') to('lost');
+}
+
+function coachText() {
+  const serve = S.touch ? 'TAP TO SERVE' : 'CLICK OR PRESS SPACE TO SERVE';
+  return {
+    move: S.touch ? 'DRAG ANYWHERE TO MOVE' : 'MOVE THE MOUSE OR USE ARROW KEYS',
+    serve: 'NOW ' + serve,
+    break: 'KEEP THE BALL UP. CLEAR EVERY BLOCK.',
+    tool: 'A TOOL IS FALLING. CATCH IT!',
+    caught: 'WIDER PADDLE FOR A WHILE',
+    lost: 'BALL LOST. ' + serve,
+  }[S.coach.step];
+}
+
+function startLevel(i, level, extra) {
   S.level = clamp(i, 0, LEVELS.length - 1);
-  S.game = new Game(LEVELS[S.level], onGameEvent, Math.random, { lives: S.run.lives, score: S.run.score });
+  S.game = new Game(level || LEVELS[S.level], onGameEvent, Math.random, { lives: S.run.lives, score: S.run.score, ...extra });
   S.ending = 0;
   if (S.screen === 'countdown') enter('countdown');
   else go('countdown');
@@ -130,6 +196,7 @@ function finish(won) {
     blocks: g.total - g.remaining,
   });
   S.run.score = g.score;
+  if (S.coach) endCoach(); // the first rally is over, win or lose
   S.result = {
     won,
     score,
@@ -155,12 +222,29 @@ function endRun(title) {
   } else {
     go('title');
   }
+  S.coach = null; // leaving mid-tutorial: it will be offered again next time
 }
 
 function saveScore() {
   S.run.saved = true;
   S.board = { rank: save.addScore(S.name, S.run.score, S.level + 1), fromRun: true };
   go('scores');
+}
+
+// Read the shared leaderboard. Results are reused for 30 seconds.
+async function loadOnline(force) {
+  const o = S.online;
+  if (o.state === 'loading' || (!force && o.state === 'ok' && S.time - o.at < 30)) return;
+  o.state = 'loading';
+  const res = await fetchTopScores();
+  o.at = S.time;
+  if (res.ok) Object.assign(o, { state: 'ok', rows: res.rows, error: '' });
+  else Object.assign(o, { state: 'error', rows: [], error: res.error });
+}
+
+function showBoard(tab) {
+  S.boardTab = tab;
+  if (tab === 'online') loadOnline();
 }
 
 function typeKey(ch) {
@@ -174,12 +258,24 @@ function pause() {
 
 function play() {
   if (!S.introSeen) go('intro');
-  else go('courts');
+  else afterIntro();
 }
 
 function openSound() {
-  S.overlay = true;
+  S.overlay = S.overlayKind = 'sound';
   S.eraseArmed = 0;
+}
+
+function openRules() {
+  S.overlay = S.overlayKind = 'rules';
+}
+
+function closeRules() {
+  S.overlay = false;
+}
+
+function turnRules(d) {
+  S.rulesTab = (S.rulesTab + d + sections().length) % sections().length;
 }
 
 function closeSound() {
@@ -220,11 +316,12 @@ function update(dt) {
   const step = (v, on, rate) => clamp(v + (on ? dt : -dt) * rate, 0, 1);
   S.overlayT = step(S.overlayT, S.overlay, 4);
   S.gameVis = step(S.gameVis, GAME_SCREENS.has(S.screen), 4);
+  S.landing = step(S.landing, (S.next || S.screen) === 'title' || S.screen === 'loading', 1.6);
   S.titleVis = step(S.titleVis, S.screen === 'title' && !S.leaving, S.screen === 'title' ? 1.5 : 3.5);
   if (S.eraseArmed > 0) S.eraseArmed -= dt;
 
   if (S.screen === 'loading' && S.ready && S.t > 1.5) go('title');
-  if (S.screen === 'intro' && S.t > 2.6) go('courts');
+  if (S.screen === 'intro' && S.t > 2.6 && !S.leaving) afterIntro();
 
   const g = S.game;
   if (g && !GAME_SCREENS.has(S.next || S.screen) && S.gameVis <= 0) S.game = null;
@@ -251,8 +348,18 @@ function update(dt) {
       S.screen = 'play';
       S.t = 0;
       audio.sfx('go');
-      g.launch();
+      // A first-timer serves by hand, once they have found the paddle.
+      if (!(S.coach && S.coach.step === 'move')) g.launch();
     }
+  }
+
+  const c = S.coach;
+  if (c && S.screen === 'play') {
+    c.t += dt;
+    if (c.lastX !== null) c.moved += Math.abs(g.paddle.x - c.lastX);
+    c.lastX = g.paddle.x;
+    if (c.step === 'move' && c.moved > 40) (c.step = 'serve'), (c.t = 0);
+    if ((c.step === 'break' && c.t > 4) || (c.step === 'tool' && c.t > 7) || (c.step === 'caught' && c.t > 2.5)) c.step = 'idle';
   }
 
   if (S.ending > 0 && S.screen === 'play') {
@@ -277,7 +384,7 @@ const PYRAMID = [
 ];
 
 function drawPyramid(vis) {
-  const base = H - 60;
+  const base = P.wb + 46;
   drawShadow(W / 2, base + 1, 50, 4, 0.3 * vis);
   let i = 0;
   PYRAMID.forEach((row, r) => {
@@ -296,6 +403,22 @@ function drawPyramid(vis) {
       ctx.globalAlpha = 1;
     });
   });
+
+  // A tennis ball resting on top, glinting now and then.
+  const k = clamp(vis * 2 - 1, 0, 1);
+  if (k <= 0) return;
+  const cx = Math.round(W / 2) - 1;
+  const cy = base - 49 - Math.round((1 - easeOut(k)) * 60);
+  ctx.globalAlpha = Math.min(1, k * 2);
+  drawBall(cx, cy, 7);
+  for (const [dx, dy] of [[-4, -4], [-3, -2], [-3, 0], [-3, 2], [-4, 4], [4, -4], [3, -2], [3, 0], [3, 2], [4, 4]]) rect(cx + dx, cy + dy, 1, 1, '#f6ffa6');
+  ctx.globalAlpha = 1;
+  if (k >= 1) {
+    [[-11, -6], [10, -8], [-8, -11], [12, -1], [0, -13], [-13, 1]].forEach(([dx, dy], n) => {
+      const tw = Math.sin(S.time * 2.4 + n * 1.9);
+      if (tw > 0.55) rect(cx + dx, cy + dy, 1, 1, tw > 0.9 ? '#ffffff' : PAL.cream);
+    });
+  }
 }
 
 function drawIntroBall(t) {
@@ -333,36 +456,58 @@ const SCREENS = {
   },
 
   title(k) {
-    const top = Math.round(P.wb * 0.16) - Math.round((1 - k) * 10);
+    const wb = P.wb;
+    const top = Math.max(Math.round(wb * 0.16), Math.min(Math.round(H * 0.24), wb - 176)) - Math.round((1 - k) * 10);
     ctx.globalAlpha = k;
-    serif('THE', W / 2 + 3, top, 15, PAL.cream, { align: 'center', sp: 5, shadow: PAL.ink });
-    serif('COURT', W / 2 + 2, top + 20, 40, PAL.cream, { align: 'center', sp: 3, shadow: PAL.ink });
-    // A thin glint crosses the letters every few seconds: a stepped diagonal
-    // band, clipped to whole pixels, redrawing the glyphs a shade brighter.
-    const sweep = (S.time % 5) / 1.3;
-    if (sweep < 1) {
+    // Title idle loop, every 4.5s: a wave lifts the letters one after another,
+    // then a glint sweeps across them and along the underline.
+    const cyc = S.time % 4.5;
+    const words = [
+      { str: 'THE', x: W / 2 + 3, y: top, size: 15, sp: 5, lift: 1 },
+      { str: 'COURT', x: W / 2 + 2, y: top + 20, size: 40, sp: 3, lift: 3 },
+    ];
+    const drawTitle = (color, shadow) => {
+      let n = 0;
+      for (const wd of words) {
+        let x = Math.round(wd.x - serifW(wd.str, wd.size, wd.sp) / 2);
+        for (const ch of wd.str) {
+          const ph = (cyc - n * 0.11) / 0.45; // each letter starts a beat after the last
+          const up = ph > 0 && ph < 1 ? Math.round(Math.sin(ph * Math.PI) * wd.lift) : 0;
+          serif(ch, x, wd.y - up, wd.size, color, { shadow });
+          x += serifW(ch, wd.size) + wd.sp;
+          n++;
+        }
+      }
+    };
+    drawTitle(PAL.cream, PAL.ink);
+    rect(W / 2 - 22, top + 58, 44, 1, PAL.cream);
+    const sweep = (cyc - 1.5) / 1.2;
+    if (sweep > 0 && sweep < 1) {
       const tw = serifW('COURT', 40, 3);
-      const bx = W / 2 + 2 - tw / 2 - 16 + sweep * (tw + 32);
+      const bx = W / 2 + 2 - tw / 2 - 20 + sweep * (tw + 40);
       ctx.save();
       ctx.beginPath();
-      for (let r = 0; r < 34; r++) {
+      for (let r = 0; r < 60; r++) {
         const rx = Math.round(bx - r * 0.5);
-        ctx.rect(rx, top + 17 + r, 3, 1);
-        if (r & 1) ctx.rect(rx + 4, top + 17 + r, 1, 1);
+        ctx.rect(rx, top - 6 + r, 6, 1);
+        if (r & 1) ctx.rect(rx + 8, top - 6 + r, 2, 1);
       }
       ctx.clip();
-      serif('COURT', W / 2 + 2, top + 20, 40, '#ffffff', { align: 'center', sp: 3 });
+      drawTitle('#ffffff', null);
       ctx.restore();
+      rect(W / 2 - 22 + Math.round(sweep * 40), top + 58, 4, 1, '#ffffff');
     }
-    rect(W / 2 - 22, top + 58, 44, 1, PAL.cream);
-    const y = H - 50 + Math.round((1 - k) * 8);
-    pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3 });
-    ghost('courts', 'COURTS', W / 2 - 58, H - 19, 54, 13, () => go('courts'));
-    ghost('scores', 'SCORES', W / 2, H - 19, 54, 13, () => {
-      S.board = { rank: -1, fromRun: false };
-      go('scores');
-    });
-    ghost('sound', 'SOUND', W / 2 + 58, H - 19, 54, 13, openSound);
+    // A four-point sparkle pops on the last letter as the glint leaves.
+    const sp = (cyc - 2.6) / 0.5;
+    if (sp > 0 && sp < 1) {
+      const sx = Math.round(W / 2 + 2 + serifW('COURT', 40, 3) / 2) - 3;
+      const sy = top + 22;
+      const arm = sp < 0.5 ? 2 : 1;
+      rect(sx - arm, sy, arm * 2 + 1, 1, '#ffffff');
+      rect(sx, sy - arm, 1, arm * 2 + 1, '#ffffff');
+    }
+    const y = wb + 46 + Math.round(H * 0.04) + Math.round((1 - k) * 8);
+    pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3, pulse: S.time });
     ctx.globalAlpha = 1;
     S.primary = play;
   },
@@ -375,7 +520,7 @@ const SCREENS = {
     rect(W / 2 + 54, y + 36, 30, 1, PAL.cream);
     ctx.globalAlpha = 1;
     drawIntroBall(S.t);
-    const skip = () => go('courts');
+    const skip = afterIntro;
     region('skip', 0, 0, W, H, skip);
     S.primary = skip;
     S.back = () => go('title');
@@ -416,9 +561,16 @@ const SCREENS = {
           go('tools');
         });
       }
-      if (S.page > 0) ghost('prev', '<', x + 28, y + h - 28, 30, 15, () => turn(-1));
-      if (S.page < pages - 1) ghost('nextpage', '>', x + w - 28, y + h - 28, 30, 15, () => turn(1));
-      ghost('back', 'BACK', W / 2, y + h - 28, 60, 15, back);
+      if (S.page > 0) ghost('prev', '<', x + 34, y + 29, 26, 13, () => turn(-1));
+      if (S.page < pages - 1) ghost('nextpage', '>', x + w - 34, y + 29, 26, 13, () => turn(1));
+      // Leaderboard and sound live here so the landing screen can stay bare.
+      ghost('scores', 'SCORES', W / 2 - 75, y + h - 28, 46, 15, () => {
+        S.board = { rank: -1, fromRun: false };
+        go('scores');
+      }, { sp: 0 });
+      ghost('rules', 'RULES', W / 2 - 25, y + h - 28, 46, 15, openRules, { sp: 0 });
+      ghost('sound', 'SOUND', W / 2 + 25, y + h - 28, 46, 15, openSound, { sp: 0 });
+      ghost('back', 'BACK', W / 2 + 75, y + h - 28, 46, 15, back, { sp: 0 });
     });
     S.back = back;
     S.primary = () => {
@@ -476,7 +628,25 @@ const SCREENS = {
   play() {
     iconBtn('pause', 'pause', W - 23, 7, pause);
     const g = S.game;
-    if (g && g.state === 'serve' && Math.floor(S.time * 2.5) % 3 !== 0) {
+    if (g && S.coach) {
+      // Guided first rally: one short hint at a time, above the paddle.
+      const p = proj(g.paddle.x, g.paddle.y);
+      const msg = !S.ending && coachText();
+      if (msg) {
+        const w = textW(msg) + 16;
+        const y = Math.round(p.y) - 58;
+        rrect(W / 2 - w / 2 - 1, y - 1, w + 2, 17, 5, PAL.ink);
+        rrect(W / 2 - w / 2, y, w, 15, 4, PAL.panel);
+        text(msg, W / 2, y + 4, PAL.cream, { align: 'center' });
+      }
+      if (S.coach.step === 'move') {
+        const hw = (g.paddle.w / 2) * p.s;
+        const bob = Math.floor(S.time * 3) % 2;
+        text('<', p.x - hw - 10 - bob, p.y - 9, PAL.yellow, { align: 'center', shadow: PAL.ink });
+        text('>', p.x + hw + 10 + bob, p.y - 9, PAL.yellow, { align: 'center', shadow: PAL.ink });
+      }
+      ghost('skiptips', 'SKIP TIPS', W - 36, 32, 60, 13, endCoach);
+    } else if (g && g.state === 'serve' && Math.floor(S.time * 2.5) % 3 !== 0) {
       const p = proj(g.paddle.x, g.paddle.y);
       text(S.touch ? 'TAP TO SERVE' : 'CLICK OR SPACE TO SERVE', W / 2, p.y - 46, PAL.white, { align: 'center', shadow: PAL.ink });
     }
@@ -486,7 +656,7 @@ const SCREENS = {
 
   paused(k) {
     const w = 150;
-    const h = 150;
+    const h = 171;
     const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
     const resume = () => go('play');
@@ -496,7 +666,8 @@ const SCREENS = {
       pill('resume', 'RESUME', W / 2, y + 46, 104, 19, resume);
       ghost('restart', 'RESTART', W / 2, y + 76, 104, 15, () => beginRun(S.level));
       ghost('sound', 'SOUND', W / 2, y + 97, 104, 15, openSound);
-      ghost('home', 'HOME', W / 2, y + 118, 104, 15, () => endRun('RALLY ENDED'));
+      ghost('rules', 'HOW TO PLAY', W / 2, y + 118, 104, 15, openRules);
+      ghost('home', 'HOME', W / 2, y + 139, 104, 15, () => endRun('RALLY ENDED'));
     });
     S.primary = resume;
     S.back = resume;
@@ -577,33 +748,52 @@ const SCREENS = {
   },
 
   scores(k) {
+    const tabs = onlineEnabled();
+    const online = tabs && S.boardTab === 'online';
     const w = 206;
-    const h = 250;
+    const h = tabs ? 268 : 250;
     const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
-    const board = save.data.leaderboard;
+    const board = online ? S.online.rows : save.data.leaderboard;
+    const mineAt = online ? -1 : S.board.rank;
     const again = () => beginRun(S.level);
     const home = () => go('title');
     panel(k, x, y, w, h, 'dark', () => {
       serif('LEADERBOARD', W / 2 + 1, y + 14, 14, PAL.cream, { align: 'center', sp: 2 });
-      rect(W / 2 - 14, y + 30, 28, 1, PAL.cream);
-      if (!board.length) {
-        text('NO SCORES YET', W / 2, y + 86, PAL.cream, { align: 'center', sp: 2 });
-        text('FINISH A RALLY TO ADD YOURS', W / 2, y + 100, PAL.dim, { align: 'center' });
+      let top0 = y + 38;
+      if (tabs) {
+        const on = { fill: PAL.yellow, color: PAL.ink, line: PAL.yellow };
+        ghost('tablocal', 'THIS DEVICE', W / 2 - 46, y + 32, 86, 13, () => showBoard('local'), online ? {} : on);
+        ghost('tabonline', 'ONLINE', W / 2 + 46, y + 32, 86, 13, () => showBoard('online'), online ? on : {});
+        top0 = y + 54;
+      } else {
+        rect(W / 2 - 14, y + 30, 28, 1, PAL.cream);
+      }
+      const mid = top0 + 50;
+      if (online && S.online.state === 'loading') {
+        text('LOADING' + '.'.repeat(1 + (Math.floor(S.time * 3) % 3)), W / 2 - 24, mid, PAL.cream, { sp: 2 });
+      } else if (online && S.online.state === 'error') {
+        text('COULD NOT LOAD ONLINE SCORES', W / 2, mid - 8, PAL.cream, { align: 'center' });
+        text('TRY AGAIN IN A MOMENT', W / 2, mid + 4, PAL.dim, { align: 'center' });
+        ghost('retryonline', 'TRY AGAIN', W / 2, mid + 20, 80, 15, () => loadOnline(true));
+      } else if (!board.length) {
+        text('NO SCORES YET', W / 2, mid - 2, PAL.cream, { align: 'center', sp: 2 });
+        text(online ? 'THE ONLINE BOARD IS EMPTY' : 'FINISH A RALLY TO ADD YOURS', W / 2, mid + 12, PAL.dim, { align: 'center' });
       }
       // Ten rows; if the new score ranks lower, slide the window down to it.
-      const top = clamp(S.board.rank - 9, 0, Math.max(0, board.length - 10));
-      board.slice(top, top + 10).forEach((e, i) => {
-        const ry = y + 38 + i * 16;
-        const mine = top + i === S.board.rank;
+      const first = clamp(mineAt - 9, 0, Math.max(0, board.length - 10));
+      const shown = online && S.online.state !== 'ok' ? [] : board.slice(first, first + 10);
+      shown.forEach((e, i) => {
+        const ry = top0 + i * 16;
+        const mine = first + i === mineAt;
         if (mine) rect(x + 10, ry - 1, w - 20, 15, PAL.panelHi);
         const c = mine ? PAL.yellow : PAL.cream;
-        text(String(top + i + 1), x + 28, ry + 3, mine ? PAL.yellow : PAL.dim, { align: 'right' });
+        text(String(first + i + 1), x + 28, ry + 3, mine ? PAL.yellow : PAL.dim, { align: 'right' });
         text(e.name, x + 36, ry + 3, c, { sp: 2 });
         text('C' + e.court, x + 122, ry + 3, PAL.dim);
         text(String(e.score), x + w - 16, ry + 3, c, { align: 'right' });
       });
-      text('SAVED ON THIS DEVICE', W / 2, y + 202, '#56695a', { align: 'center' });
+      text(online ? 'ONLINE BOARD: VIEW ONLY FOR NOW' : 'SAVED ON THIS DEVICE', W / 2, y + h - 48, '#56695a', { align: 'center' });
       if (S.board.fromRun) {
         ghost('home', 'HOME', x + 38, y + h - 31, 50, 17, home);
         pill('again', 'PLAY AGAIN', W / 2 + 28, y + h - 32, 118, 18, again);
@@ -657,6 +847,57 @@ function drawSoundOverlay(k) {
   S.back = closeSound;
 }
 
+function drawRulesOverlay(k) {
+  ctx.globalAlpha = 0.55 * k;
+  rect(0, 0, W, H, '#06120c');
+  ctx.globalAlpha = 1;
+  checker(0, 0, W, H, 'rgba(6,18,12,' + (0.35 * k).toFixed(2) + ')');
+  const all = sections();
+  const sec = all[S.rulesTab];
+  const w = 216;
+  const h = 284;
+  const x = Math.round((W - w) / 2);
+  const y = Math.round((H - h) / 2);
+  panel(easeBack(k), x, y, w, h, 'dark', () => {
+    serif('HOW TO PLAY', W / 2 + 1, y + 12, 14, PAL.cream, { align: 'center', sp: 2 });
+    all.forEach((t, i) => {
+      const on = i === S.rulesTab;
+      ghost('tab' + i, t.tab, x + 28 + i * 40, y + 32, 37, 13, () => (S.rulesTab = i), on ? { fill: PAL.yellow, color: PAL.ink, line: PAL.yellow, sp: 0 } : { sp: 0 });
+    });
+    let cy = y + 54;
+    for (const r of sec.rows) {
+      if (r.kind === 'brick') {
+        const bh = r.type === 'S' ? 5 : 9;
+        drawBlock(x + 13, x + 35, cy + 16, x + 14, x + 34, cy + 12, bh, bh, r.type, 4242);
+        text(r.name, x + 43, cy + 2, PAL.cream, { sp: 2 });
+        text(r.left, x + 43, cy + 12, PAL.dim);
+        text(r.right, x + w - 13, cy + 7, PAL.yellow, { align: 'right' });
+        cy += 23;
+      } else {
+        disc(x + 20, cy + 9, 8, PAL.cream);
+        disc(x + 20, cy + 9, 7, PAL.panel);
+        icon(r.id, x + 15, cy + 4, PAL.yellow);
+        text(r.name, x + 34, cy + 1, PAL.cream, { sp: 1 });
+        text(r.left, x + 34, cy + 11, PAL.dim, { sp: 0 });
+        text(r.right, x + w - 13, cy + 1, PAL.yellow, { align: 'right' });
+        cy += 22;
+      }
+    }
+    if (sec.rows.length) cy += 3;
+    for (const para of sec.lines) {
+      for (const ln of wrap(para, w - 28)) {
+        text(ln, x + 14, cy, PAL.cream);
+        cy += 10;
+      }
+      cy += 5;
+    }
+    S.rulesFits = cy - 5 <= y + h - 32; // checked by the tests at every screen size
+    pill('done', 'DONE', W / 2, y + h - 27, 80, 17, closeRules);
+  });
+  S.primary = closeRules;
+  S.back = closeRules;
+}
+
 // ---------------------------------------------------------------- draw
 
 let gameLayer = null;
@@ -667,6 +908,7 @@ function draw() {
   const ball = g0 && S.screen === 'play' && g0.balls[0];
   const pitch = Math.sin(S.time * 0.45) * 0.014 + (ball ? (ball.y - 120) / 240 * 0.02 : 0);
   S.pitch = (S.pitch || 0) + (pitch - (S.pitch || 0)) * 0.05;
+  P.landing = easeInOut(S.landing);
   setCam(S.cam + S.pitch, S.shift);
   beginUI();
   S.primary = null;
@@ -683,7 +925,7 @@ function draw() {
     if (S.gameVis >= 1) {
       drawGame(g, S.time);
     } else {
-      if (!gameLayer || gameLayer.canvas.height !== H) gameLayer = makeLayer(W, H);
+      if (!gameLayer || gameLayer.canvas.height !== H || gameLayer.canvas.width !== W) gameLayer = makeLayer(W, H);
       gameLayer.clearRect(0, 0, W, H);
       setTarget(gameLayer);
       drawGame(g, S.time);
@@ -711,7 +953,8 @@ function draw() {
   if (S.overlayT > 0) {
     beginUI();
     ui.live = S.overlay && S.overlayT >= 1;
-    drawSoundOverlay(S.overlayT);
+    if (S.overlayKind === 'rules') drawRulesOverlay(S.overlayT);
+    else drawSoundOverlay(S.overlayT);
     ui.live = true;
   }
 }
@@ -800,6 +1043,11 @@ window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   audio.unlock();
+  if (S.overlay === 'rules' && (k === 'arrowleft' || k === 'arrowright')) {
+    turnRules(k === 'arrowleft' ? -1 : 1);
+    e.preventDefault();
+    return;
+  }
   if (S.screen === 'name' && !S.leaving && !S.overlay && S.run && S.run.score > 0) {
     // Typing a name: letters are text here, not shortcuts.
     if (k === 'backspace') typeKey('del');
@@ -810,7 +1058,7 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
-  if (S.screen === 'courts' && !S.leaving && (k === 'arrowleft' || k === 'arrowright')) {
+  if (S.screen === 'courts' && !S.leaving && !S.overlay && (k === 'arrowleft' || k === 'arrowright')) {
     S.page = clamp(S.page + (k === 'arrowleft' ? -1 : 1), 0, Math.ceil(LEVELS.length / PER_PAGE) - 1);
     e.preventDefault();
     return;
@@ -883,6 +1131,6 @@ async function boot() {
   S.ready = true;
 }
 
-if (debug) window.__court = { S, save, audio, ui, LEVELS, go, beginRun, proj, size: () => [W, H] };
+if (debug) window.__court = { S, save, audio, ui, LEVELS, go, beginRun, proj, size: () => [W, H], onlineEnabled };
 
 boot();

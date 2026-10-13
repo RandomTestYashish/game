@@ -34,6 +34,14 @@ const hot = (id) => ui.hover === id && ui.live;
 export function pill(id, label, cx, y, w, h, fn, o = {}) {
   const x = Math.round(cx - w / 2);
   const d = down(id) ? 2 : 0;
+  if (o.pulse != null) {
+    // Idle pulse: a soft halo that swells and fades, in whole pixels.
+    const p = 0.5 + 0.5 * Math.sin(o.pulse * 2.6);
+    ctx.globalAlpha *= 0.1 + 0.2 * p;
+    rrect(x - 5, y - 5, w + 10, h + 12, 11, PAL.yellow);
+    if (p > 0.5) rrect(x - 3, y - 3, w + 6, h + 8, 9, PAL.yellowHi);
+    ctx.globalAlpha = 1;
+  }
   rrect(x - 1, y - 1, w + 2, h + 4, 7, PAL.ink);
   rrect(x, y + 2, w, h, 6, PAL.yellowLo);
   rrect(x, y + d, w, h, 6, hot(id) ? PAL.yellowHi : PAL.yellow);
@@ -49,7 +57,7 @@ export function ghost(id, label, cx, y, w, h, fn, o = {}) {
   const on = hot(id) || down(id);
   rrect(x - 1, y - 1, w + 2, h + 2, 5, on ? PAL.yellow : o.line || PAL.cream);
   rrect(x, y, w, h, 4, down(id) ? PAL.panelHi : o.fill || PAL.panel);
-  text(label, cx, y + Math.round((h - 7) / 2), on ? PAL.yellow : o.color || PAL.cream, { align: 'center', sp: o.sp ?? 1 });
+  text(label, cx, y + Math.round((h - 7) / 2), on && !o.fill ? PAL.yellow : o.color || PAL.cream, { align: 'center', sp: o.sp ?? 1 });
   region(id, x - 2, y - 2, w + 4, h + 4, fn);
 }
 
@@ -123,7 +131,7 @@ export function panel(k, x, y, w, h, style, draw) {
   const wasLive = ui.live;
   if (!full) {
     if (k <= 0.01) return;
-    if (!off || off.canvas.height !== H) off = makeLayer(W, H);
+    if (!off || off.canvas.height !== H || off.canvas.width !== W) off = makeLayer(W, H);
     off.clearRect(0, 0, W, H);
     setTarget(off);
     ui.live = false;

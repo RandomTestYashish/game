@@ -21,6 +21,19 @@ from playwright.sync_api import sync_playwright
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHOTS = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else None
 results = []
+SUPABASE_CALLS = []  # any request a test page makes to a real *.supabase.co host
+MOCK = {
+    "mode": "ok",
+    "key": "test-anon-key",
+    "requests": [],
+    # What a database might hand back, including things the game must not trust.
+    "rows": [{"name": "AANYA", "score": 9100, "court": 14, "created_at": "2026-10-01T10:00:00Z"},
+             {"name": "<script>x", "score": 7200, "court": 9, "created_at": "2026-10-02T10:00:00Z"},
+             {"name": "", "score": 6100, "court": 7, "created_at": "2026-10-03T10:00:00Z"},
+             {"name": "averyveryverylongname", "score": 5000, "court": "5", "created_at": "2026-10-04T10:00:00Z"},
+             {"name": "BAD", "score": "abc", "court": 2}, None, {"name": "NEG", "score": -5, "court": 1}]
+    + [{"name": f"P{i}", "score": 4000 - i * 100, "court": 3} for i in range(30)],
+}
 
 
 def check(name, ok, detail=""):
@@ -32,6 +45,32 @@ def serve():
     class Quiet(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *args):
             pass
+
+        # A stand-in for the Supabase REST endpoint, so the online leaderboard
+        # can be tested without a real project. MOCK["mode"] picks the reply.
+        def do_GET(self):
+            if not self.path.startswith("/rest/v1/"):
+                return super().do_GET()
+            MOCK["requests"].append({"method": "GET", "path": self.path, "apikey": self.headers.get("apikey"), "auth": self.headers.get("Authorization")})
+            if MOCK["mode"] == "slow":
+                time.sleep(1.2)
+            if MOCK["mode"] == "fail":
+                return self.reply(500, {"message": "boom"})
+            if self.headers.get("apikey") != MOCK["key"]:
+                return self.reply(401, {"message": "Invalid API key"})
+            self.reply(200, [] if MOCK["mode"] == "empty" else MOCK["rows"])
+
+        def do_POST(self):
+            MOCK["requests"].append({"method": "POST", "path": self.path})
+            self.reply(401, {"message": "new row violates row-level security policy"})
+
+        def reply(self, code, body):
+            data = json.dumps(body).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
 
     handler = functools.partial(Quiet, directory=str(ROOT))
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -74,7 +113,7 @@ window.__bot = { mode: 'win', on: false };
 # Pure rules checks, run in the page against a fresh Game with a seeded RNG.
 RULES = """
 async () => {
-  const { Game, WW, WH, TOOL_TIME } = await import('/js/game.js');
+  const { Game, WW, WH, TOOL_TIME, BLOCKS } = await import('/js/game.js');
   const { LEVELS } = await import('/js/levels.js');
   const out = {};
   const rng = (seed) => () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
@@ -171,6 +210,76 @@ async () => {
   g = fresh(); g.launch(); g.balls[0].y = 40; const tok = { type: 'expand', x: g.paddle.x, y: g.paddle.y - 20, t: 0 }; g.drops.push(tok); run(g, 0.4);
   out.pickup = g.fx.expand > 0 && !g.drops.includes(tok);
 
+  // ---- "How to play" numbers checked against what the game actually does
+  const { facts, sections } = await import('/js/rules.js');
+  const { textW } = await import('/js/gfx.js');
+  const f = facts(); out.facts = f;
+  const txt = sections().map(s => s.rows.map(r => [r.name, r.left, r.right].join(' ')).concat(s.lines).join(' ')).join(' ');
+  const shoot = (q, blk) => { const s0 = q.score; Object.assign(q.balls[0], { x: blk.x + blk.w / 2, y: blk.y + blk.d + 10, vx: 0, vy: -1 }); run(q, 0.1); return q.score - s0; };
+  const lowest = (q, types) => q.blocks.filter(k => k.alive && types.includes(k.type)).sort((a, b) => b.y - a.y)[0];
+
+  // Brick durability and base value: hit one brick of each type until it breaks.
+  out.measured = { bricks: {}, combo: [], toolTime: {} };
+  for (const type of ['T', 'L', 'H', 'S']) {
+    const li = LEVELS.findIndex(l => l.rows.join('').includes(type));
+    g = fresh(li); g.launch(); blk = g.blocks.find(k => k.type === type); blk.amp = 0; blk.drift = 0;
+    for (const k of g.blocks) if (k !== blk) k.alive = false;
+    g.remaining = 2; // keep the court from being "won" by this one brick
+    let hits = 0, pts = 0;
+    while (blk.alive && hits < 9) { g.combo = 0; pts = shoot(g, blk); hits++; }
+    out.measured.bricks[type] = { hits, pts };
+  }
+  out.rulesBricks = ['T', 'L', 'H', 'S'].every(t => out.measured.bricks[t].hits === f.bricks[t].hits && out.measured.bricks[t].pts === f.bricks[t].pts
+    && txt.includes(f.bricks[t].name) && txt.includes(f.bricks[t].pts + ' PTS'));
+
+  // Combo: break ten one-hit bricks in a row without touching the paddle.
+  g = fresh(0); g.launch(); g.dropRate = 0; g.sinceDrop = -99;
+  const seq = [];
+  for (let n = 1; n <= 10; n++) { blk = lowest(g, ['T', 'L']); const got = shoot(g, blk); seq.push([n, blk.type, got]); out.measured.combo.push(got / BLOCKS[blk.type].pts); }
+  const round5 = (v) => Math.round(v / 5) * 5;
+  const mult = (n) => 1 + Math.min(n - 1, f.comboMaxAt - 1) * f.comboStep;
+  out.rulesCombo = seq.every(([n, t, got]) => got === round5(BLOCKS[t].pts * mult(n))) && mult(f.comboMaxAt) === f.comboMax && mult(20) === f.comboMax;
+  const hedge5 = round5(BLOCKS.H.pts * mult(5));
+  out.rulesComboExample = txt.includes(`${BLOCKS.H.pts} X ${mult(5)} = ${hedge5}`) && txt.includes('UP TO X' + f.comboMax);
+  // ...and the paddle resets it.
+  Object.assign(g.balls[0], { x: g.paddle.x, y: g.paddle.y - 14, vx: 0, vy: 1 }); run(g, 0.15);
+  blk = lowest(g, ['T', 'L']); const after = shoot(g, blk);
+  out.rulesComboResets = after === BLOCKS[blk.type].pts;
+  // Shield bounce does not reset it (the rules only name the paddle).
+  g = fresh(0); g.launch(); g.dropRate = 0; g.sinceDrop = -99; shoot(g, lowest(g, ['T', 'L'])); shoot(g, lowest(g, ['T', 'L']));
+  g.applyTool('shield'); g.movePaddleTo(190); Object.assign(g.balls[0], { x: 10, y: WH - 12, vx: 0, vy: 1 }); run(g, 0.2);
+  out.shieldKeepsCombo = g.combo === 2;
+
+  // Life bonus and stars.
+  const winWith = (lives, lost) => { const q = fresh(0); q.launch(); q.lives = lives; q.lost = lost; const b0 = q.blocks[0];
+    q.blocks.slice(1).forEach(k => (k.alive = false)); q.remaining = 1; const s0 = q.score; q.combo = 0; shoot(q, b0); return [q.score - s0 - BLOCKS[b0.type].pts, q.stars, q.state]; };
+  out.rulesLifeBonus = [1, 2, 3].every(l => winWith(l, 0)[0] === l * f.lifeBonus) && txt.includes('+' + f.lifeBonus);
+  out.rulesStars = winWith(3, 0)[1] === 3 && winWith(2, 1)[1] === 2 && winWith(1, 2)[1] === 1 && winWith(3, 4)[1] === 1;
+
+  // Tool durations, measured.
+  for (const id of Object.keys(f.toolTime)) { g = fresh(0); g.blocks.forEach(k => (k.alive = false)); g.applyTool(id); let t = 0; while (g.fx[id] > 0 && t < 60) { g.update(1 / 120); t += 1 / 120; } out.measured.toolTime[id] = Math.round(t * 10) / 10; }
+  out.rulesToolTimes = Object.keys(f.toolTime).every(id => Math.abs(out.measured.toolTime[id] - f.toolTime[id]) < 0.05 && txt.includes(f.toolTime[id] + ' SEC'));
+  // Multiball cap, life loss clearing tools, drop cap.
+  g = fresh(0); g.launch(); for (let i = 0; i < 6; i++) g.applyTool('multiball');
+  out.rulesMultiballCap = g.balls.length === f.maxBalls;
+  g = fresh(0); g.launch(); ['smash', 'freeze', 'expand', 'lowgrav', 'shield'].forEach(id => g.applyTool(id)); g.balls = []; g.loseLife();
+  out.rulesLifeLossClearsTools = Object.values(g.fx).every(v => v === 0) && !g.shield && g.drops.length === 0;
+  // Smash and freeze kills still score normally.
+  g = fresh(0); g.launch(); g.dropRate = 0; g.sinceDrop = -99; g.applyTool('freeze'); blk = g.blocks.find(k => k.type === 'H');
+  for (const k of g.blocks) if (k !== blk && k.r >= blk.r) k.alive = false;
+  out.freezeScoresFull = shoot(g, blk) === BLOCKS.H.pts && !blk.alive;
+
+  // Speed: +3% per paddle hit up to the cap.
+  g = fresh(0); g.blocks.forEach(k => (k.alive = false)); g.launch(); b = g.balls[0]; const v0 = b.speed; const speeds = [];
+  for (let i = 0; i < 30; i++) { Object.assign(b, { x: g.paddle.x, y: g.paddle.y - 14, vx: 0, vy: 1 }); run(g, 0.05); speeds.push(b.speed); }
+  out.measured.speedFirst = speeds[0] / v0; out.measured.speedMax = Math.max(...speeds) / LEVELS[0].speed;
+  out.rulesSpeed = Math.abs(speeds[0] / v0 - (1 + f.speedUpPct / 100)) < 1e-9 && Math.abs(out.measured.speedMax - f.speedCap) < 1e-9;
+  out.rulesProgressionNumbers = f.courts === LEVELS.length && f.startLives === new Game(LEVELS[0]).lives && txt.includes('THERE ARE ' + LEVELS.length) && txt.includes('A LOST LIFE NEVER COMES BACK');
+
+  // Every wrapped line fits the panel.
+  const { wrap } = await import('/js/gfx.js');
+  out.rulesTextFits = sections().every(s => s.lines.every(p => wrap(p, 188).every(l => textW(l) <= 188)) && s.rows.every(r => r.kind === 'brick' ? 43 + textW(r.left) + textW(r.right) + 13 < 216 : 34 + textW(r.left, 1, 0) + 13 < 216 && 34 + textW(r.name) + textW(r.right) + 13 < 216));
+
   // Long soak on every level: a simple bot must be able to clear it, the ball
   // must stay finite and in bounds, and tools must actually drop.
   out.levels = [];
@@ -184,6 +293,7 @@ async () => {
       if (low) g.movePaddleTo(low.x + Math.sin(t * 1.7) * g.paddle.w * 0.3);
       g.update(1 / 60); t += 1 / 60;
       for (const q of g.balls) if (!isFinite(q.x + q.y) || q.x < 0 || q.x > WW || q.y < 0) bad = true;
+      if (g.drops.length > f.maxDrops || g.balls.length > f.maxBalls) bad = true;
     }
     out.levels.push({ n: i + 1, state: g.state, secs: Math.round(t), drops, bad });
   }
@@ -192,12 +302,20 @@ async () => {
 """
 
 
+# The main suites run as a returning player, so they see the normal menus.
+# The tests never touch a real database: every page starts with the online board
+# switched off, and the online suite points it at the stand-in endpoint instead.
+OFFLINE = "window.COURT_CONFIG={supabaseUrl:'',supabaseAnonKey:''}"
+RETURNING = OFFLINE + "; if(!localStorage.getItem('the-court.save')) localStorage.setItem('the-court.save', JSON.stringify({version:3,onboarded:true}))"
+
+
 class Driver:
     def __init__(self, page):
         self.pg = page
         self.errors = []
         page.on("console", lambda m: self.errors.append(m.text) if m.type == "error" else None)
         page.on("pageerror", lambda e: self.errors.append("PAGEERROR " + str(e)))
+        page.on("request", lambda r: SUPABASE_CALLS.append(r.url.split("?")[0]) if ".supabase.co" in r.url else None)
 
     def ev(self, js):
         return self.pg.evaluate(js)
@@ -234,6 +352,7 @@ class Driver:
 def desktop(browser, url):
     print("desktop 1280x800 - mouse and keyboard")
     ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(RETURNING)
     d = Driver(ctx.new_page())
     pg = d.pg
     pg.goto(url)
@@ -242,9 +361,12 @@ def desktop(browser, url):
     check("loading screen shows first", True)
     d.screen("title", 1.4)
     d.shot("02-title")
-    check("title screen reached", True)
+    ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
+    check("landing screen is minimal: Play is the only control", ids == "play", ids)
 
-    # --- sound controls
+    # --- sound controls (reached from the courts screen)
+    d.click("play")
+    d.screen("courts", 0.6)
     d.click("sound")
     d.wait("__court.S.overlayT>=1")
     x, y = d.point("music")
@@ -279,6 +401,25 @@ def desktop(browser, url):
     check("sound settings are saved", s and s["settings"]["music"] == music and s["settings"]["sfx"] == sfx and s["settings"]["muted"] is False, s and s["settings"])
     check("music is scheduled", d.ev("__court.audio.playing && __court.audio.step>0"))
 
+    # --- How to Play, from the courts screen
+    rules_menu(d, "courts")
+    d.click("rules")
+    d.wait("__court.S.overlayT>=1")
+    pg.keyboard.press("ArrowRight")
+    pg.keyboard.press("ArrowRight")
+    t1 = d.ev("__court.S.rulesTab")
+    pg.keyboard.press("ArrowLeft")
+    page = d.ev("__court.S.page")
+    check("rules: arrow keys change section, not the court page behind", t1 == 1 and d.ev("__court.S.rulesTab") == 0 and page == 0, t1)
+    pg.keyboard.press("ArrowLeft")
+    check("rules: sections wrap around", d.ev("__court.S.rulesTab") == 4)
+    pg.keyboard.press("Escape")
+    d.wait("__court.S.overlayT<=0")
+    check("rules: Esc closes it and stays on courts", d.ev("__court.S.screen") == "courts")
+    pg.keyboard.press("Escape")
+    d.screen("title")
+    d.ev("__court.S.introSeen=false")
+
     # --- menu flow
     d.click("play")
     d.screen("intro", 0.9)
@@ -303,7 +444,7 @@ def desktop(browser, url):
     pg.keyboard.press("Escape")
     d.screen("title")
     check("back navigation (button and Escape)", True)
-    d.click("courts")
+    d.click("play")
     d.screen("courts", 0.6)
     d.click("court0")
     d.screen("tools", 0.6)
@@ -341,6 +482,9 @@ def desktop(browser, url):
     d.click("pause")
     d.screen("paused", 0.5)
     check("pause button works", True)
+    a = d.ev("[__court.S.game.balls[0].x, __court.S.game.balls[0].y, __court.S.game.score]")
+    rules_menu(d, "pause")
+    check("rules from pause: game untouched and still paused", d.ev("[__court.S.game.balls[0].x, __court.S.game.balls[0].y, __court.S.game.score]") == a and d.ev("__court.S.screen") == "paused")
     d.click("restart")
     d.screen("countdown", 0.05)
     check("restart from pause gives a fresh rally", d.ev("__court.S.game.score===0 && __court.S.game.lives===3 && __court.S.game.remaining===__court.S.game.total"))
@@ -437,12 +581,14 @@ def desktop(browser, url):
     pg.reload()
     d.screen("title", 1.4)
     check("save survives a reload", d.ev("__court.save.data.progress.unlocked") == 2 and d.ev("__court.save.data.settings.music") == music and d.ev("__court.save.data.leaderboard.length") == 2)
+    d.click("play")
+    d.screen("courts", 0.6)
     d.click("scores")
     d.screen("scores", 0.6)
-    check("leaderboard opens from the title", d.ev("__court.ui.regions.some(r=>r.id==='back')"))
+    check("leaderboard opens from the courts screen", d.ev("__court.ui.regions.some(r=>r.id==='back')"))
     pg.keyboard.press("Escape")
     d.screen("title", 0.6)
-    d.click("courts")
+    d.click("play")
     d.screen("courts", 0.6)
     check("court 2 is now selectable", d.ev("__court.ui.regions.some(r=>r.id==='court1') && !__court.ui.regions.some(r=>r.id==='court2')"))
 
@@ -478,6 +624,8 @@ def desktop(browser, url):
     d.screen("title", 0.6)
 
     # --- erase save
+    d.click("play")
+    d.screen("courts", 0.6)
     d.click("sound")
     d.wait("__court.S.overlayT>=1")
     d.click("erase")
@@ -486,15 +634,17 @@ def desktop(browser, url):
     d.click("erase")
     time.sleep(0.3)
     s = d.saved()
-    check("erase clears progress and leaderboard but keeps sound settings", s["progress"]["unlocked"] == 1 and s["progress"]["levels"] == {} and s["leaderboard"] == [] and s["settings"]["music"] == music, s)
+    check("erase clears progress and leaderboard but keeps sound settings", s["progress"]["unlocked"] == 1 and s["progress"]["levels"] == {} and s["leaderboard"] == [] and s["settings"]["music"] == music and s["onboarded"] is False, s)
     pg.keyboard.press("Escape")
     d.wait("__court.S.overlayT<=0")
 
     # --- rules, in isolation
     out = pg.evaluate(RULES)
     for k, v in out.items():
-        if k != "levels":
+        if k not in ("levels", "facts", "measured"):
             check("rules: " + k, v)
+    print("  measured:", json.dumps(out["measured"]))
+    print("  shown:   ", json.dumps(out["facts"]))
     bad = [lv for lv in out["levels"] if lv["state"] != "won" or lv["bad"] or lv["drops"] == 0]
     secs = [lv["secs"] for lv in out["levels"]]
     check(f"rules: all {len(out['levels'])} courts clearable, ball stays in court, tools drop", not bad, bad[:3] or f"{min(secs)}-{max(secs)}s of play each")
@@ -508,6 +658,7 @@ def desktop(browser, url):
 def touch_device(browser, url, name, w, h):
     print(f"{name} {w}x{h} - touch")
     ctx = browser.new_context(viewport={"width": w, "height": h}, has_touch=True, is_mobile=True, device_scale_factor=2)
+    ctx.add_init_script(RETURNING)
     d = Driver(ctx.new_page())
     pg = d.pg
     pg.goto(url)
@@ -560,6 +711,7 @@ def touch_device(browser, url, name, w, h):
     check(f"{name}: sound toggle by touch", d.ev("__court.save.data.settings.muted") is True)
     d.tap("done")
     d.wait("__court.S.overlayT<=0")
+    rules_menu(d, name, tap=True)
     d.ev("__court.S.game.score=420; __court.S.run.score=420")
     d.tap("home")
     d.screen("name", 0.8)
@@ -588,6 +740,238 @@ def touch_device(browser, url, name, w, h):
     ctx.close()
 
 
+def rules_menu(d, where, tap=False):
+    """Open How to Play from the current screen, visit every section, close it."""
+    press = d.tap if tap else d.click
+    press("rules")
+    d.wait("__court.S.overlay==='rules' && __court.S.overlayT>=1")
+    ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
+    check(f"{where}: How to Play opens and blocks the screen behind it", ids == "tab0,tab1,tab2,tab3,tab4,done", ids)
+    fits = []
+    for i in range(5):
+        press(f"tab{i}")
+        time.sleep(0.15)
+        fits.append(d.ev(f"__court.S.rulesTab==={i} && __court.S.rulesFits"))
+        d.shot(f"rules-{where}-{i}")
+    box = d.ev("(()=>{const r=__court.ui.regions; const s=__court.size(); return r.every(q=>q.x>=0&&q.y>=0&&q.x+q.w<=s[0]&&q.y+q.h<=s[1])})()")
+    check(f"{where}: all five sections open, fit the panel and stay on screen", all(fits) and box, fits)
+    press("done")
+    d.wait("__court.S.overlayT<=0")
+    check(f"{where}: Done closes it", d.ev("__court.S.overlay") is False)
+
+
+def online_board(browser, url):
+    """Read-only online leaderboard, against the stand-in endpoint above."""
+    print("online leaderboard - read only")
+    origin = url.split("/?")[0]
+    seed = RETURNING + "; if(!localStorage.getItem('seeded')){localStorage.setItem('seeded','1'); const d=JSON.parse(localStorage.getItem('the-court.save')); d.leaderboard=[{name:'LOCAL',score:321,court:2,at:1}]; localStorage.setItem('the-court.save', JSON.stringify(d));}"
+
+    # 1. Not configured: nothing changes and nothing is requested.
+    MOCK["requests"].clear()
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(seed)
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.4)
+    d.click("play")
+    d.screen("courts", 0.6)
+    d.click("scores")
+    d.screen("scores", 0.8)
+    ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
+    check("online off (empty config): leaderboard is the device board, no tabs, no network calls", ids == "back" and d.ev("__court.onlineEnabled()") is False and not MOCK["requests"], ids)
+    ctx.close()
+
+    def open_board(vp, touch=False, mode="ok", key=None):
+        MOCK["mode"] = mode
+        MOCK["requests"].clear()
+        c = browser.new_context(viewport=vp, has_touch=touch, is_mobile=touch)
+        c.add_init_script(seed + f"; window.COURT_CONFIG={{supabaseUrl:'{origin}', supabaseAnonKey:'{key or MOCK['key']}'}}")
+        dd = Driver(c.new_page())
+        dd.pg.goto(url)
+        dd.screen("title", 1.4)
+        (dd.tap if touch else dd.click)("play")
+        dd.screen("courts", 0.6, 20000)
+        (dd.tap if touch else dd.click)("scores")
+        dd.screen("scores", 0.8)
+        return c, dd
+
+    # 2. Configured: reads and shows the online rows.
+    ctx, d = open_board({"width": 1280, "height": 800})
+    d.wait("__court.S.online.state==='ok'")
+    rows = d.ev("__court.S.online.rows")
+    req = MOCK["requests"][0]
+    check("online on: opens on the Online tab and sends the anon key", d.ev("__court.S.boardTab") == "online" and req["apikey"] == MOCK["key"] and req["auth"] == "Bearer " + MOCK["key"], req)
+    check("request asks for the top 20, best first", "order=score.desc" in req["path"] and "limit=20" in req["path"] and "select=name,score,court" in req["path"], req["path"])
+    names = [r["name"] for r in rows[:4]]
+    check("rows shown in score order with unsafe names cleaned", names == ["AANYA", "SCRIPTX", "PLAYER", "AVERYVER"] and rows[3]["court"] == 5 and [r["score"] for r in rows] == sorted([r["score"] for r in rows], reverse=True), names)
+    check("malformed rows dropped and the list capped at 20", len(rows) == 20 and all(isinstance(r["score"], int) and r["score"] >= 0 for r in rows) and "BAD" not in [r["name"] for r in rows])
+    d.shot("online-1-board")
+    d.click("tablocal")
+    time.sleep(0.2)
+    check("This Device tab still shows the local board, untouched", d.ev("__court.S.boardTab") == "local" and d.ev("__court.save.data.leaderboard[0].name") == "LOCAL")
+    d.shot("online-2-device")
+    n = len(MOCK["requests"])
+    d.click("tabonline")
+    time.sleep(0.4)
+    check("switching back reuses the recent result instead of re-fetching", len(MOCK["requests"]) == n and d.ev("__court.S.online.state") == "ok")
+    d.pg.keyboard.press("Escape")
+    d.screen("title", 0.6)
+
+    # Finishing a run must not send anything.
+    d.pg.evaluate(BOT)
+    d.ev("__court.S.timeScale=3; __bot.mode='win'; __bot.on=true; __court.beginRun(0)")
+    d.wait("__court.S.screen==='play' && __court.S.game.score>60", 60000)
+    d.ev("__bot.mode='lose'")
+    d.screen("name", 0.8, 240000)
+    d.pg.keyboard.type("me")
+    d.pg.keyboard.press("Enter")
+    d.screen("scores", 0.8)
+    time.sleep(0.5)
+    posts = [r for r in MOCK["requests"] if r["method"] != "GET"]
+    check("saving a score writes to the device only: no insert is sent online", not posts and d.ev("__court.S.boardTab") == "local" and d.saved()["leaderboard"][0]["name"] in ("ME", "LOCAL") and any(e["name"] == "ME" for e in d.saved()["leaderboard"]), posts)
+    check("no console errors (online, desktop)", not d.errors, d.errors[:3])
+    ctx.close()
+
+    # 3. Failures are shown, not thrown.
+    ctx, d = open_board({"width": 1280, "height": 800}, mode="fail")
+    d.wait("__court.S.online.state==='error'")
+    check("server error: friendly message with Try Again", d.ev("__court.S.online.error") == "http-500" and d.ev("__court.ui.regions.some(r=>r.id==='retryonline')"))
+    d.shot("online-3-error")
+    MOCK["mode"] = "ok"
+    d.click("retryonline")
+    d.wait("__court.S.online.state==='ok'")
+    check("Try Again recovers once the server answers", d.ev("__court.S.online.rows.length") == 20)
+    ctx.close()
+    ctx, d = open_board({"width": 1280, "height": 800}, key="wrong-key")
+    d.wait("__court.S.online.state==='error'")
+    check("wrong key: handled as an error (401), game keeps working", d.ev("__court.S.online.error") == "http-401")
+    d.click("tablocal")
+    d.pg.keyboard.press("Escape")
+    d.screen("title", 0.6)
+    ctx.close()
+    ctx, d = open_board({"width": 1280, "height": 800}, mode="empty")
+    d.wait("__court.S.online.state==='ok'")
+    check("empty online board: says so", d.ev("__court.S.online.rows.length") == 0)
+    ctx.close()
+    c = browser.new_context(viewport={"width": 1280, "height": 800})
+    c.add_init_script(seed + "; window.COURT_CONFIG={supabaseUrl:'http://127.0.0.1:9', supabaseAnonKey:'k'}")
+    d = Driver(c.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.4)
+    d.click("play")
+    d.screen("courts", 0.6, 20000)
+    d.click("scores")
+    d.wait("__court.S.online.state==='error'", 20000)
+    check("unreachable server: network error state, no crash", d.ev("__court.S.online.error") in ("network", "timeout"), d.ev("__court.S.online.error"))
+    c.close()
+
+    # 4. Loading state, touch and small screens.
+    for name, vp in (("tablet", {"width": 820, "height": 1180}), ("mobile", {"width": 390, "height": 844})):
+        ctx, d = open_board(vp, touch=True, mode="slow")
+        seen = d.ev("__court.S.online.state")
+        d.wait("__court.S.online.state==='ok'")
+        box = d.ev("(()=>{const r=__court.ui.regions; const s=__court.size(); return r.every(q=>q.x>=0&&q.y>=0&&q.x+q.w<=s[0]&&q.y+q.h<=s[1])})()")
+        d.shot(f"online-{name}")
+        d.tap("tablocal")
+        time.sleep(0.2)
+        t1 = d.ev("__court.S.boardTab")
+        d.tap("tabonline")
+        time.sleep(0.2)
+        check(f"{name}: shows Loading, then rows; tabs work by touch and fit the screen", seen == "loading" and t1 == "local" and d.ev("__court.S.boardTab") == "online" and box, seen)
+        check(f"no console errors (online, {name})", not d.errors, d.errors[:3])
+        ctx.close()
+    MOCK["mode"] = "ok"
+    real = [r for r in SUPABASE_CALLS]
+    check("the whole test run sent nothing to a real Supabase project", not real, real[:3])
+
+
+def first_time(browser, url):
+    print("first-time journey - new and returning players")
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(OFFLINE)
+    d = Driver(ctx.new_page())
+    pg = d.pg
+    pg.goto(url)
+    d.screen("title", 1.4)
+    check("new user: no save yet, not onboarded", d.saved() is None and d.ev("__court.save.data.onboarded") is False)
+    d.click("play")
+    d.screen("intro", 0.3)
+    d.wait("__court.S.screen==='countdown' || __court.S.screen==='courts' || __court.S.screen==='tools'", 15000)
+    check("new user: Play goes intro -> court 1, skipping courts and tools", d.ev("__court.S.screen") == "countdown" and d.ev("__court.S.level") == 0)
+    d.screen("play", 0.4)
+    g = d.ev("[__court.S.game.state, __court.S.coach.step, __court.S.game.level.speed, __court.LEVELS[0].speed, __court.ui.regions.some(r=>r.id==='skiptips')]")
+    check("new user: ball waits on the paddle with a 'move' hint and a slower ball", g[0] == "serve" and g[1] == "move" and g[2] < g[3] and g[4], g)
+    d.shot("ftue-1-move")
+    time.sleep(1.0)
+    check("new user: nothing happens until they act", d.ev("__court.S.game.state") == "serve")
+    box = d.ev("(()=>{const r=document.getElementById('court').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()")
+    pg.mouse.move(box[0] + box[2] * 0.4, box[1] + box[3] * 0.8)
+    pg.mouse.move(box[0] + box[2] * 0.6, box[1] + box[3] * 0.8, steps=8)
+    time.sleep(0.2)
+    check("new user: moving the paddle advances to the 'serve' hint", d.ev("__court.S.coach.step") == "serve")
+    d.shot("ftue-2-serve")
+    pg.keyboard.press("Space")
+    time.sleep(0.2)
+    check("new user: serving advances to the 'break' hint", d.ev("__court.S.game.state") == "play" and d.ev("__court.S.coach.step") == "break")
+    pg.evaluate(BOT)
+    d.ev("__court.S.timeScale=2; __bot.on=true")
+    d.wait("__court.S.coach && __court.S.coach.step==='tool'", 60000)
+    check("new user: the first tool is Expand, with a hint", d.ev("__court.S.game.drops[0].type") == "expand")
+    d.shot("ftue-3-tool")
+    check("new user: still not marked onboarded mid-rally", d.ev("__court.save.data.onboarded") is False)
+    d.wait("(__court.S.screen==='complete'||__court.S.screen==='name') && !__court.S.leaving && __court.S.t>1", 300000)
+    s = d.saved()
+    check("new user: finishing the first rally marks them onboarded and saves it", s["onboarded"] is True and d.ev("__court.S.coach") is None, s["onboarded"])
+    if d.ev("__court.S.screen") == "complete":
+        d.click("next")
+        d.screen("play", 0.3, 20000)
+        check("after the tutorial, court 2 is the normal game (auto-serve, full speed, no hints)", d.ev("__court.S.game.state==='play' && __court.S.game.level.speed===__court.LEVELS[1].speed && !__court.ui.regions.some(r=>r.id==='skiptips')"))
+    d.ev("__bot.on=false; __court.S.timeScale=1")
+
+    # Returning: same browser after a reload.
+    pg.reload()
+    d.screen("title", 1.4)
+    d.click("play")
+    d.screen("courts", 0.5, 20000)
+    check("returning user: Play goes to the court grid, as before", d.ev("__court.S.coach") is None)
+    ctx.close()
+
+    # Skipping the tips.
+    ctx = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    ctx.add_init_script(OFFLINE)
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.4)
+    d.tap("play")
+    d.screen("intro", 0.3)
+    d.pg.touchscreen.tap(195, 400)
+    d.screen("play", 0.4, 20000)
+    check("new user on touch: hint uses touch wording", d.ev("__court.S.coach.step") == "move" and d.ev("__court.S.touch") is True)
+    d.shot("ftue-4-mobile")
+    d.tap("skiptips")
+    time.sleep(0.3)
+    check("Skip Tips ends the tutorial, saves it, and leaves the rally running", d.ev("__court.S.coach") is None and d.saved()["onboarded"] is True and d.ev("__court.S.game.state") == "serve")
+    d.pg.touchscreen.tap(195, 400)
+    time.sleep(0.2)
+    check("after skipping, tap still serves", d.ev("__court.S.game.state") == "play")
+    check("no console errors (first-time, touch)", not d.errors, d.errors[:3])
+    ctx.close()
+
+    # Returning player whose save predates the tutorial.
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(OFFLINE + "; if(!localStorage.getItem('the-court.save')) localStorage.setItem('the-court.save', JSON.stringify({version:2,settings:{music:0.3,sfx:0.8,muted:false},progress:{unlocked:3,levels:{baseline:{best:500,stars:2}}},stats:{plays:4,wins:2,blocks:60},leaderboard:[{name:'OLD',score:900,court:2,at:1}]}))")
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.4)
+    old = d.ev("[__court.save.data.onboarded, __court.save.data.progress.unlocked, __court.save.data.settings.music, __court.save.data.leaderboard[0].name]")
+    check("older save: treated as returning, progress and leaderboard intact", old == [True, 3, 0.3, "OLD"], old)
+    d.click("play")
+    d.screen("courts", 0.5, 20000)
+    check("older save: Play goes to the court grid", d.ev("__court.ui.regions.some(r=>r.id==='court2')"))
+    check("no console errors (first-time, desktop)", not d.errors, d.errors[:3])
+    ctx.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -596,9 +980,11 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome", headless=True)
         try:
+            first_time(browser, url)
             desktop(browser, url)
             touch_device(browser, url, "tablet", 820, 1180)
             touch_device(browser, url, "mobile", 390, 844)
+            online_board(browser, url)
         finally:
             browser.close()
             srv.shutdown()

@@ -22,13 +22,23 @@ export const TOOLS = [
 ];
 
 export const START_LIVES = 3; // a run's lives; a lost life never comes back
+export const MAX_BALLS = 9;
+export const MAX_DROPS = 2; // tools falling at once
+export const LIFE_BONUS = 100; // per life left when a court is cleared
+export const COMBO_STEP = 0.25;
+export const COMBO_CAP = 8; // steps, so the multiplier tops out at 1 + 8 * 0.25 = x3
+export const SPEED_UP = 1.03; // per paddle hit
+export const SPEED_CAP = 1.55; // times the court's base speed
+
+// Score multiplier for the nth brick broken since a ball last touched the paddle.
+export const comboMult = (n) => 1 + Math.min(Math.max(n, 1) - 1, COMBO_CAP) * COMBO_STEP;
+export const brickPoints = (type, n) => Math.round((BLOCKS[type].pts * comboMult(n)) / 5) * 5;
 
 export const TOOL_TIME = { smash: 7, freeze: 8, expand: 14, lowgrav: 10 };
 
 const COLS = 7;
 const CELL = 28;
 const ROW = 20;
-const MAX_BALLS = 9;
 const WEIGHTS = { shield: 1, multiball: 1.2, smash: 0.9, freeze: 0.9, expand: 1.2, lowgrav: 0.9 };
 
 export class Game {
@@ -46,6 +56,7 @@ export class Game {
     this.lost = 0;
     this.padW = level.paddle ?? 54;
     this.dropRate = level.drop ?? 0.16;
+    this.firstTool = opts.firstTool || null; // guided first rally: a known tool, early
     this.combo = 0;
     this.bonus = 0;
     this.shield = false;
@@ -269,7 +280,7 @@ export class Game {
       ball.vx = Math.sin(a);
       ball.vy = -Math.cos(a);
       ball.y = p.y - p.d / 2 - ball.r;
-      ball.speed = Math.min(ball.speed * 1.03, this.level.speed * 1.55);
+      ball.speed = Math.min(ball.speed * SPEED_UP, this.level.speed * SPEED_CAP);
       ball.vz = 70;
       this.combo = 0;
       this.emit('paddle');
@@ -340,8 +351,7 @@ export class Game {
     b.alive = false;
     this.combo++;
     this.remaining--;
-    const mult = 1 + Math.min(this.combo - 1, 8) * 0.25;
-    const pts = Math.round((BLOCKS[b.type].pts * mult) / 5) * 5;
+    const pts = brickPoints(b.type, this.combo);
     this.score += pts;
     this.floaters.push({ x: b.x + b.w / 2, y: b.y + b.d / 2, z: b.hz + 4, text: '+' + pts, life: 0.9 });
     this.debris(b, 10);
@@ -352,7 +362,14 @@ export class Game {
 
   maybeDrop(b) {
     this.sinceDrop++;
-    if (this.drops.length >= 2) return;
+    if (this.firstTool && this.total - this.remaining >= 3) {
+      this.drops.push({ type: this.firstTool, x: b.x + b.w / 2, y: b.y + b.d / 2, t: 0 });
+      this.firstTool = null;
+      this.sinceDrop = 0;
+      this.emit('drop');
+      return;
+    }
+    if (this.drops.length >= MAX_DROPS) return;
     if (this.sinceDrop < 7 && this.rng() >= this.dropRate) return;
     let total = 0;
     for (const t of TOOLS) total += this.weight(t.id);
@@ -441,7 +458,7 @@ export class Game {
 
   win() {
     this.state = 'won';
-    this.bonus = this.lives * 100;
+    this.bonus = this.lives * LIFE_BONUS;
     this.score += this.bonus;
     this.drops = [];
     for (const ball of this.balls) {

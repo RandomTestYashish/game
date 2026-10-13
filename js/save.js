@@ -3,13 +3,14 @@
 // LocalStore without touching the game. See README "Database upgrade path".
 
 const KEY = 'the-court.save';
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export const BOARD_SIZE = 20;
 
 export function defaultSave() {
   return {
     version: SAVE_VERSION,
     updatedAt: 0,
+    onboarded: false, // true once the first-time guided rally is finished or skipped
     settings: { music: 0.6, sfx: 0.8, muted: false },
     progress: { unlocked: 1, levels: {} }, // levels[id] = { best, stars }
     stats: { plays: 0, wins: 0, blocks: 0 },
@@ -56,6 +57,8 @@ export function migrate(raw) {
   d.leaderboard.sort((a, b) => b.score - a.score || a.at - b.at);
   d.leaderboard.length = Math.min(d.leaderboard.length, BOARD_SIZE);
   d.lastName = cleanName(raw.lastName);
+  // Saves from before the guided first rally: anyone who has already played is not a new user.
+  d.onboarded = raw.onboarded === true || d.stats.plays > 0 || d.progress.unlocked > 1 || d.leaderboard.length > 0;
   d.updatedAt = num(raw.updatedAt, 0, 0, Number.MAX_SAFE_INTEGER);
   return d;
 }

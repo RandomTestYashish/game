@@ -2,7 +2,7 @@
 
 import { W, ctx, PAL, rect, disc, ring, rrect, text, serif, serifW, icon } from './gfx.js';
 import { proj, drawBlock, drawBall, drawPaddle, drawShadow, MAT } from './scene.js';
-import { WW, WH, TOOL_TIME, START_LIVES } from './game.js';
+import { WW, WH, TOOL_TIME, START_LIVES, comboMult } from './game.js';
 
 export function drawGame(g, time) {
   const frozen = g.fx.freeze > 0;
@@ -122,7 +122,7 @@ export function drawHUD(g, levelLabel) {
 
   text(levelLabel, 6, 8, PAL.white, { shadow: PAL.ink });
   if (g.combo >= 2 && g.state === 'play') {
-    text('COMBO X' + (1 + Math.min(g.combo - 1, 8) * 0.25), W / 2, 34, PAL.yellowHi, { align: 'center', shadow: PAL.ink });
+    text('COMBO X' + comboMult(g.combo), W / 2, 34, PAL.yellowHi, { align: 'center', shadow: PAL.ink });
   }
 
   // Active tools with their remaining time.

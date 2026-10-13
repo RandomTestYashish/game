@@ -9,7 +9,8 @@ import { WW, WH } from './game.js';
 // shift trucks the camera sideways: the paddle's depth stays put on screen and
 // everything nearer or farther slides against it.
 
-export const P = { cam: 0, wb: 0, hor: 0, G: 1, dFar: 1.45, kx: 1.16, cx: W / 2, shift: 0, sRef: 1 };
+// landing 1 = the bare first screen (no net, no overhanging canopy).
+export const P = { cam: 0, wb: 0, hor: 0, G: 1, dFar: 1.45, kx: 1.16, cx: W / 2, shift: 0, sRef: 1, landing: 0 };
 
 export function setCam(cam, shift = 0) {
   P.cam = cam;
@@ -227,6 +228,32 @@ const COURT_LINES = [
 
 const wrap = (v, n) => ((v % n) + n) % n;
 
+// Sky, stars, drifting clouds and the occasional flock. ref is the horizon
+// height the flock keeps clear of.
+function drawSky(time, skyY, ref) {
+  ctx.drawImage(L.sky, 0, skyY);
+  for (const s of stars) {
+    const tw = Math.sin(time * s.f + s.p);
+    if (tw > -0.3) rect(s.x, s.y + skyY, 1, 1, tw > 0.75 ? '#ffffff' : '#cdbfe0');
+    if (tw > 0.93) rect(s.x - 1, s.y + skyY, 3, 1, '#cdbfe0');
+  }
+  const cw = L.clouds.width;
+  const cx0 = -wrap(time * 3.6 - P.shift * P.sRef, cw);
+  ctx.drawImage(L.clouds, Math.round(cx0), skyY);
+  ctx.drawImage(L.clouds, Math.round(cx0) + cw, skyY);
+  const bt = wrap(time, 23);
+  if (bt < 14) {
+    const flap = Math.floor(time * 5) & 1;
+    for (let i = 0; i < 4; i++) {
+      const bx = -20 + (bt / 14) * (W + 60) - i * 9 - (i & 1) * 3;
+      const by = ref * 0.22 + Math.sin(time * 0.9 + i) * 3 + i * 4 + skyY;
+      rect(bx, by, 1, 1, '#2a1f33');
+      rect(bx - 1, by - (flap ? 1 : -1), 1, 1, '#2a1f33');
+      rect(bx + 1, by - (flap ? 1 : -1), 1, 1, '#2a1f33');
+    }
+  }
+}
+
 export function drawScene(time) {
   const cam = P.cam;
   const wb = P.wb;
@@ -236,30 +263,7 @@ export function drawScene(time) {
   const treeS = Math.round(P.shift * (P.sRef - sFar * 0.6));
   const hillS = Math.round(P.shift * (P.sRef - sFar * 0.3));
 
-  const skyY = Math.round(-cam * 12);
-  ctx.drawImage(L.sky, 0, skyY);
-  for (const s of stars) {
-    const tw = Math.sin(time * s.f + s.p);
-    if (tw > -0.3) rect(s.x, s.y + skyY, 1, 1, tw > 0.75 ? '#ffffff' : '#cdbfe0');
-    if (tw > 0.93) rect(s.x - 1, s.y + skyY, 3, 1, '#cdbfe0');
-  }
-  const cw = L.clouds.width;
-  const cx0 = -wrap(time * 2.6 - P.shift * P.sRef, cw);
-  ctx.drawImage(L.clouds, Math.round(cx0), skyY);
-  ctx.drawImage(L.clouds, Math.round(cx0) + cw, skyY);
-
-  // A small flock crossing the sky now and then.
-  const bt = wrap(time, 23);
-  if (bt < 14) {
-    const flap = Math.floor(time * 5) & 1;
-    for (let i = 0; i < 4; i++) {
-      const bx = -20 + (bt / 14) * (W + 60) - i * 9 - (i & 1) * 3;
-      const by = wb * 0.22 + Math.sin(time * 0.9 + i) * 3 + i * 4 + skyY;
-      rect(bx, by, 1, 1, '#2a1f33');
-      rect(bx - 1, by - (flap ? 1 : -1), 1, 1, '#2a1f33');
-      rect(bx + 1, by - (flap ? 1 : -1), 1, 1, '#2a1f33');
-    }
-  }
+  drawSky(time, Math.round(-cam * 12), wb);
 
   const wallTop = wb - WALL_H;
   ctx.drawImage(L.hills, -M + hillS, Math.round(wallTop - 40 - 30 + cam * 16));
@@ -305,14 +309,14 @@ export function drawScene(time) {
 
   // The net lowers out of the way as the camera rises.
   if (cam < 0.55) {
-    const k = 1 - cam / 0.55;
+    const k = (1 - cam / 0.55) * (1 - P.landing);
     const nh = Math.round(13 * k);
     const y0 = wb + 7;
     const nx = Math.round(W / 2 - 98) + wallS;
-    ctx.globalAlpha = 0.3;
-    rect(nx, y0, 196, 2, '#000');
-    ctx.globalAlpha = 1;
     if (nh > 1) {
+      ctx.globalAlpha = 0.3;
+      rect(nx, y0, 196, 2, '#000');
+      ctx.globalAlpha = 1;
       ctx.globalAlpha = 0.6;
       rect(nx, y0 - nh, 196, nh, '#162019');
       ctx.globalAlpha = 1;
@@ -323,8 +327,10 @@ export function drawScene(time) {
       rect(nx, y0 - nh, 196, 2, '#ecefdc');
       rect(nx + 97, y0 - nh, 2, nh, '#d9dcc8');
     }
-    rect(nx - 2, y0 - nh - 2, 2, nh + 3, '#22241f');
-    rect(nx + 196, y0 - nh - 2, 2, nh + 3, '#22241f');
+    if (nh > 1) {
+      rect(nx - 2, y0 - nh - 2, 2, nh + 3, '#22241f');
+      rect(nx + 196, y0 - nh - 2, 2, nh + 3, '#22241f');
+    }
   }
 
   // Lantern glow.
@@ -363,7 +369,7 @@ export function drawScene(time) {
   }
 
   const sway = Math.round(Math.sin(time * 0.8) * 1.4);
-  ctx.drawImage(L.fore, -M + sway - Math.round(P.shift * 0.5), Math.round(-cam * 34 - 4));
+  if (P.landing < 1) ctx.drawImage(L.fore, -M + sway - Math.round(P.shift * 0.5), Math.round(-cam * 34 - 4 - P.landing * 110));
 }
 
 // ---------------------------------------------------------------- sprites

@@ -45,6 +45,16 @@ The game pauses itself when the tab or window loses focus.
 | Expand | Wider paddle (14 s) |
 | Low Gravity | Balls and tools come down slowly (10 s) |
 
+## How to Play screen
+
+"Rules" on the courts screen and "How to play" in the pause menu open a five-tab reference: Bricks, Score, Tools, Runs and Keys. Its numbers are not typed in: `js/rules.js` reads them from the constants `js/game.js` plays by (`BLOCKS`, `comboMult`, `TOOL_TIME`, `LIFE_BONUS` and so on), and the test measures each one in a simulated rally and compares it with what the screen shows.
+
+## First-time journey
+
+A player with no save is not sent through the court grid and tools briefing. Play goes from the intro straight into court 1 with a ball 20% slower, and the ball waits on the paddle instead of serving itself. Short hints appear one at a time: move, serve, clear the blocks, catch the tool (the first tool is always Expand), and what to do after losing a ball. "Skip tips" ends it at once.
+
+The tutorial is marked done (`onboarded` in the save) when that first rally ends or is skipped; from then on the game is exactly the normal one. Saves from before this feature count as returning if they show any play. "Erase save data" brings the tutorial back.
+
 ## Architecture
 
 ```
@@ -58,6 +68,9 @@ js/render.js      draws a Game into the court, plus the HUD
 js/ui.js          buttons, sliders, tilting panels
 js/gfx.js         low-res canvas, drawing primitives, fonts, icons
 js/audio.js       Web Audio effects and music
+js/rules.js       How to Play text, built from the game's constants
+js/config.js      online leaderboard settings (empty = off)
+js/remote.js      read-only fetch of online scores
 js/save.js        save data, migration, storage adapter
 tests/e2e.py      browser test
 ```
@@ -75,8 +88,9 @@ One JSON document in `localStorage` under `the-court.save`:
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "updatedAt": 1791901112459,
+  "onboarded": true,
   "settings": { "music": 0.6, "sfx": 0.8, "muted": false },
   "progress": { "unlocked": 2, "levels": { "baseline": { "best": 610, "stars": 2 } } },
   "stats": { "plays": 3, "wins": 1, "blocks": 51 },
@@ -86,6 +100,46 @@ One JSON document in `localStorage` under `the-court.save`:
 ```
 
 It is written when a rally ends, when a score is posted and when sound settings change. The leaderboard keeps the best 20 runs **on that device only**: each browser has its own list. `migrate()` validates whatever it loads, so a damaged or older save falls back to defaults field by field. If `localStorage` is blocked, the game keeps the save in memory for the session. "Erase save data" in the Sound panel clears progress and the leaderboard and keeps sound settings.
+
+## Online leaderboard (read-only, optional)
+
+Off by default. With `js/config.js` empty the game makes no network calls and the leaderboard is the device one. Fill in two values and the Scores screen gains an **Online** tab that reads the top 20 from a Supabase table. The game does not send scores yet, and the table below does not allow it.
+
+**1. Create the table.** In Supabase: SQL Editor, paste, Run.
+
+```sql
+create table public.scores (
+  id         bigint generated always as identity primary key,
+  name       text not null check (char_length(name) between 1 and 8),
+  score      integer not null check (score >= 0),
+  court      integer not null default 1 check (court between 1 and 9999),
+  created_at timestamptz not null default now()
+);
+create index scores_top on public.scores (score desc, created_at asc);
+
+alter table public.scores enable row level security;
+
+-- Anyone may read. There is deliberately NO insert, update or delete policy,
+-- so the public key cannot change the table.
+create policy "public read" on public.scores for select to anon using (true);
+
+-- A few rows to see on screen (the SQL editor bypasses the policy):
+insert into public.scores (name, score, court) values ('AANYA', 9100, 14), ('RAVI', 7200, 9), ('MEERA', 6100, 7);
+```
+
+**2. Get the two values.** Project Settings, API: copy the **Project URL** and the **anon public** key. Never use the `service_role` key.
+
+**3. Put them in the game.** A static site has no environment variables at run time (the browser cannot read them), so they are written into `js/config.js`:
+
+```sh
+SUPABASE_URL=https://YOUR-PROJECT.supabase.co SUPABASE_ANON_KEY=YOUR-ANON-KEY sh scripts/write-config.sh
+```
+
+or open `js/config.js` and paste them by hand. Then serve the folder as in Setup and open Scores.
+
+**4. Hosting (GitHub Pages).** Pages serves the files in the repo, so commit `js/config.js` after step 3 and push. Both values are meant to be public; the policy above is what protects the table. To switch the online board off, run the script with no variables and push.
+
+`js/remote.js` is the only file that talks to the database. It sends one GET, gives up after 6 seconds, and cleans every row (name rules, whole-number scores) before it is shown. Any failure shows a message with Try Again and leaves the rest of the game working.
 
 ## Database upgrade path
 

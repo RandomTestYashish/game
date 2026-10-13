@@ -236,6 +236,7 @@ const FONT = {
   '?': '.XXX./X...X/....X/...X./..X../...../..X..',
   '-': '..../..../..../XXXX/..../..../....',
   '+': '...../..X../..X../XXXXX/..X../..X../.....',
+  '=': '..../..../XXXX/..../XXXX/..../....',
   '/': '....X/....X/...X./..X../.X.../X..../X....',
   "'": 'X/X/././././.',
   '%': 'XX..X/XX..X/...X./..X../.X.../X..XX/X..XX',
@@ -264,6 +265,21 @@ function glyphs(str, x, y, c, sc, sp) {
     }
     x += (g[0].length + sp) * sc;
   }
+}
+
+// Break a string into lines no wider than maxW (bitmap font, scale 1).
+export function wrap(str, maxW) {
+  const lines = [];
+  let cur = '';
+  for (const word of String(str).split(' ')) {
+    const next = cur ? cur + ' ' + word : word;
+    if (cur && textW(next) > maxW) {
+      lines.push(cur);
+      cur = word;
+    } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }
 
 // opts: scale, sp (letter spacing), align ('left' | 'center' | 'right'), shadow

@@ -83,8 +83,9 @@ export function roundBtn(id, name, label, cx, cy, fn, o = {}) {
 
 // Small square icon button (HUD).
 export function iconBtn(id, name, x, y, fn) {
-  rrect(x - 1, y - 1, 19, 19, 5, PAL.ink);
-  rrect(x, y, 17, 17, 4, hot(id) || down(id) ? PAL.panelHi : PAL.panel);
+  rrect(x - 2, y - 2, 21, 22, 6, PAL.ink);
+  rrect(x - 1, y - 1, 19, 19, 5, hot(id) || down(id) ? PAL.yellow : '#5f7a64');
+  rrect(x, y, 17, 17, 4, hot(id) || down(id) ? PAL.panelHi : '#0d1f16');
   icon(name, x + 3, y + 3, PAL.yellow);
   region(id, x - 4, y - 4, 25, 25, fn);
 }

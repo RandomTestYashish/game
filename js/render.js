@@ -1,6 +1,6 @@
 // Draws a Game into the projected court, plus the in-play HUD.
 
-import { W, ctx, PAL, rect, disc, ring, rrect, text, serif, serifW, icon } from './gfx.js';
+import { W, ctx, PAL, rect, disc, ring, rrect, text, textW, serif, serifW, icon } from './gfx.js';
 import { proj, drawBlock, drawBall, drawPaddle, drawShadow, MAT } from './scene.js';
 import { WW, WH, TOOL_TIME, START_LIVES, comboMult } from './game.js';
 
@@ -102,10 +102,17 @@ export function drawGame(g, time) {
   }
 }
 
+// A dark HUD box with a pale rim, as in the scoreboard.
+function frame(x, y, w, h) {
+  rrect(x - 2, y - 2, w + 4, h + 5, 6, PAL.ink);
+  rrect(x - 1, y - 1, w + 2, h + 2, 5, '#5f7a64');
+  rrect(x, y, w, h, 4, '#0d1f16');
+  rect(x + 4, y + 1, w - 8, 1, '#1d3a2a');
+}
+
 export function drawHUD(g, levelLabel) {
   const x = W / 2 - 54;
-  rrect(x - 1, 4, 110, 26, 5, PAL.ink);
-  rrect(x, 5, 108, 24, 4, PAL.panel);
+  frame(x, 5, 108, 24);
   text('LIVES', x + 9, 8, PAL.white, { sp: 2 });
   for (let i = 0; i < START_LIVES; i++) {
     const cx = x + 11 + i * 8;
@@ -120,13 +127,15 @@ export function drawHUD(g, levelLabel) {
   const sc = String(g.score);
   serif(sc, x + 80 - serifW(sc, 16) / 2, 11, 16, PAL.white);
 
-  text(levelLabel, 6, 8, PAL.white, { shadow: PAL.ink });
+  const lw = textW(levelLabel, 1, 2) + 12;
+  frame(5, 6, lw, 15);
+  text(levelLabel, 11, 10, PAL.white, { sp: 2 });
   if (g.combo >= 2 && g.state === 'play') {
     text('COMBO X' + comboMult(g.combo), W / 2, 34, PAL.yellowHi, { align: 'center', shadow: PAL.ink });
   }
 
   // Active tools with their remaining time.
-  let ty = 22;
+  let ty = 27;
   const badge = (id, frac) => {
     disc(13, ty + 7, 8, PAL.ink);
     disc(13, ty + 7, 7, PAL.panel);

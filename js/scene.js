@@ -126,6 +126,21 @@ export function buildLayers() {
       rect(x + Math.cos(a) * d, y + Math.sin(a) * d, 1, 1, rnd() < 0.5 ? '#2f6b3d' : '#122c1b');
     }
   };
+  // A far-off town: dark blocks with a few lit windows, behind the trees.
+  for (let x = 4; x < LW; x += 12 + rnd() * 22) {
+    if (rnd() < 0.35) continue;
+    const bw = 8 + Math.round(rnd() * 12);
+    const bh = 34 + Math.round(rnd() * 26);
+    const top = 96 - bh;
+    rect(x, top, bw, bh, '#1d1a36');
+    rect(x, top, bw, 1, '#2c2850');
+    if (rnd() < 0.3) rect(x + Math.round(bw / 2), top - 4, 1, 4, '#1d1a36');
+    for (let wy = top + 3; wy < 80; wy += 4) {
+      for (let wx = x + 2; wx < x + bw - 2; wx += 3) {
+        if (rnd() < 0.22) rect(wx, wy, 1, 2, rnd() < 0.7 ? '#f6c86a' : '#d98f4a');
+      }
+    }
+  }
   for (let x = 10; x < LW; x += 34) bush(x + rnd() * 10, 84 - rnd() * 8, 12 + rnd() * 7);
   for (let x = 8, i = 0; x < LW; x += 18 + rnd() * 14, i++) cypress(x, 48 + rnd() * 40 - (i % 3) * 6, 4 + rnd() * 3);
   L.trees = trees.canvas;
@@ -183,7 +198,7 @@ export function buildLayers() {
   L.wall = wall.canvas;
 
   // Foreground canopy framing the top corners.
-  const fore = makeLayer(LW, 120);
+  const fore = makeLayer(LW, 190);
   setTarget(fore);
   const canopy = (cx, cy, n, spread) => {
     for (let i = 0; i < n; i++) {
@@ -201,6 +216,26 @@ export function buildLayers() {
   };
   canopy(M - 4, 20, 22, 74);
   canopy(LW - M + 4, 26, 24, 80);
+  // Lower boughs hanging down the sides.
+  const low = 60 + Math.round(H * 0.12);
+  canopy(M - 14, low, 12, 34);
+  canopy(LW - M + 14, low + 6, 12, 34);
+  // Bushes in the bottom corners, drawn over the grass during play.
+  const bushes = makeLayer(80, 44);
+  setTarget(bushes);
+  for (let i = 0; i < 9; i++) {
+    const x = 6 + rnd() * 44;
+    const y = 18 + rnd() * 26 + x * 0.25;
+    const r = 7 + rnd() * 8;
+    disc(x, y, r, '#0f2a19');
+    disc(x - 2, y - 2, r * 0.6, '#1b4428');
+    for (let k = 0; k < r * 1.5; k++) {
+      const a = rnd() * 6.28;
+      const d = rnd() * r;
+      rect(x + Math.cos(a) * d, y + Math.sin(a) * d, 1, 1, rnd() < 0.5 ? '#2f6b3d' : '#0a1f12');
+    }
+  }
+  L.bushes = bushes.canvas;
   L.fore = fore.canvas;
 
   setTarget(null);
@@ -307,6 +342,13 @@ export function drawScene(time) {
     ctx.globalAlpha = 1;
   }
 
+  // Fences and lamp posts down both sides once play is in view.
+  if (cam > 0.45 && P.landing < 1) {
+    ctx.globalAlpha = Math.min(1, (cam - 0.45) / 0.3);
+    drawSides(time);
+    ctx.globalAlpha = 1;
+  }
+
   // The net lowers out of the way as the camera rises.
   if (cam < 0.55) {
     const k = (1 - cam / 0.55) * (1 - P.landing);
@@ -368,8 +410,75 @@ export function drawScene(time) {
     if (Math.sin(time * 3 + q.p) > 0) rect(x + 1, y, 1, 1, '#d9c9c0');
   }
 
+  if (cam > 0.45 && P.landing < 1) {
+    ctx.globalAlpha = Math.min(1, (cam - 0.45) / 0.3);
+    const bh = L.bushes.height;
+    ctx.drawImage(L.bushes, -12, H - bh + 6);
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.drawImage(L.bushes, -W - 12, H - bh + 8);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
   const sway = Math.round(Math.sin(time * 0.8) * 1.4);
   if (P.landing < 1) ctx.drawImage(L.fore, -M + sway - Math.round(P.shift * 0.5), Math.round(-cam * 34 - 4 - P.landing * 110));
+}
+
+// Chain-link fences just outside the hedge borders, and lamp posts whose
+// heads glow and flicker.
+const LAMPS = [8, 92, 176, 260];
+function drawSides(time) {
+  const a0 = ctx.globalAlpha;
+  for (const side of [-1, 1]) {
+    const fx = side < 0 ? -10 : WW + 10;
+    const far = -14;
+    const near = WH + 40;
+    // Mesh: a dark see-through band between the ground and the top rail.
+    const g0 = proj(fx, far);
+    const g1 = proj(fx, near);
+    const t0 = proj(fx, far, 12);
+    const t1 = proj(fx, near, 12);
+    ctx.globalAlpha = a0 * 0.32;
+    ctx.fillStyle = '#0b1a12';
+    ctx.beginPath();
+    ctx.moveTo(g0.x, g0.y);
+    ctx.lineTo(t0.x, t0.y);
+    ctx.lineTo(t1.x, t1.y);
+    ctx.lineTo(g1.x, g1.y);
+    ctx.fill();
+    ctx.globalAlpha = a0;
+    for (let wy = far; wy <= near; wy += 22) {
+      const b = proj(fx, wy);
+      const t = proj(fx, wy, 12);
+      line(b.x, b.y, t.x, t.y, '#1b2a22', b.s > 1 ? 2 : 1);
+    }
+    line(t0.x, t0.y, t1.x, t1.y, '#2b3d31', 1);
+  }
+  // Lamp posts, far to near so nearer ones overlap.
+  for (const ly of LAMPS) {
+    for (const side of [-1, 1]) {
+      const lx = side < 0 ? -18 : WW + 18;
+      const b = proj(lx, ly);
+      const t = proj(lx, ly, 36);
+      if (b.y < P.wb) continue;
+      const pw = Math.max(1, Math.round(1.6 * b.s));
+      rect(Math.round(b.x - pw / 2), t.y, pw, b.y - t.y, '#24221f');
+      rect(Math.round(b.x - pw / 2), t.y, 1, b.y - t.y, '#4a4640');
+      const hw = Math.max(2, Math.round(3 * t.s));
+      const hh = Math.max(3, Math.round(5 * t.s));
+      const flick = Math.sin(time * 6 + ly + side) > 0.8 ? 1 : 0;
+      ctx.globalAlpha = a0 * 0.16;
+      disc(t.x, t.y - hh / 2, Math.round(10 * t.s) + flick, '#ffcf5a');
+      ctx.globalAlpha = a0 * 0.28;
+      disc(t.x, t.y - hh / 2, Math.round(5 * t.s), '#ffe08a');
+      ctx.globalAlpha = a0;
+      rect(t.x - hw - 1, t.y - hh - 1, hw * 2 + 3, hh + 2, '#231f1a');
+      rect(t.x - hw, t.y - hh, hw * 2 + 1, hh, '#ffcf5a');
+      rect(t.x - hw + 1, t.y - hh + 1, hw * 2 - 1, hh - 2, '#fff3b8');
+      rect(t.x - hw - 1, t.y - hh - 2, hw * 2 + 3, 1, '#231f1a');
+    }
+  }
 }
 
 // ---------------------------------------------------------------- sprites

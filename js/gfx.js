@@ -407,6 +407,90 @@ export function racket(cx, cy, dir = 1) {
   rect(cx - dir * 9 - (dir > 0 ? 1 : 0), cy + 10, 3, 2, PAL.yellow);
 }
 
+const GOLD = { o: '#5a3410', d: '#c98a1c', g: '#f2b632', l: '#fff3c4' };
+
+// A gold cup with a star, centred on cx with its rim at y, in pixels of size s.
+// About 24 x 17 units: handles reach 12 units either side.
+export function cup(cx, y, s = 1) {
+  const parts = [];
+  const bowl = [8, 8, 8, 7, 7, 6, 5, 4, 3];
+  bowl.forEach((hw, r) => parts.push([-hw, r, hw * 2, 1, r === 0 ? GOLD.l : GOLD.g]));
+  for (const d of [-1, 1]) {
+    const ox = d < 0 ? -11 : 8;
+    parts.push([ox, 1, 3, 1, GOLD.g], [d < 0 ? -11 : 10, 1, 1, 5, GOLD.g], [d < 0 ? -11 : 6, 5, 5, 1, GOLD.d]);
+  }
+  parts.push([-1, 9, 2, 3, GOLD.d], [-2, 12, 4, 1, GOLD.g], [-1, 13, 2, 1, GOLD.d], [-4, 14, 8, 1, GOLD.g], [-6, 15, 12, 2, GOLD.d]);
+  const R = (x, yy, w, h, c) => rect(cx + x * s, y + yy * s, w * s, h * s, c);
+  for (const [x, yy, w, h] of parts) R(x - 1, yy - 1, w + 2, h + 2, GOLD.o);
+  for (const [x, yy, w, h, c] of parts) R(x, yy, w, h, c);
+  bowl.forEach((hw, r) => {
+    if (r === 0) return;
+    R(-hw + 1, r, 1, 1, GOLD.l);
+    R(hw - 2, r, 1, 1, GOLD.d);
+  });
+  R(-4, 15, 8, 1, GOLD.g);
+  // The star on the bowl.
+  ['..#..', '#####', '.###.', '.#.#.'].forEach((row, r) => {
+    for (let i = 0; i < 5; i++) if (row[i] === '#') R(i - 3, r + 2, 1, 1, GOLD.d);
+  });
+}
+
+// A small trophy icon with a dark drop shadow.
+export function trophy(x, y) {
+  icon('trophy', x + 1, y + 1, GOLD.o);
+  icon('trophy', x, y, GOLD.g);
+  rect(x + 2, y + 1, 1, 3, GOLD.l);
+}
+
+// A laurel branch curving around (cx, cy) on one side (-1 left, 1 right):
+// a stem with leaves in pairs, smaller towards the tip.
+export function laurel(cx, cy, r, side, n = 6, c = '#2f8f6e', hi = '#5cc597') {
+  const at = (t) => {
+    const a = Math.PI * (0.3 + 0.62 * t);
+    return [cx + side * r * Math.sin(a), cy - r * Math.cos(a), a];
+  };
+  for (let i = 0; i <= 24; i++) {
+    const [x, y] = at(i / 24);
+    rect(Math.round(x), Math.round(y), 1, 1, '#1f5e47');
+  }
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const [x, y, a] = at(t);
+    const size = t < 0.25 ? 2 : 3;
+    // Normal to the stem: one leaf outside the curve, one inside.
+    for (const k of [1, -1]) {
+      const lx = Math.round(x + k * side * Math.sin(a) * 2.5);
+      const ly = Math.round(y - k * Math.cos(a) * 2.5 - 1);
+      rect(lx - 1, ly, size, 2, c);
+      rect(lx - 1 + (side < 0 ? size - 1 : 0), ly - 1, 1, 1, c);
+      rect(lx - (side < 0 ? 0 : 1) + (side < 0 ? 0 : 0), ly, 1, 1, hi);
+    }
+  }
+}
+
+// Soft light rays fanning out behind something at (cx, cy).
+export function rays(cx, cy, r0, r1, t, c = PAL.yellow) {
+  const a0 = ctx.globalAlpha;
+  for (let k = 0; k < 14; k++) {
+    const a = Math.PI * (1.05 + (0.9 * k) / 13) + Math.sin(t * 1.3 + k) * 0.03;
+    ctx.globalAlpha = a0 * (k % 2 ? 0.25 : 0.45);
+    line(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0, cx + Math.cos(a) * r1, cy + Math.sin(a) * r1, c);
+  }
+  ctx.globalAlpha = a0;
+}
+
+// A little globe, 13 x 13.
+export function globe(x, y) {
+  disc(x + 6, y + 6, 6, '#0d1430');
+  disc(x + 6, y + 6, 5, '#2f6fd6');
+  rect(x + 3, y + 3, 3, 2, '#4caf50');
+  rect(x + 2, y + 5, 3, 3, '#4caf50');
+  rect(x + 7, y + 2, 2, 2, '#4caf50');
+  rect(x + 7, y + 6, 3, 2, '#4caf50');
+  rect(x + 8, y + 8, 2, 2, '#4caf50');
+  rect(x + 3, y + 2, 1, 1, '#9fd0ff');
+}
+
 // ---------------------------------------------------------------- icons
 
 const ICONS = {

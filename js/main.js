@@ -1,6 +1,6 @@
 // Boot, screen flow, input and the frame loop.
 
-import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, ellipse, text, textW, wrap, blockTitle, sparkle, racket, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
+import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, ellipse, line, text, textW, wrap, blockTitle, sparkle, racket, cup, trophy, laurel, rays, globe, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
 import { P, setCam, buildLayers, drawScene, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
 import { Game, TOOLS, START_LIVES } from './game.js';
 import { sections } from './rules.js';
@@ -458,6 +458,73 @@ function drawIntroBall(t) {
   drawBall(p.x, p.y, lerp(6, 3.4, u));
 }
 
+// Leaderboard with nothing on it: a cup in a burst of light, laurels and rackets.
+function emptyBoard(mid, online, sc) {
+  const cx = Math.round(W / 2);
+  const cy = mid - Math.round((17 * sc + 75) / 2);
+  const tw = Math.floor(S.time * 2) % 2;
+  rays(cx, cy + 6 * sc, 11 * sc, 18 * sc, S.time);
+  laurel(cx - 1, cy + 9 * sc, 16 * sc, -1, sc + 4);
+  laurel(cx, cy + 9 * sc, 16 * sc, 1, sc + 4);
+  cup(cx, cy, sc);
+  sparkle(cx - 18 * sc, cy - 2, 1 + tw, '#ff9a4a');
+  sparkle(cx + 17 * sc, cy - 3, 2 - tw);
+  sparkle(cx - 21 * sc, cy + 9 * sc, 2 - tw);
+  sparkle(cx + 20 * sc, cy + 8 * sc, 1 + tw);
+  sparkle(cx + 18 * sc, cy + 15 * sc, 1, '#ff6fa8');
+  sparkle(cx - 17 * sc, cy + 16 * sc, 1, '#ff6fa8');
+  // "NO SCORES YET", the last word in gold, between red dashes.
+  const a = 'NO SCORES ';
+  const ww = textW(a + 'YET', 2, 1);
+  const tx = cx - Math.round(ww / 2);
+  const ty = cy + 17 * sc + 10;
+  text(a, tx, ty, PAL.cream, { scale: 2 });
+  text('YET', tx + textW(a, 2, 1), ty, PAL.yellow, { scale: 2 });
+  const red = '#e0505a';
+  const lx = tx - 10;
+  const rx = tx + ww + 4;
+  line(lx, ty + 1, lx + 5, ty + 3, red);
+  line(lx, ty + 12, lx + 5, ty + 10, red);
+  rect(lx, ty + 6, 6, 1, red);
+  line(rx, ty + 3, rx + 5, ty + 1, red);
+  line(rx, ty + 10, rx + 5, ty + 12, red);
+  rect(rx, ty + 6, 6, 1, red);
+  text(online ? 'THE ONLINE BOARD IS EMPTY' : 'FINISH A RALLY TO ADD YOURS', cx, ty + 20, '#6f9a7a', { align: 'center' });
+  // Crossed rackets and a ball, between purple dashes.
+  const ry = ty + 46;
+  racket(cx - 8, ry, -1);
+  racket(cx + 8, ry, 1);
+  disc(cx, ry - 10, 3, '#8fb83a');
+  disc(cx, ry - 10, 2, '#c6e04a');
+  rect(cx - 1, ry - 11, 1, 1, '#eef7b0');
+  for (const d of [-1, 1]) {
+    rect(cx + d * 22 - (d < 0 ? 22 : 0), ry + 7, 22, 1, '#7d5bd6');
+    rect(cx + d * 26 - (d < 0 ? 10 : 0), ry + 11, 10, 1, '#5b4bb0');
+    sparkle(cx + d * 36, ry - 3, 1, d < 0 ? PAL.yellow : '#ff6fa8');
+  }
+}
+
+// The purple strip above the buttons: what this board is, or how sending went.
+function infoBox(x, y, w, online, tabs) {
+  const post = S.board.fromRun && tabs ? S.post.state : 'idle';
+  const [title, ...lines] = {
+    sending: ['SENDING YOUR SCORE', 'TO THE ONLINE BOARD...'],
+    sent: ['SAVED ONLINE TOO', 'YOUR SCORE IS ON THE', 'ONLINE BOARD'],
+    error: ['NOT SENT ONLINE', 'TAP HERE TO RETRY', 'IT IS SAVED ON THIS DEVICE'],
+  }[post] || (online ? ['ONLINE LEADERBOARD', 'TOP PLAYERS FROM', 'AROUND THE WORLD'] : ['THIS DEVICE', 'YOUR BEST RUNS, SAVED', 'IN THIS BROWSER']);
+  const hot = post === 'error' && (ui.hover === 'retrypost' || ui.pressed === 'retrypost');
+  rrect(x, y, w, 40, 4, hot ? PAL.yellow : '#5b4bb0');
+  rrect(x + 1, y + 1, w - 2, 38, 3, '#1d1838');
+  if (online || post !== 'idle') globe(x + 6, y + 13);
+  else trophy(x + 7, y + 14);
+  text(title, x + 26, y + 6, PAL.yellow, { sp: 1 });
+  lines.forEach((l, i) => text(l, x + 26, y + 18 + i * 10, '#b9a8ff'));
+  const tw = Math.floor(S.time * 2) % 2;
+  sparkle(x + w - 10, y + 9, 1 + tw, '#ff6fa8');
+  sparkle(x + w - 15, y + 27, 2 - tw);
+  if (post === 'error') region('retrypost', x, y, w, 40, postScore);
+}
+
 const SCREENS = {
   loading(k) {
     const cy = P.wb + (H - P.wb) * 0.42;
@@ -811,63 +878,76 @@ const SCREENS = {
   scores(k) {
     const tabs = onlineEnabled();
     const online = tabs && S.boardTab === 'online';
-    const w = 206;
-    const h = tabs ? 268 : 250;
+    const w = clamp(W - 16, 206, 236);
+    const h = Math.min(H - 12, Math.max(300, Math.min(420, H - 40))); // taller screens get a taller board
     const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
     const board = online ? S.online.rows : save.data.leaderboard;
     const mineAt = online ? -1 : S.board.rank;
     const again = () => beginRun(S.level);
     const home = () => go('title');
+    const tw = Math.floor(S.time * 2) % 2;
     panel(k, x, y, w, h, 'dark', () => {
-      serif('LEADERBOARD', W / 2 + 1, y + 14, 14, PAL.cream, { align: 'center', sp: 2 });
-      let top0 = y + 38;
+      // Heading: arcade title between two trophies.
+      const titleW = blockTitle('LEADERBOARD', W / 2, y + 11, 2);
+      for (const d of [-1, 1]) {
+        const tx = Math.round(W / 2 + d * (titleW / 2 + 13)) - 5;
+        trophy(tx, y + 10);
+        sparkle(tx + 5 + d * 10, y + 7, 1 + tw);
+        sparkle(tx + 5 - d * 9, y + 23, 2 - tw, '#9fd0a8');
+      }
+      const top0 = y + (tabs ? 56 : 38);
       if (tabs) {
         const on = { fill: PAL.yellow, color: PAL.ink, line: PAL.yellow };
-        ghost('tablocal', 'THIS DEVICE', W / 2 - 46, y + 32, 86, 13, () => showBoard('local'), online ? {} : on);
-        ghost('tabonline', 'ONLINE', W / 2 + 46, y + 32, 86, 13, () => showBoard('online'), online ? on : {});
-        top0 = y + 54;
-      } else {
-        rect(W / 2 - 14, y + 30, 28, 1, PAL.cream);
+        const off = { line: '#4d6b55', color: '#8fa48c' };
+        const tw2 = Math.round((w - 30) / 2);
+        ghost('tablocal', 'THIS DEVICE', W / 2 - tw2 / 2 - 3, y + 34, tw2, 14, () => showBoard('local'), online ? off : on);
+        ghost('tabonline', 'ONLINE', W / 2 + tw2 / 2 + 3, y + 34, tw2, 14, () => showBoard('online'), online ? on : off);
       }
-      const mid = top0 + 50;
+      const boxY = y + h - 74;
+      const mid = Math.round((top0 + boxY) / 2);
       if (online && S.online.state === 'loading') {
-        text('LOADING' + '.'.repeat(1 + (Math.floor(S.time * 3) % 3)), W / 2 - 24, mid, PAL.cream, { sp: 2 });
+        text('LOADING' + '.'.repeat(1 + (Math.floor(S.time * 3) % 3)), W / 2 - 24, mid - 4, PAL.cream, { sp: 2 });
       } else if (online && S.online.state === 'error') {
-        text('COULD NOT LOAD ONLINE SCORES', W / 2, mid - 8, PAL.cream, { align: 'center' });
-        text('TRY AGAIN IN A MOMENT', W / 2, mid + 4, PAL.dim, { align: 'center' });
-        ghost('retryonline', 'TRY AGAIN', W / 2, mid + 20, 80, 15, () => loadOnline(true));
+        text('COULD NOT LOAD ONLINE SCORES', W / 2, mid - 14, PAL.cream, { align: 'center' });
+        text('TRY AGAIN IN A MOMENT', W / 2, mid - 2, PAL.dim, { align: 'center' });
+        ghost('retryonline', 'TRY AGAIN', W / 2, mid + 14, 80, 15, () => loadOnline(true));
       } else if (!board.length) {
-        text('NO SCORES YET', W / 2, mid - 2, PAL.cream, { align: 'center', sp: 2 });
-        text(online ? 'THE ONLINE BOARD IS EMPTY' : 'FINISH A RALLY TO ADD YOURS', W / 2, mid + 12, PAL.dim, { align: 'center' });
+        emptyBoard(mid, online, boxY - top0 > 200 ? 3 : 2);
       }
       // Ten rows; if the new score ranks lower, slide the window down to it.
+      const rowH = clamp(Math.floor((boxY - 6 - top0) / 10), 16, 24);
       const first = clamp(mineAt - 9, 0, Math.max(0, board.length - 10));
       const shown = online && S.online.state !== 'ok' ? [] : board.slice(first, first + 10);
+      const MEDAL = ['#f2b632', '#c9d3d6', '#d08a4e'];
       shown.forEach((e, i) => {
-        const ry = top0 + i * 16;
-        const mine = first + i === mineAt;
-        if (mine) rect(x + 10, ry - 1, w - 20, 15, PAL.panelHi);
+        const ry = top0 + i * rowH + Math.floor((rowH - 16) / 2);
+        const rank = first + i;
+        const mine = rank === mineAt;
+        rect(x + 10, ry - 1 - Math.floor((rowH - 16) / 2), w - 20, rowH - 1, mine ? PAL.panelHi : i % 2 ? '#0d2117' : '#132d20');
+        if (mine) {
+          const r0 = ry - 1 - Math.floor((rowH - 16) / 2);
+          rect(x + 10, r0, w - 20, 1, PAL.yellow);
+          rect(x + 10, r0 + rowH - 2, w - 20, 1, PAL.yellow);
+        }
         const c = mine ? PAL.yellow : PAL.cream;
-        text(String(first + i + 1), x + 28, ry + 3, mine ? PAL.yellow : PAL.dim, { align: 'right' });
-        text(e.name, x + 36, ry + 3, c, { sp: 2 });
-        text('C' + e.court, x + 122, ry + 3, PAL.dim);
+        if (rank < 3) {
+          disc(x + 22, ry + 6, 5, '#06120c');
+          disc(x + 22, ry + 6, 4, MEDAL[rank]);
+          text(String(rank + 1), x + 23, ry + 3, PAL.ink, { align: 'center' });
+        } else {
+          text(String(rank + 1), x + 26, ry + 3, mine ? PAL.yellow : PAL.dim, { align: 'right' });
+        }
+        text(e.name, x + 34, ry + 3, c, { sp: 2 });
+        text('C' + e.court, x + w - 74, ry + 3, PAL.dim);
         text(String(e.score), x + w - 16, ry + 3, c, { align: 'right' });
       });
-      const post = S.board.fromRun && tabs ? S.post.state : 'idle';
-      const note = {
-        sending: 'SENDING TO THE ONLINE BOARD...',
-        sent: 'ALSO SAVED ONLINE',
-        error: 'NOT SENT ONLINE. TAP TO RETRY',
-      }[post] || (online ? 'TOP 20 ONLINE' : 'SAVED ON THIS DEVICE');
-      const on = ui.hover === 'retrypost' || ui.pressed === 'retrypost';
-      text(note, W / 2, y + h - 48, post === 'error' ? (on ? PAL.yellow : PAL.cream) : post === 'sent' ? PAL.yellow : '#56695a', { align: 'center' });
-      if (post === 'error') region('retrypost', x + 10, y + h - 52, w - 20, 14, postScore);
+      infoBox(x + 10, boxY, w - 20, online, tabs);
       if (S.board.fromRun) {
         ghost('home', 'HOME', x + 38, y + h - 31, 50, 17, home);
-        pill('again', 'PLAY AGAIN', W / 2 + 28, y + h - 32, 118, 18, again);
+        pill('again', 'PLAY AGAIN', W / 2 + 28, y + h - 32, Math.min(118, w - 88), 18, again);
       } else {
-        ghost('back', 'BACK', W / 2, y + h - 31, 60, 17, home);
+        pill('back', 'BACK', W / 2, y + h - 32, 120, 18, home);
       }
     });
     S.primary = S.board.fromRun ? again : home;

@@ -12,6 +12,7 @@ import functools
 import http.server
 import json
 import pathlib
+import re
 import sys
 import threading
 import time
@@ -21,11 +22,13 @@ from playwright.sync_api import sync_playwright
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHOTS = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else None
 results = []
+MAX_PER_COURT = int(re.search(r"p_court \* (\d+)", (ROOT / "supabase/submit_score.sql").read_text()).group(1))
 SUPABASE_CALLS = []  # any request a test page makes to a real *.supabase.co host
 MOCK = {
     "mode": "ok",
     "key": "test-anon-key",
     "requests": [],
+    "posted": [],  # rows accepted by the stand-in submit_score
     # What a database might hand back, including things the game must not trust.
     "rows": [{"name": "AANYA", "score": 9100, "court": 14, "created_at": "2026-10-01T10:00:00Z"},
              {"name": "<script>x", "score": 7200, "court": 9, "created_at": "2026-10-02T10:00:00Z"},
@@ -60,9 +63,29 @@ def serve():
                 return self.reply(401, {"message": "Invalid API key"})
             self.reply(200, [] if MOCK["mode"] == "empty" else MOCK["rows"])
 
+        # Mirrors supabase/submit_score.sql: the function is the only way in,
+        # and it refuses anything outside the limits written there.
         def do_POST(self):
-            MOCK["requests"].append({"method": "POST", "path": self.path})
-            self.reply(401, {"message": "new row violates row-level security policy"})
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            req = {"method": "POST", "path": self.path, "apikey": self.headers.get("apikey"), "prefer": self.headers.get("Prefer"), "body": body.decode()}
+            MOCK["requests"].append(req)
+            if self.path != "/rest/v1/rpc/submit_score":
+                return self.reply(401, {"message": "permission denied for table"})
+            if MOCK["mode"] == "postfail":
+                return self.reply(500, {"message": "boom"})
+            if self.headers.get("apikey") != MOCK["key"]:
+                return self.reply(401, {"message": "Invalid API key"})
+            try:
+                b = json.loads(body)
+                name, score, court = b["p_name"], b["p_score"], b["p_court"]
+                ok = re.fullmatch(r"[A-Z0-9 .-]{1,8}", name) and name.strip() and 1 <= court <= 120 and 1 <= score <= court * MAX_PER_COURT
+            except Exception:
+                ok = False
+            if not ok:
+                return self.reply(400, {"code": "22023", "message": "invalid"})
+            MOCK["posted"].append({"name": name, "score": score, "court": court})
+            self.send_response(204)
+            self.end_headers()
 
         def reply(self, code, body):
             data = json.dumps(body).encode()
@@ -761,8 +784,8 @@ def rules_menu(d, where, tap=False):
 
 
 def online_board(browser, url):
-    """Read-only online leaderboard, against the stand-in endpoint above."""
-    print("online leaderboard - read only")
+    """Online leaderboard (read, and post a saved run), against the stand-in endpoint above."""
+    print("online leaderboard - read and post")
     origin = url.split("/?")[0]
     seed = RETURNING + "; if(!localStorage.getItem('seeded')){localStorage.setItem('seeded','1'); const d=JSON.parse(localStorage.getItem('the-court.save')); d.leaderboard=[{name:'LOCAL',score:321,court:2,at:1}]; localStorage.setItem('the-court.save', JSON.stringify(d));}"
 
@@ -817,20 +840,76 @@ def online_board(browser, url):
     d.pg.keyboard.press("Escape")
     d.screen("title", 0.6)
 
-    # Finishing a run must not send anything.
-    d.pg.evaluate(BOT)
-    d.ev("__court.S.timeScale=3; __bot.mode='win'; __bot.on=true; __court.beginRun(0)")
-    d.wait("__court.S.screen==='play' && __court.S.game.score>60", 60000)
-    d.ev("__bot.mode='lose'")
-    d.screen("name", 0.8, 240000)
-    d.pg.keyboard.type("me")
-    d.pg.keyboard.press("Enter")
-    d.screen("scores", 0.8)
+    # Finishing a run posts it once, through submit_score only.
+    def finish_run(dd, name):
+        dd.pg.evaluate(BOT)
+        dd.ev("__court.S.timeScale=3; __bot.mode='win'; __bot.on=true; __court.beginRun(0)")
+        dd.wait("__court.S.screen==='play' && __court.S.game.score>60", 60000)
+        dd.ev("__bot.mode='lose'")
+        dd.screen("name", 0.8, 240000)
+        if name is None:
+            dd.click("skip")
+        else:
+            dd.pg.keyboard.type(name)
+            dd.pg.keyboard.press("Enter")
+        dd.screen("scores", 0.8)
+
+    MOCK["posted"].clear()
+    finish_run(d, "me")
+    d.wait("__court.S.post.state==='sent'")
+    posts = [r for r in MOCK["requests"] if r["method"] == "POST"]
+    mine = next((e for e in d.saved()["leaderboard"] if e["name"] == "ME"), None)
+    check("a saved run is sent online once, with the same name, score and court as the device copy",
+          len(posts) == 1 and mine and MOCK["posted"] == [{"name": "ME", "score": mine["score"], "court": mine["court"]}], (posts, mine))
+    check("it goes through the submit_score function with the public key, never straight into the table",
+          posts[0]["path"] == "/rest/v1/rpc/submit_score" and posts[0]["apikey"] == MOCK["key"] and posts[0]["prefer"] == "return=minimal", posts[0])
+    check("the device board is shown with an 'also saved online' note", d.ev("__court.S.boardTab") == "local" and d.ev("__court.S.board.rank") >= 0)
+    d.shot("online-4-sent")
+    n = len([r for r in MOCK["requests"] if r["method"] == "GET"])
+    d.click("tabonline")
+    d.wait("__court.S.online.state==='ok'")
+    check("the Online tab fetches again after a score is sent", len([r for r in MOCK["requests"] if r["method"] == "GET"]) == n + 1)
+    d.click("tablocal")
+    d.pg.keyboard.press("Escape")
+    d.screen("title", 0.6)
+    finish_run(d, None)
     time.sleep(0.5)
-    posts = [r for r in MOCK["requests"] if r["method"] != "GET"]
-    check("saving a score writes to the device only: no insert is sent online", not posts and d.ev("__court.S.boardTab") == "local" and d.saved()["leaderboard"][0]["name"] in ("ME", "LOCAL") and any(e["name"] == "ME" for e in d.saved()["leaderboard"]), posts)
+    check("Skip sends nothing", len(MOCK["posted"]) == 1 and len([r for r in MOCK["requests"] if r["method"] == "POST"]) == 1)
     check("no console errors (online, desktop)", not d.errors, d.errors[:3])
     ctx.close()
+
+    # Sending fails: the device copy stays, a retry is offered, and it works once the server answers.
+    ctx, d = open_board({"width": 1280, "height": 800})
+    d.wait("__court.S.online.state==='ok'")
+    d.pg.keyboard.press("Escape")
+    d.screen("title", 0.6)
+    MOCK["mode"] = "postfail"
+    MOCK["posted"].clear()
+    finish_run(d, "late")
+    d.wait("__court.S.post.state==='error'")
+    check("send failure: score kept on the device, 'tap to retry' offered",
+          d.ev("__court.S.post.error") == "http-500" and any(e["name"] == "LATE" for e in d.saved()["leaderboard"]) and d.ev("__court.ui.regions.some(r=>r.id==='retrypost')"))
+    d.shot("online-5-notsent")
+    MOCK["mode"] = "ok"
+    d.click("retrypost")
+    d.wait("__court.S.post.state==='sent'")
+    time.sleep(0.3)
+    check("retry sends it, exactly once, and the retry link goes away", len(MOCK["posted"]) == 1 and MOCK["posted"][0]["name"] == "LATE" and not d.ev("__court.ui.regions.some(r=>r.id==='retrypost')"))
+    ctx.close()
+
+    # The server limit in submit_score.sql must fit the best score any court can give.
+    c = browser.new_context()
+    c.add_init_script(OFFLINE)
+    pg = c.new_page()
+    pg.goto(url)
+    pg.wait_for_function("window.__court")
+    best = pg.evaluate("""async () => {
+        const g = await import('./js/game.js');
+        const top = Math.max(...Object.values(g.BLOCKS).map(b => b.pts)) * g.comboMult(99);
+        return Math.max(...__court.LEVELS.map(l => l.rows.join('').replace(/[.]/g, '').length * top + g.START_LIVES * g.LIFE_BONUS));
+    }""")
+    check(f"server score limit ({MAX_PER_COURT} per court) is at least the most a court can give ({best})", best <= MAX_PER_COURT, best)
+    c.close()
 
     # 3. Failures are shown, not thrown.
     ctx, d = open_board({"width": 1280, "height": 800}, mode="fail")

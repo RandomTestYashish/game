@@ -1,28 +1,52 @@
-// Online leaderboard: READ ONLY. This file only ever asks the database for
-// the top scores. It never sends a score, and the database is set up to
-// refuse one (see README, "Online leaderboard").
+// Online leaderboard. Reads the top scores, and posts a finished run's score
+// through the database function submit_score (supabase/submit_score.sql).
+// The public key cannot write to the table directly; only that function can,
+// and it checks every value first.
 
 import { CONFIG, onlineEnabled } from './config.js';
 import { cleanName, BOARD_SIZE } from './save.js';
 
 const TIMEOUT_MS = 6000;
 
+const headers = () => ({ apikey: CONFIG.supabaseAnonKey, Authorization: 'Bearer ' + CONFIG.supabaseAnonKey });
+const base = () => CONFIG.supabaseUrl.replace(/\/+$/, '');
+
 // Returns { ok: true, rows } or { ok: false, error }. Never throws.
 export async function fetchTopScores(limit = BOARD_SIZE) {
   if (!onlineEnabled()) return { ok: false, error: 'not-configured' };
-  const base = CONFIG.supabaseUrl.replace(/\/+$/, '');
-  const url = `${base}/rest/v1/${encodeURIComponent(CONFIG.table)}?select=name,score,court&order=score.desc&limit=${limit}`;
+  const url = `${base()}/rest/v1/${encodeURIComponent(CONFIG.table)}?select=name,score,court&order=score.desc&limit=${limit}`;
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
   try {
     const res = await fetch(url, {
-      headers: { apikey: CONFIG.supabaseAnonKey, Authorization: 'Bearer ' + CONFIG.supabaseAnonKey },
+      headers: headers(),
       signal: abort.signal,
     });
     if (!res.ok) return { ok: false, error: 'http-' + res.status };
     const data = await res.json();
     if (!Array.isArray(data)) return { ok: false, error: 'bad-response' };
     return { ok: true, rows: data.map(cleanRow).filter(Boolean).slice(0, limit) };
+  } catch (e) {
+    return { ok: false, error: e && e.name === 'AbortError' ? 'timeout' : 'network' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Post one score. Returns { ok: true } or { ok: false, error }. Never throws.
+export async function submitScore(name, score, court) {
+  if (!onlineEnabled()) return { ok: false, error: 'not-configured' };
+  const body = { p_name: cleanName(name) || 'PLAYER', p_score: Math.floor(score), p_court: Math.floor(court) };
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${base()}/rest/v1/rpc/submit_score`, {
+      method: 'POST',
+      headers: { ...headers(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify(body),
+      signal: abort.signal,
+    });
+    return res.ok ? { ok: true } : { ok: false, error: 'http-' + res.status };
   } catch (e) {
     return { ok: false, error: e && e.name === 'AbortError' ? 'timeout' : 'network' };
   } finally {

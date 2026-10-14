@@ -10,7 +10,7 @@ import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, p
 import { AudioSys } from './audio.js';
 import { Save } from './save.js';
 import { onlineEnabled } from './config.js';
-import { fetchTopScores } from './remote.js';
+import { fetchTopScores, submitScore } from './remote.js';
 
 const canvas = document.getElementById('court');
 initCanvas(canvas);
@@ -68,6 +68,7 @@ const S = {
   board: { rank: -1, fromRun: false },
   boardTab: 'local', // 'local' | 'online' (online only when js/config.js is filled in)
   online: { state: 'idle', rows: [], error: '', at: -99 },
+  post: { state: 'idle', error: '', entry: null }, // sending the last saved run to the online board
   coach: null, // first-time guided rally: { step, t, moved, lastX, toolSeen }
 };
 
@@ -228,7 +229,25 @@ function endRun(title) {
 function saveScore() {
   S.run.saved = true;
   S.board = { rank: save.addScore(S.name, S.run.score, S.level + 1), fromRun: true };
+  S.post = { state: 'idle', error: '', entry: { name: save.data.lastName, score: S.run.score, court: S.level + 1 } };
+  postScore();
   go('scores');
+}
+
+// Send the saved run to the online board. The device copy is already safe,
+// so a failure only offers a retry. Each run is sent at most once.
+async function postScore() {
+  const p = S.post;
+  if (!onlineEnabled() || !p.entry || p.state === 'sending' || p.state === 'sent') return;
+  p.state = 'sending';
+  const res = await submitScore(p.entry.name, p.entry.score, p.entry.court);
+  if (S.post !== p) return; // a newer run has been saved since
+  if (res.ok) {
+    p.state = 'sent';
+    S.online.at = -99; // show the new score next time the Online tab opens
+  } else {
+    Object.assign(p, { state: 'error', error: res.error });
+  }
 }
 
 // Read the shared leaderboard. Results are reused for 30 seconds.
@@ -835,7 +854,15 @@ const SCREENS = {
         text('C' + e.court, x + 122, ry + 3, PAL.dim);
         text(String(e.score), x + w - 16, ry + 3, c, { align: 'right' });
       });
-      text(online ? 'ONLINE BOARD: VIEW ONLY FOR NOW' : 'SAVED ON THIS DEVICE', W / 2, y + h - 48, '#56695a', { align: 'center' });
+      const post = S.board.fromRun && tabs ? S.post.state : 'idle';
+      const note = {
+        sending: 'SENDING TO THE ONLINE BOARD...',
+        sent: 'ALSO SAVED ONLINE',
+        error: 'NOT SENT ONLINE. TAP TO RETRY',
+      }[post] || (online ? 'TOP 20 ONLINE' : 'SAVED ON THIS DEVICE');
+      const on = ui.hover === 'retrypost' || ui.pressed === 'retrypost';
+      text(note, W / 2, y + h - 48, post === 'error' ? (on ? PAL.yellow : PAL.cream) : post === 'sent' ? PAL.yellow : '#56695a', { align: 'center' });
+      if (post === 'error') region('retrypost', x + 10, y + h - 52, w - 20, 14, postScore);
       if (S.board.fromRun) {
         ghost('home', 'HOME', x + 38, y + h - 31, 50, 17, home);
         pill('again', 'PLAY AGAIN', W / 2 + 28, y + h - 32, 118, 18, again);

@@ -70,9 +70,10 @@ js/gfx.js         low-res canvas, drawing primitives, fonts, icons
 js/audio.js       Web Audio effects and music
 js/rules.js       How to Play text, built from the game's constants
 js/config.js      online leaderboard settings (empty = off)
-js/remote.js      read-only fetch of online scores
+js/remote.js      online scores: read the top 20, post a saved run
 js/save.js        save data, migration, storage adapter
 tests/e2e.py      browser test
+supabase/         SQL to run once in Supabase (submit_score)
 ```
 
 - **Rendering and layout.** Everything is drawn in code onto one low-resolution canvas that fills the window and is scaled up with nearest-neighbour sampling. A game pixel is sized so that at least 240 x 320 of them fit; spare room becomes more court and garden (up to 760 wide or 520 tall), so phones, tablets and wide desktops all get a full-bleed view. Screens centre their panels on the canvas width.
@@ -101,45 +102,35 @@ One JSON document in `localStorage` under `the-court.save`:
 
 It is written when a rally ends, when a score is posted and when sound settings change. The leaderboard keeps the best 20 runs **on that device only**: each browser has its own list. `migrate()` validates whatever it loads, so a damaged or older save falls back to defaults field by field. If `localStorage` is blocked, the game keeps the save in memory for the session. "Erase save data" in the Sound panel clears progress and the leaderboard and keeps sound settings.
 
-## Online leaderboard (read-only, optional)
+## Online leaderboard (optional)
 
-Off by default. With `js/config.js` empty the game makes no network calls and the leaderboard is the device one. Fill in two values and the Scores screen gains an **Online** tab that reads the top 20 from a Supabase table. The game does not send scores yet, and the table below does not allow it.
+Off when `js/config.js` is empty: the game makes no network calls and the leaderboard is the device one. With a Supabase project URL and its publishable key filled in, the Scores screen gains an **Online** tab (top 20), and every score the player saves at the end of a run is also sent online. Skip sends nothing. If sending fails, the score is still on the device and the board offers "tap to retry".
 
-**1. Create the table.** In Supabase: SQL Editor, paste, Run.
+**How writing is protected.** The publishable key ships to every visitor, so it must not be able to write freely. `supabase/submit_score.sql` takes insert, update and delete on the table away from that key and adds one database function, `submit_score(name, score, court)`, that checks the values and inserts a single row:
+
+- name: 1-8 characters, A-Z, 0-9, space, dot, dash
+- court: 1-120; score: 1 to court x 7650 (the most a court can give; the test checks this against the game's numbers)
+- at most 30 new scores a minute across the board
+
+No secret key and no server of your own are involved: the function runs inside the database. A score is still worked out in the player's browser, so a determined player could post a fake one within those limits. Stopping that would need the server to replay the rally.
+
+**1. Table.** The game uses an existing table (here `thecourt`) with columns `name text`, `score bigint`, `court bigint`, `at bigint`, `created_at timestamptz`, Row Level Security on, and a SELECT policy for `anon`.
+
+**2. Allow posting.** Supabase: SQL Editor, paste `supabase/submit_score.sql`, Run. To switch posting off again:
 
 ```sql
-create table public.scores (
-  id         bigint generated always as identity primary key,
-  name       text not null check (char_length(name) between 1 and 8),
-  score      integer not null check (score >= 0),
-  court      integer not null default 1 check (court between 1 and 9999),
-  created_at timestamptz not null default now()
-);
-create index scores_top on public.scores (score desc, created_at asc);
-
-alter table public.scores enable row level security;
-
--- Anyone may read. There is deliberately NO insert, update or delete policy,
--- so the public key cannot change the table.
-create policy "public read" on public.scores for select to anon using (true);
-
--- A few rows to see on screen (the SQL editor bypasses the policy):
-insert into public.scores (name, score, court) values ('AANYA', 9100, 14), ('RAVI', 7200, 9), ('MEERA', 6100, 7);
+drop function public.submit_score(text, bigint, bigint);
 ```
 
-**2. Get the two values.** Project Settings, API: copy the **Project URL** and the **anon public** key. Never use the `service_role` key.
-
-**3. Put them in the game.** A static site has no environment variables at run time (the browser cannot read them), so they are written into `js/config.js`:
+**3. Config.** Project Settings, API Keys: copy the **Project URL** and the **publishable** key (`sb_publishable_...`). Never a secret key (`sb_secret_...`) or `service_role`.
 
 ```sh
-SUPABASE_URL=https://YOUR-PROJECT.supabase.co SUPABASE_ANON_KEY=YOUR-ANON-KEY sh scripts/write-config.sh
+SUPABASE_URL=https://YOUR-PROJECT.supabase.co SUPABASE_ANON_KEY=sb_publishable_... SUPABASE_TABLE=thecourt sh scripts/write-config.sh
 ```
 
-or open `js/config.js` and paste them by hand. Then serve the folder as in Setup and open Scores.
+**4. Hosting (GitHub Pages).** A static site has no environment variables at run time, so commit `js/config.js` and push. Both values are public by design; the SQL above is what protects the table.
 
-**4. Hosting (GitHub Pages).** Pages serves the files in the repo, so commit `js/config.js` after step 3 and push. Both values are meant to be public; the policy above is what protects the table. To switch the online board off, run the script with no variables and push.
-
-`js/remote.js` is the only file that talks to the database. It sends one GET, gives up after 6 seconds, and cleans every row (name rules, whole-number scores) before it is shown. Any failure shows a message with Try Again and leaves the rest of the game working.
+`js/remote.js` is the only file that talks to the database: one GET for the top 20 and one POST to `rpc/submit_score` per saved run, each giving up after 6 seconds. Rows that come back are cleaned (name rules, whole-number scores) before they are shown.
 
 ## Database upgrade path
 

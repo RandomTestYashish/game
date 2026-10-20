@@ -180,6 +180,7 @@ function coachText() {
 }
 
 function startLevel(i, level, extra) {
+  S.cleared = null;
   S.level = clamp(i, 0, LEVELS.length - 1);
   S.game = new Game(level || LEVELS[S.level], onGameEvent, Math.random, { lives: S.run.lives, score: S.run.score, ...extra });
   S.ending = 0;
@@ -188,8 +189,10 @@ function startLevel(i, level, extra) {
 }
 
 function nextLevel() {
+  const cleared = S.cleared;
   S.run.lives = S.game.lives; // lives carry over as they are: nothing is refilled between courts
   startLevel(S.level + 1);
+  S.cleared = cleared;
 }
 
 function finish(won) {
@@ -426,7 +429,12 @@ function update(dt) {
     S.ending -= dt;
     if (S.ending <= 0) {
       S.ending = 0;
-      if (S.result.won) go('complete');
+      // A won court rolls straight on into the next one; the countdown
+      // shows how it went. Only the last court stops on Rally Complete.
+      if (S.result.won && S.result.hasNext) {
+        S.cleared = { court: S.level + 1, stars: S.result.stars, score: S.result.score, newBest: S.result.newBest };
+        nextLevel();
+      } else if (S.result.won) go('complete');
       else {
         S.nameTitle = 'RALLY OVER';
         go('name');
@@ -789,6 +797,20 @@ const SCREENS = {
     serif(String(n), W / 2, cy - Math.round(size * 0.35), size, PAL.cream, { align: 'center', shadow: PAL.ink });
     ctx.globalAlpha = k;
     text(LEVELS[S.level].name, W / 2, 34, PAL.white, { align: 'center', sp: 3, shadow: PAL.ink });
+    const c = S.cleared;
+    if (c) {
+      // How the court just won went: no button, it fades with the countdown.
+      const w = 150;
+      const y = 50;
+      rrect(W / 2 - w / 2 - 1, y - 1, w + 2, 47, 6, PAL.ink);
+      rrect(W / 2 - w / 2, y, w, 45, 5, PAL.panel);
+      text('COURT ' + c.court + ' COMPLETE', W / 2, y + 6, PAL.cream, { align: 'center', sp: 1 });
+      for (let s = 0; s < 3; s++) {
+        const lit = s < c.stars && S.t > 0.25 + s * 0.2;
+        icon('star', W / 2 - 22 + s * 17, y + 17, lit ? '#d9a514' : '#4a5a4e', 1);
+      }
+      text((c.newBest ? 'NEW BEST ' : 'SCORE ') + c.score, W / 2, y + 33, c.newBest ? PAL.yellow : PAL.dim, { align: 'center' });
+    }
     ctx.globalAlpha = 1;
     iconBtn('pause', 'pause', W - 23, 7, null);
     S.back = () => go('title');

@@ -538,19 +538,23 @@ def desktop(browser, url):
     d.wait("__court.S.game.score>100", 60000)
     d.shot("10-play")
     check("blocks break and score climbs", True)
-    d.screen("complete", 1.4, 240000)
-    d.shot("11-rally-complete")
+    d.wait("__court.S.ending>0 && __court.S.result && __court.S.result.won", 240000)
+    lives = d.ev("__court.S.game.lives")
+    d.wait("__court.S.level===1 && __court.S.screen==='countdown' && !__court.S.leaving && __court.S.t>0.9", 20000)
+    d.shot("11-court-cleared")
     r = d.ev("__court.S.result")
-    check("court 1 completes -> Rally Complete", r["won"] and r["score"] > 300 and r["newBest"], r)
+    c = d.ev("__court.S.cleared")
+    check("court 1 won -> straight into court 2, no Rally Complete popup and no Next button",
+          r["won"] and r["score"] > 300 and r["newBest"] and not d.ev("__court.ui.regions.some(r=>r.id==='next'||r.id==='replay')"), r)
+    check("the countdown tells the player how court 1 went (stars and score)", c and c["court"] == 1 and c["stars"] == r["stars"] and c["score"] == r["score"] and c["newBest"], c)
     s = d.saved()
     check("win is saved (best score, stars, next court unlocked)", s["progress"]["unlocked"] == 2 and s["progress"]["levels"]["baseline"]["best"] == r["score"] and s["progress"]["levels"]["baseline"]["stars"] == r["stars"], s["progress"])
 
-    # --- Next carries the run; then lose on purpose
-    lives = d.ev("__court.S.game.lives")
-    d.click("next")
+    # --- the next court carries the run; then lose on purpose
     d.screen("play", 0.1, 20000)
+    check("the note goes once the court starts", not d.ev("__court.ui.regions.some(r=>r.id==='next')"))
     g = d.ev("[__court.S.level, __court.S.game.score, __court.S.game.lives]")
-    check("Next carries score; a lost life is not given back", g[0] == 1 and g[1] >= r["run"] and g[2] == lives and lives < 3, {"lives before": lives, "after Next": g[2]})
+    check("moving on carries score; a lost life is not given back", g[0] == 1 and g[1] >= r["run"] and g[2] == lives and lives < 3, {"lives before": lives, "after Next": g[2]})
     d.ev("__bot.mode='lose'")
     d.screen("name", 1.0, 240000)
     run = d.ev("__court.S.run.score")
@@ -631,14 +635,14 @@ def desktop(browser, url):
         for attempt in range(5):
             d.ev(f"__court.S.timeScale=2; __bot.mode='win'; __bot.on=true; __court.save.data.progress.unlocked=120; __court.beginRun({i})")
             d.wait(f"__court.S.level==={i} && __court.S.screen==='play'", 30000)
-            d.wait("(__court.S.screen==='complete'||__court.S.screen==='name') && !__court.S.leaving && __court.S.t>1", 400000)
-            if d.ev("__court.S.screen") == "complete":
+            d.wait(f"(__court.S.screen==='complete'||__court.S.screen==='name'||__court.S.level!=={i}) && !__court.S.leaving && __court.S.t>1", 400000)
+            if d.ev("__court.S.screen") == "complete" or d.ev(f"__court.S.level==={i + 1}"):
                 won = True
                 break
         d.shot(f"14-court-{i + 1}")
         r = d.ev("__court.S.result")
-        check(f"court {i + 1} plays through to Rally Complete", won, {"score": r["score"], "stars": r["stars"], "attempts": attempt + 1})
-    check("last court offers no Next button", d.ev("!__court.ui.regions.some(r=>r.id==='next') && __court.ui.regions.some(r=>r.id==='replay')"))
+        check(f"court {i + 1} plays through and is won", won, {"score": r["score"], "stars": r["stars"], "attempts": attempt + 1})
+    check("the last court (120) still ends on Rally Complete, with no Next button", d.ev("__court.S.screen==='complete' && !__court.ui.regions.some(r=>r.id==='next') && __court.ui.regions.some(r=>r.id==='replay')"))
     d.ev("__bot.on=false; __court.S.timeScale=1")
     d.click("home")
     d.screen("name", 0.6)
@@ -997,11 +1001,10 @@ def first_time(browser, url):
     check("new user: the first tool is Expand, with a hint", d.ev("__court.S.game.drops[0].type") == "expand")
     d.shot("ftue-3-tool")
     check("new user: still not marked onboarded mid-rally", d.ev("__court.save.data.onboarded") is False)
-    d.wait("(__court.S.screen==='complete'||__court.S.screen==='name') && !__court.S.leaving && __court.S.t>1", 300000)
+    d.wait("(__court.S.level===1||__court.S.screen==='name') && !__court.S.leaving && __court.S.t>1", 300000)
     s = d.saved()
     check("new user: finishing the first rally marks them onboarded and saves it", s["onboarded"] is True and d.ev("__court.S.coach") is None, s["onboarded"])
-    if d.ev("__court.S.screen") == "complete":
-        d.click("next")
+    if d.ev("__court.S.level") == 1:
         d.screen("play", 0.3, 20000)
         check("after the tutorial, court 2 is the normal game (auto-serve, full speed, no hints)", d.ev("__court.S.game.state==='play' && __court.S.game.level.speed===__court.LEVELS[1].speed && !__court.ui.regions.some(r=>r.id==='skiptips')"))
     d.ev("__bot.on=false; __court.S.timeScale=1")

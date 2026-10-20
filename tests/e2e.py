@@ -1342,6 +1342,124 @@ def visits_and_names(browser, url):
     ctx.close()
 
 
+def analytics(browser, url):
+    """PostHog: off by default, the official snippet when a project key is set, and the game's events."""
+    print("analytics (PostHog)")
+    origin = url.split("/?")[0]
+    seen = []
+
+    def page(cfg, stub=True, block=False):
+        c = browser.new_context(viewport={"width": 1280, "height": 800})
+        init = RETURNING + f"; window.COURT_CONFIG=Object.assign(window.COURT_CONFIG||{{}}, {cfg})"
+        if stub:  # stands in for the loaded library: records what the game sends
+            init += "; window.__ph=[]; window.posthog={__SV:1, init(k,o){window.__phInit=[k,o]}, capture(e,p){window.__ph.push([e,p])}}"
+        c.add_init_script(init)
+        c.route("**/*posthog.com/**", lambda r: (seen.append(r.request.url), r.abort() if block else r.fulfill(status=200, content_type="text/javascript", body="")))
+        dd = Driver(c.new_page())
+        dd.pg.goto(url)
+        dd.screen("title", 1.0)
+        return c, dd
+
+    # 1. No key (as shipped): nothing loads, nothing is sent.
+    seen.clear()
+    c, d = page("{}", stub=False)
+    d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+    time.sleep(0.5)
+    check("no PostHog key: no PostHog script and no requests", d.ev("typeof window.posthog") == "undefined" and not seen, seen[:2])
+    c.close()
+
+    # 2. A personal API key is refused outright.
+    seen.clear()
+    c, d = page("{posthogKey:'phx_personal', posthogLocal:true}", stub=False)
+    check("a personal API key (phx_) is refused: nothing loads", d.ev("typeof window.posthog") == "undefined" and not seen, seen[:2])
+    c.close()
+
+    # 3. A project key loads the official snippet from the chosen host, with the quiet settings.
+    for region in ("us", "eu"):
+        seen.clear()
+        c, d = page(f"{{posthogKey:'phc_test', posthogHost:'https://{region}.i.posthog.com', posthogLocal:true}}", stub=False)
+        d.wait("window.posthog && window.posthog._i && window.posthog._i.length > 0")
+        key, opts = d.ev("[window.posthog._i[0][0], window.posthog._i[0][1]]")
+        check(f"project key ({region.upper()}): official snippet loads array.js from {region}-assets.i.posthog.com",
+              any(u == f"https://{region}-assets.i.posthog.com/static/array.js" for u in seen) and key == "phc_test" and opts["api_host"] == f"https://{region}.i.posthog.com", seen[:2])
+        check(f"({region.upper()}) no autocapture, no session recording, no surveys, anonymous players",
+              opts["autocapture"] is False and opts["disable_session_recording"] is True and opts["disable_surveys"] is True and opts["person_profiles"] == "identified_only" and opts["defaults"] == "2026-05-30", opts)
+        c.close()
+
+    # 4. Not on localhost unless asked: a real deploy's key does not count test runs.
+    seen.clear()
+    c, d = page("{posthogKey:'phc_test'}", stub=False)
+    check("localhost sends nothing even with a key", d.ev("typeof window.posthog") == "undefined" and not seen)
+    c.close()
+
+    # 5. The events, through real play.
+    MOCK["mode"] = "ok"
+    MOCK["posted"].clear()
+    c, d = page(f"{{posthogKey:'phc_test', posthogLocal:true, supabaseUrl:'{origin}', supabaseAnonKey:'{MOCK['key']}'}}")
+    pg = d.pg
+    pg.evaluate(BOT)
+    d.ev("__court.S.introSeen=true; __court.S.timeScale=3; __bot.mode='win'; __bot.on=true; __court.beginRun(0)")
+    d.wait("__court.S.level===1", 240000)
+    d.ev("__court.S.game.applyTool('expand')")
+    d.ev("__bot.mode='lose'")
+    d.screen("name", 0.5, 240000)
+    d.ev("__bot.on=false; __court.S.timeScale=1")
+    pg.keyboard.type("tester")
+    d.wait("__court.S.nameCheck.name==='TESTER' && __court.S.nameCheck.state==='free'", 5000)
+    pg.keyboard.press("Enter")
+    d.wait("__court.S.post.state==='sent'", 5000)
+    time.sleep(0.2)
+    ev = d.ev("__ph")
+    names = [e[0] for e in ev]
+    by = {}
+    for n_, p_ in ev:
+        by.setdefault(n_, []).append(p_)
+    check("game_started once, at court 1", names.count("game_started") == 1 and by["game_started"][0]["court"] == 1, names[:3])
+    check("court_completed for court 1 with stars and score", by.get("court_completed", [{}])[0].get("court") == 1 and by["court_completed"][0]["stars"] >= 1 and by["court_completed"][0]["score"] > 0)
+    check("powerup_used names the tool", any(p_["powerup"] == "expand" for p_ in by.get("powerup_used", [])), by.get("powerup_used"))
+    check("life_lost for every ball lost (3 in a run that ran out)", len(by.get("life_lost", [])) == 3 and by["life_lost"][-1]["lives_left"] == 0, by.get("life_lost"))
+    check("game_over once, reason out_of_lives, on court 2", names.count("game_over") == 1 and by["game_over"][0]["reason"] == "out_of_lives" and by["game_over"][0]["court"] == 2, by.get("game_over"))
+    check("leaderboard_submit_success after the real post", names.count("leaderboard_submit_success") == 1 and by["leaderboard_submit_success"][0]["score"] == MOCK["posted"][-1]["score"], names)
+    check("events carry no player names", "TESTER" not in json.dumps(ev) and not any("name" in p_ for p_ in by.get("leaderboard_submit_success", [])))
+    order = [n_ for n_ in names if n_ in ("game_started", "court_completed", "game_over", "leaderboard_submit_success")]
+    check("in order: started, completed, over, submitted", order == ["game_started", "court_completed", "game_over", "leaderboard_submit_success"], order)
+
+    # Quit from Pause, then a failed submission.
+    d.ev("__ph.length=0; __court.go('title')")
+    d.screen("title", 0.5)
+    d.ev("__court.beginRun(4)")
+    d.screen("play", 0.3, 20000)
+    d.ev("__court.S.game.score=55")
+    d.click("pause")
+    d.screen("paused", 0.5)
+    d.click("home")
+    d.screen("name", 0.5)
+    MOCK["mode"] = "postfail"
+    pg.keyboard.press("Enter")
+    d.wait("__court.S.post.state==='error'", 5000)
+    names = d.ev("__ph.map(e=>e[0])")
+    gq = d.ev("__ph.find(e=>e[0]==='game_over')")
+    check("Home from Pause: game_over with reason quit", gq and gq[1]["reason"] == "quit" and gq[1]["court"] == 5, gq)
+    check("a refused post: leaderboard_submit_failure with the error", "leaderboard_submit_failure" in names and d.ev("__ph.find(e=>e[0]==='leaderboard_submit_failure')[1].error") == "http-500", names)
+    MOCK["mode"] = "ok"
+    errs = [e for e in d.errors if "status of 500" not in e]  # the refused post above, on purpose
+    check("no console errors (analytics on)", not errs, errs[:3])
+    check("nothing is tracked for a run after it ended", d.ev("__ph.findIndex(e=>e[0]==='game_over')") > d.ev("__ph.map(e=>e[0]).lastIndexOf('life_lost')"), names)
+    c.close()
+
+    # 6. PostHog blocked (ad blocker, offline): the game plays on.
+    seen.clear()
+    c, d = page("{posthogKey:'phc_test', posthogLocal:true}", stub=False, block=True)
+    d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+    d.screen("play", 0.3, 20000)
+    d.ev("__court.S.game.applyTool('expand')")
+    time.sleep(0.3)
+    errs = [e for e in d.errors if "ERR_FAILED" not in e]  # the blocked PostHog script itself
+    check("PostHog blocked: the game still starts and plays, no errors", d.ev("__court.S.screen") == "play" and not errs, errs[:3])
+    c.close()
+    MOCK["posted"].clear()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1359,6 +1477,7 @@ def main():
             themes(browser, url)
             live_place(browser, url)
             visits_and_names(browser, url)
+            analytics(browser, url)
         finally:
             browser.close()
             srv.shutdown()

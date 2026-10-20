@@ -165,6 +165,23 @@ SUPABASE_URL=https://YOUR-PROJECT.supabase.co SUPABASE_ANON_KEY=sb_publishable_.
 
 `js/remote.js` is the only file that talks to the database: one GET for the top 20 and one POST to `rpc/submit_score` per saved run, each giving up after 6 seconds. Rows that come back are cleaned (name rules, whole-number scores) before they are shown.
 
+## Analytics (optional, PostHog)
+
+The PostHog setup wizard (`npx @posthog/wizard`) does not support plain HTML/JS projects, so `js/analytics.js` uses the official PostHog HTML snippet instead. It is off until `js/config.js` has a PostHog **project** API key (`posthogKey: 'phc_...'`, public by design) and the matching `posthogHost` (`https://us.i.posthog.com` or `https://eu.i.posthog.com`). A personal API key (`phx_...`) is refused. Nothing is sent from localhost.
+
+It sends a page view plus these events, with numbers only (no player names). Autocapture, heatmaps, session recording and surveys are off:
+
+| Event | When | Properties |
+|---|---|---|
+| `game_started` | a run starts | `court`, `tutorial` |
+| `court_completed` | a court is won | `court`, `score`, `run_score`, `stars`, `lives_left`, `blocks`, `new_best` |
+| `life_lost` | a ball is lost | `court`, `lives_left`, `run_score` |
+| `powerup_used` | a tool is caught | `powerup`, `court` |
+| `game_over` | a run ends | `reason` (`out_of_lives`, `quit`, `all_courts_cleared`), `court`, `run_score`, `courts_cleared` |
+| `leaderboard_submit_success` / `leaderboard_submit_failure` | after posting to Supabase | `score`, `court` (+ `error` on failure) |
+
+If PostHog is blocked or down, the game is unaffected: every call is wrapped.
+
 ## Database upgrade path
 
 The game never touches `localStorage` directly. `Save` talks to a store with three async methods, and `LocalStore` is the only implementation today:

@@ -16,6 +16,11 @@ const DEFAULTS = {
   supabaseUrl: 'https://cbbdhnzbqocckyyymszc.supabase.co',
   supabaseAnonKey: 'sb_publishable_-i24A5KT1-sMIuI8_f38mA_V3eYeQSm',
   table: 'thecourt',
+  // PostHog analytics (js/analytics.js). Leave the key empty for no analytics.
+  // Use the *project* API key ("phc_..."), from PostHog -> Settings -> Project.
+  // It is public by design. NEVER put a personal API key ("phx_...") here.
+  posthogKey: '',
+  posthogHost: 'https://us.i.posthog.com', // or https://eu.i.posthog.com for EU Cloud
 };
 
 // window.COURT_CONFIG, if a page sets it before the game loads, wins (used by the tests).

@@ -12,6 +12,7 @@ import { AudioSys } from './audio.js';
 import { Save, BOARD_SIZE, cleanName } from './save.js';
 import { onlineEnabled } from './config.js';
 import { fetchTopScores, submitScore, nameTaken } from './remote.js';
+import { initAnalytics, track } from './analytics.js';
 
 const canvas = document.getElementById('court');
 // Screen readers get the canvas label; the theme screen describes its choice there.
@@ -123,6 +124,10 @@ function onGameEvent(type, arg) {
     lastLand = S.time;
   }
   audio.sfx(type, arg);
+  // Analytics only while the run is live: a quit run's ball may still roll out behind the name screen.
+  const live = S.run && !S.run.over;
+  if (live && (type === 'lost' || type === 'over')) track('life_lost', { court: S.level + 1, lives_left: S.game.lives, run_score: S.game.score });
+  if (live && type === 'power') track('powerup_used', { powerup: arg, court: S.level + 1 });
   if (S.coach) coachEvent(type);
   if (type === 'win' || type === 'over') finish(type === 'win');
 }
@@ -131,10 +136,20 @@ function onGameEvent(type, arg) {
 // forward until the player loses, stops, or clears the last court. Lives are
 // only ever reset by starting a new run, which also resets the score to 0.
 function beginRun(i) {
+  quitRun(); // Restart from Pause ends the run that was going
   if (S.coach) return firstRally(); // restarting mid-tutorial restarts the tutorial
-  S.run = { lives: START_LIVES, score: 0, saved: false };
+  S.run = { lives: START_LIVES, score: 0, saved: false, cleared: 0 };
   S.place = null;
   startLevel(i);
+  track('game_started', { court: S.level + 1, tutorial: false });
+}
+
+// Analytics: a run stopped before its end (Home from Pause, Esc on the countdown).
+function quitRun() {
+  if (S.run && S.game && !S.run.over) {
+    S.run.over = true;
+    track('game_over', { reason: 'quit', court: S.level + 1, run_score: S.game.score, courts_cleared: S.run.cleared || 0 });
+  }
 }
 
 // ---- first-time journey ---------------------------------------------------
@@ -147,10 +162,12 @@ function afterIntro() {
 }
 
 function firstRally() {
+  quitRun();
   S.coach = { step: 'move', t: 0, moved: 0, lastX: null, toolSeen: false };
-  S.run = { lives: START_LIVES, score: 0, saved: false };
+  S.run = { lives: START_LIVES, score: 0, saved: false, cleared: 0 };
   S.place = null;
   startLevel(0, { ...LEVELS[0], speed: Math.round(LEVELS[0].speed * 0.8) }, { firstTool: 'expand' });
+  track('game_started', { court: 1, tutorial: true });
 }
 
 function endCoach() {
@@ -229,6 +246,15 @@ function finish(won) {
     hasNext: won && S.level + 1 < LEVELS.length,
   };
   S.ending = won ? 1.2 : 0.9;
+  const court = S.level + 1;
+  if (won) {
+    S.run.cleared = (S.run.cleared || 0) + 1;
+    track('court_completed', { court, score, run_score: g.score, stars: g.stars, lives_left: g.lives, blocks: g.total, new_best: res.newBest });
+  }
+  if (!S.result.hasNext) {
+    S.run.over = true;
+    track('game_over', { reason: won ? 'all_courts_cleared' : 'out_of_lives', court, run_score: g.score, courts_cleared: S.run.cleared });
+  }
 }
 
 // The player is done: offer the leaderboard if there is a score to post.
@@ -292,6 +318,7 @@ async function postScore() {
   p.state = 'sending';
   const res = await submitScore(p.entry.name, p.entry.score, p.entry.court);
   if (S.post !== p) return; // a newer run has been saved since
+  track(res.ok ? 'leaderboard_submit_success' : 'leaderboard_submit_failure', { score: p.entry.score, court: p.entry.court, ...(res.ok ? {} : { error: res.error }) });
   if (res.ok) {
     p.state = 'sent';
     S.online.at = -99;
@@ -917,7 +944,10 @@ const SCREENS = {
     }
     ctx.globalAlpha = 1;
     iconBtn('pause', 'pause', W - 23, 7, null);
-    S.back = () => go('title');
+    S.back = () => {
+      quitRun();
+      go('title');
+    };
   },
 
   play() {
@@ -963,7 +993,10 @@ const SCREENS = {
       ghost('sound', 'SOUND', W / 2, y + 97, 104, 15, openSound);
       ghost('theme', 'THEME', W / 2, y + 118, 104, 15, openTheme);
       ghost('rules', 'HOW TO PLAY', W / 2, y + 139, 104, 15, openRules);
-      ghost('home', 'HOME', W / 2, y + 160, 104, 15, () => endRun('RALLY ENDED'));
+      ghost('home', 'HOME', W / 2, y + 160, 104, 15, () => {
+        quitRun();
+        endRun('RALLY ENDED');
+      });
     });
     S.primary = resume;
     S.back = resume;
@@ -1615,6 +1648,7 @@ async function boot() {
   const fallback = document.getElementById('fallback');
   if (fallback) fallback.hidden = true;
   await save.init();
+  initAnalytics();
   // Each visit opens on a different country than the last one (Automatic
   // theme only; a country picked in Pause stays picked).
   // Kept apart from the save, so a first visit does not create one.

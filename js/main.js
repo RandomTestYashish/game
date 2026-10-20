@@ -259,14 +259,22 @@ async function postScore() {
 }
 
 // Read the shared leaderboard. Results are reused for 30 seconds.
+// Rows already on screen stay there while a refresh is under way, and a
+// refresh asked for mid-request runs straight after it instead of being lost.
 async function loadOnline(force) {
   const o = S.online;
-  if (o.state === 'loading' || (!force && o.state === 'ok' && S.time - o.at < 30)) return;
+  if (o.state === 'loading') {
+    if (force) o.again = true;
+    return;
+  }
+  if (!force && o.state === 'ok' && S.time - o.at < 30) return;
   o.state = 'loading';
+  o.again = false;
   const res = await fetchTopScores();
   o.at = S.time;
   if (res.ok) Object.assign(o, { state: 'ok', rows: res.rows, error: '' });
   else Object.assign(o, { state: 'error', rows: [], error: res.error });
+  if (o.again) loadOnline(true);
 }
 
 function showBoard(tab) {
@@ -619,9 +627,9 @@ const SCREENS = {
       rect(sx, sy - arm, 1, arm * 2 + 1, '#ffffff');
     }
     const y = wb + 46 + Math.round(H * 0.04) + Math.round((1 - k) * 8);
-    pill('play', 'PLAY', W / 2, y, 118, 23, () => go('themes'), { scale: 2, sp: 3, pulse: S.time });
+    pill('play', 'PLAY', W / 2, y, 118, 23, openThemes, { scale: 2, sp: 3, pulse: S.time });
     ctx.globalAlpha = 1;
-    S.primary = () => go('themes');
+    S.primary = openThemes;
   },
 
   themes(k) {
@@ -968,7 +976,8 @@ const SCREENS = {
       }
       const boxY = y + h - 74;
       const mid = Math.round((top0 + boxY) / 2);
-      if (online && S.online.state === 'loading') {
+      const refreshing = online && S.online.state === 'loading' && S.online.rows.length > 0;
+      if (online && S.online.state === 'loading' && !refreshing) {
         text('LOADING' + '.'.repeat(1 + (Math.floor(S.time * 3) % 3)), W / 2 - 24, mid - 4, PAL.cream, { sp: 2 });
       } else if (online && S.online.state === 'error') {
         text('COULD NOT LOAD ONLINE SCORES', W / 2, mid - 14, PAL.cream, { align: 'center' });
@@ -980,7 +989,7 @@ const SCREENS = {
       // Ten rows; if the new score ranks lower, slide the window down to it.
       const rowH = clamp(Math.floor((boxY - 6 - top0) / 10), 16, 24);
       const first = clamp(mineAt - 9, 0, Math.max(0, board.length - 10));
-      const shown = online && S.online.state !== 'ok' ? [] : board.slice(first, first + 10);
+      const shown = online && S.online.state !== 'ok' && !refreshing ? [] : board.slice(first, first + 10);
       const MEDAL = ['#f2b632', '#c9d3d6', '#d08a4e'];
       shown.forEach((e, i) => {
         const ry = top0 + i * rowH + Math.floor((rowH - 16) / 2);
@@ -1096,6 +1105,12 @@ function themeCard(c, cx, cy, cw, ch, ph, picked, nowTag, pick) {
 // Theme screen, between the landing screen and the game: Automatic or one
 // country. The background follows the highlighted choice; Continue saves it.
 const PICKS = ['auto', ...COUNTRIES.map((c) => c.id)];
+// Start from the saved choice at once, so the background does not flash an
+// unsaved pick from an earlier visit while the screen slides in.
+function openThemes() {
+  S.themePick = save.data.settings.theme;
+  go('themes');
+}
 function continueFromThemes() {
   save.data.settings.theme = S.themePick;
   save.commit();

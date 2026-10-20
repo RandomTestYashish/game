@@ -15,7 +15,8 @@ export const COUNTRIES = [
     court: { court: '#315E45', alt: '#3E7455', lines: '#E9E8C6' },
     black: { court: '#090D12', alt: '#111923', lines: '#F2B4D0' },
     bg: {
-      sky: ['#171B3B', '#1f1d44', '#32234D', '#4f2a5e', '#86396c', '#D75A78', '#ec8a86'],
+      sky: ['#171B3B', '#24204d', '#3d2660', '#6e2d6c', '#a8407a', '#D75A78', '#f7a0a8'],
+      sun: { x: -54, lift: 16, r: 9, c: '#ffd0d8', band: '#f59ab0', glow: '#ffc0d0' },
       clouds: ['#3a2a5c', '#b9566f'],
       hills: ['#2a2a52', '#1d2b3a'],
       trees: { dark: '#123D2B', hi: '#2a6044', shade: '#0b2a1d', bush: '#163f2b', bushHi: '#21573a' },
@@ -34,7 +35,8 @@ export const COUNTRIES = [
     court: { court: '#244F43', alt: '#315F51', lines: '#E7E7CF' },
     black: { court: '#070A10', alt: '#101722', lines: '#8CD9FF' },
     bg: {
-      sky: ['#10182F', '#1a1d3c', '#29234A', '#5a2f58', '#a8434f', '#E95B4B', '#FF9B4A'],
+      sky: ['#10182F', '#1b2350', '#2f2a5e', '#73306a', '#c2464f', '#E95B4B', '#FF9B4A'],
+      sun: { x: 40, lift: 10, r: 12, c: '#ffc76a', band: '#ff9b4a', glow: '#ffb35c' },
       clouds: ['#33284f', '#c45a4f'],
       hills: ['#22263f', '#181e30'],
       trees: { dark: '#10261f', hi: '#1f4636', shade: '#09180f', bush: '#13291f', bushHi: '#1d3d2c' },
@@ -52,7 +54,7 @@ export const COUNTRIES = [
     court: { court: '#24553A', alt: '#326744', lines: '#E8E4C9' },
     black: { court: '#080B0C', alt: '#131916', lines: '#F0C68B' },
     bg: {
-      sky: ['#171C35', '#231f3f', '#393051', '#53395b', '#704462', '#8B5369', '#b0736f'],
+      sky: ['#171C35', '#252649', '#393051', '#584266', '#7a5070', '#a0607a', '#d49a8a'],
       clouds: ['#3b3352', '#8b5a6a'],
       hills: ['#2a2c45', '#1d2d2a'],
       trees: { dark: '#15301f', hi: '#2c5a38', shade: '#0f2417', bush: '#1a3d26', bushHi: '#225030' },
@@ -70,7 +72,8 @@ export const COUNTRIES = [
     court: { court: '#42653A', alt: '#527642', lines: '#F2E4BD' },
     black: { court: '#0B0A0A', alt: '#1A1412', lines: '#FFD19A' },
     bg: {
-      sky: ['#241B39', '#3a2140', '#79394F', '#a8474a', '#D75E3E', '#ec8a4a', '#FFAD5C'],
+      sky: ['#241B39', '#4a2142', '#79394F', '#b44a42', '#D75E3E', '#f08a3e', '#FFC46E'],
+      sun: { x: -20, lift: 8, r: 15, c: '#ffe08a', band: '#ffad5c', glow: '#ffc96b' },
       clouds: ['#4d2a48', '#d0704a'],
       hills: ['#5a3446', '#3b2a33'],
       trees: { dark: '#1d3a22', hi: '#3a6a34', shade: '#132816', bush: '#24442a', bushHi: '#335f36' },

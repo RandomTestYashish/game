@@ -1087,6 +1087,9 @@ def themes(browser, url):
     d.screen("title", 0.5)
     check("Back returns to the landing screen without saving", d.ev("__court.save.data.settings.theme") == "auto")
     d.click("play", raw=True)
+    time.sleep(0.05)
+    check("reopening shows the saved theme from the first frame (no flash of the old unsaved pick)",
+          d.ev("__court.S.themePick") == "auto" and d.ev("__court.currentTheme().countryId") == d.ev("__court.getCourtTheme(__court.S.level+1).countryId"))
     d.screen("themes", 0.5)
     check("the theme screen opens on the saved choice again", d.ev("__court.S.themePick") == "auto")
     d.click("theme-london")

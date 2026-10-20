@@ -81,21 +81,21 @@ export function layersFor(t) {
 }
 
 // Switch theme. A change of country or surface cross-fades over ~350 ms.
+// Both scenes are drawn live during the fade, from the same camera, so
+// nothing slides or ghosts while the camera is moving.
 const FADE = 0.35;
-let snap = null;
-let frozen = null;
+let prev = null;
+let fadeLayer = null;
 let fadeT = 1;
+let lastT = null;
 export function setTheme(t) {
   if (theme && t.key === theme.key) return;
-  const first = !theme;
-  theme = t;
-  L = layersFor(t);
-  if (!first && snap) {
-    if (!frozen || frozen.canvas.width !== W || frozen.canvas.height !== H) frozen = makeLayer(W, H);
-    frozen.clearRect(0, 0, W, H);
-    frozen.drawImage(snap.canvas, 0, 0);
+  if (theme) {
+    prev = theme;
     fadeT = 0;
   }
+  theme = t;
+  L = layersFor(t);
 }
 export const currentTheme = () => theme;
 
@@ -135,17 +135,22 @@ function makeLayers(id, T) {
   // Sky: banded dusk gradient with dithered seams.
   const SKY = T.sky;
   const skyH = Math.round(0.58 * H) + 14;
+  // Written straight into pixels: drawing it one rectangle per pixel froze
+  // the game for a moment the first time a country appeared.
   const sky = makeLayer(W, skyH);
-  setTarget(sky);
+  const img = sky.createImageData(W, skyH);
+  const px = new Uint32Array(img.data.buffer);
+  const rgba = SKY.map((hex) => {
+    const n = parseInt(hex.slice(1), 16);
+    return (255 << 24) | ((n & 255) << 16) | (((n >> 8) & 255) << 8) | (n >> 16); // little-endian ABGR
+  });
   for (let y = 0; y < skyH; y++) {
     const f = Math.pow(y / (skyH - 1), 1.25) * (SKY.length - 1);
     const i = Math.min(SKY.length - 2, Math.floor(f));
     const frac = Math.max(0, Math.min(1, (f - i - 0.3) / 0.4));
-    for (let x = 0; x < W; x++) {
-      sky.fillStyle = bayer(x, y) < frac ? SKY[i + 1] : SKY[i];
-      sky.fillRect(x, y, 1, 1);
-    }
+    for (let x = 0; x < W; x++) px[y * W + x] = bayer(x, y) < frac ? rgba[i + 1] : rgba[i];
   }
+  sky.putImageData(img, 0, 0);
   out.sky = sky.canvas;
   out.stars = [];
   for (let i = 0; i < Math.round(W / 14); i++) out.stars.push({ x: rnd() * W, y: rnd() * skyH * 0.32, p: rnd() * 6.28, f: 0.6 + rnd() * 1.6 });
@@ -558,17 +563,24 @@ const wrap = (v, n) => ((v % n) + n) % n;
 
 // Sky, stars, drifting clouds and the occasional flock. ref is the horizon
 // height the flock keeps clear of.
-function drawSky(time, skyY, ref) {
-  ctx.drawImage(L.sky, 0, skyY);
+// The whole gradient is fitted between the top of the screen and the
+// horizon, so each theme's sunset colours show in play as well as in menus.
+function drawSky(time, skyY, ref, horizon) {
+  const sh = L.sky.height;
+  const dh = Math.max(40, Math.round(horizon - skyY));
+  const k = dh / sh;
+  ctx.drawImage(L.sky, 0, 0, W, sh, 0, skyY, W, dh);
+  drawSun(horizon);
   for (const s of L.stars) {
     const tw = Math.sin(time * s.f + s.p);
-    if (tw > -0.3) rect(s.x, s.y + skyY, 1, 1, tw > 0.75 ? '#ffffff' : '#cdbfe0');
-    if (tw > 0.93) rect(s.x - 1, s.y + skyY, 3, 1, '#cdbfe0');
+    const sy = Math.round(s.y * k) + skyY;
+    if (tw > -0.3) rect(s.x, sy, 1, 1, tw > 0.75 ? '#ffffff' : '#cdbfe0');
+    if (tw > 0.93) rect(s.x - 1, sy, 3, 1, '#cdbfe0');
   }
   const cw = L.clouds.width;
   const cx0 = -wrap(time * 3.6 - P.shift * P.sRef, cw);
-  ctx.drawImage(L.clouds, Math.round(cx0), skyY);
-  ctx.drawImage(L.clouds, Math.round(cx0) + cw, skyY);
+  ctx.drawImage(L.clouds, 0, 0, cw, sh, Math.round(cx0), skyY, cw, dh);
+  ctx.drawImage(L.clouds, 0, 0, cw, sh, Math.round(cx0) + cw, skyY, cw, dh);
   const bt = wrap(time, 23);
   if (bt < 14) {
     const flap = Math.floor(time * 5) & 1;
@@ -583,6 +595,35 @@ function drawSky(time, skyY, ref) {
 }
 
 export function drawScene(time) {
+  const dt = lastT == null ? 0 : Math.max(0, Math.min(0.1, time - lastT));
+  lastT = time;
+  if (fadeT < 1 && prev) {
+    fadeT = Math.min(1, fadeT + dt / FADE);
+    if (!fadeLayer || fadeLayer.canvas.width !== W || fadeLayer.canvas.height !== H) fadeLayer = makeLayer(W, H);
+    const now = theme;
+    const nowL = L;
+    theme = prev;
+    L = layersFor(prev);
+    setTarget(fadeLayer);
+    fadeLayer.setTransform(1, 0, 0, 1, 0, 0);
+    fadeLayer.clearRect(0, 0, W, H);
+    drawSceneOnce(time);
+    setTarget(null);
+    theme = now;
+    L = nowL;
+    drawSceneOnce(time);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1 - fadeT;
+    ctx.drawImage(fadeLayer.canvas, 0, 0);
+    ctx.restore();
+    if (fadeT >= 1) prev = null;
+    return;
+  }
+  drawSceneOnce(time);
+}
+
+function drawSceneOnce(time) {
   const cam = P.cam;
   const wb = P.wb;
   const sFar = P.kx / P.dFar;
@@ -591,7 +632,7 @@ export function drawScene(time) {
   const treeS = Math.round(P.shift * (P.sRef - sFar * 0.6));
   const hillS = Math.round(P.shift * (P.sRef - sFar * 0.3));
 
-  drawSky(time, Math.round(-cam * 12), wb);
+  drawSky(time, Math.round(-cam * 12), wb, wb - WALL_H - 18);
 
   const wallTop = wb - WALL_H;
   ctx.drawImage(L.hills, -M + hillS, Math.round(wallTop - HILL_H - 30 + cam * 16));
@@ -725,24 +766,31 @@ export function drawScene(time) {
 
   const sway = Math.round(Math.sin(time * 0.8) * 1.4);
   if (P.landing < 1) ctx.drawImage(L.fore, -M + sway - Math.round(P.shift * 0.5), Math.round(-cam * 34 - 4 - P.landing * 110));
-
-  // Theme change: fade the previous scene out over the new one. Otherwise
-  // keep a copy of this frame's scene for the next change.
-  if (fadeT < 1 && frozen) {
-    fadeT = Math.min(1, fadeT + (time - (lastT ?? time)) / FADE);
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalAlpha = 1 - fadeT;
-    ctx.drawImage(frozen.canvas, 0, 0);
-    ctx.restore();
-  } else {
-    if (!snap || snap.canvas.width !== W || snap.canvas.height !== H) snap = makeLayer(W, H);
-    snap.clearRect(0, 0, W, H);
-    snap.drawImage(ctx.canvas, 0, 0);
-  }
-  lastT = time;
 }
-let lastT = null;
+
+// A low sun on the horizon (or a moon high up on a Black Court).
+function drawSun(horizon) {
+  const sun = theme.backgroundPalette.sun;
+  if (theme.isBlackCourt) {
+    const mx = Math.round(W * 0.78 + P.shift * 0.1);
+    const my = Math.round(Math.max(14, horizon * 0.3));
+    ctx.globalAlpha = 0.18;
+    disc(mx, my, 9, '#f4f0d8');
+    ctx.globalAlpha = 1;
+    disc(mx, my, 5, '#f4f0d8');
+    rect(mx + 1, my - 2, 2, 1, '#d8d2b4');
+    rect(mx - 2, my + 1, 1, 1, '#d8d2b4');
+    return;
+  }
+  if (!sun) return;
+  const sx = Math.round(W / 2 + sun.x + P.shift * 0.05);
+  const sy = Math.round(horizon - sun.lift);
+  ctx.globalAlpha = 0.22;
+  disc(sx, sy, sun.r + 5, sun.glow);
+  ctx.globalAlpha = 1;
+  disc(sx, sy, sun.r, sun.c);
+  for (let i = 2; i < sun.r; i += 3) rect(sx - sun.r, sy + i, sun.r * 2 + 1, 1, sun.band);
+}
 
 // Lighten (k > 0) or darken (k < 0) a #rrggbb colour.
 function shade(hex, k) {

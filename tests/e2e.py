@@ -1474,11 +1474,26 @@ def players_and_racket(browser, url):
     time.sleep(0.2)
     hexes = d.ev("""(()=>{const c=document.getElementById('court'), x=c.getContext('2d'), d=x.getImageData(0,0,c.width,c.height).data, s=new Set();
       for(let i=0;i<d.length;i+=4) s.add('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')); return [...s]})()""")
-    want = {"red shirts": "#d8403a", "white shirts": "#eeede4", "blue shirts": "#3a74d8", "skin": "#f0bf8e", "racket frame": "#e3b341", "racket grip": "#9a6a3a", "racket strings": "#8b939e"}
+    want = {"red jerseys": "#e0403a", "yellow jerseys": "#f2c230", "blue jerseys": "#3a72d8", "headbands": "#f4f4ee", "skin": "#f2c39a", "racket frame": "#e3b341", "racket grip": "#9a6a3a", "racket strings": "#8b939e"}
     missing = [k for k, v in want.items() if v not in hexes]
     check("court 1 shows players (shirts, skin) and the racket (frame, strings, grip)", not missing, missing)
     check("the old black paddle is gone", "#22262d" not in hexes)
+    check("no bricks on the court: only players", "#cf6f4f" not in hexes and "#a04d37" not in hexes)
+    # The racket springs when the ball strikes it.
+    d.ev("__court.S.timeScale=1")
+    d.wait("__court.S.game.racket", 20000)
+    hit = d.ev("__court.S.game.racket")
+    check("a paddle strike starts the racket spring (where along the racket it hit)", -1 <= hit["off"] <= 1 and hit["t"] < 0.45, hit)
+    d.wait("!__court.S.game.racket || __court.S.game.racket.t < 0.05", 20000)
     d.shot("players-court1")
+    # The landing screen keeps its bricks, with a few players round them.
+    d.ev("__court.go('title')")
+    d.screen("title", 2.5)
+    hexes = d.ev("""(()=>{const c=document.getElementById('court'), x=c.getContext('2d'), d=x.getImageData(0,0,c.width,c.height).data, s=new Set();
+      for(let i=0;i<d.length;i+=4) s.add('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')); return [...s]})()""")
+    check("landing screen: the brick pyramid is still bricks", all(h in hexes for h in ["#cf6f4f", "#ece3c8", "#3f7d38"]))
+    check("...with players gathered round it", all(h in hexes for h in ["#e0403a", "#3a72d8", "#f2c39a"]))
+    d.shot("players-landing")
     check("no console errors (players)", not d.errors, d.errors[:3])
     ctx.close()
 

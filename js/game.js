@@ -35,6 +35,8 @@ export const SPEED_CAP = 1.55; // times the court's base speed
 export const comboMult = (n) => 1 + Math.min(Math.max(n, 1) - 1, COMBO_CAP) * COMBO_STEP;
 export const brickPoints = (type, n) => Math.round((BLOCKS[type].pts * comboMult(n)) / 5) * 5;
 
+export const RACKET_RING = 0.45; // seconds the racket strings spring after a hit
+
 export const TOOL_TIME = { smash: 7, freeze: 8, expand: 14, lowgrav: 10 };
 
 const WEIGHTS = { shield: 1, multiball: 1.2, smash: 0.9, freeze: 0.9, expand: 1.2, lowgrav: 0.9 };
@@ -61,6 +63,7 @@ export class Game {
     this.fx = { smash: 0, freeze: 0, expand: 0, lowgrav: 0 };
     this.sinceDrop = 0;
     this.shake = 0;
+    this.racket = null; // the last strike on the racket, for its spring (visual only)
     this.paddle = { x: WW / 2, y: PADDLE_Y, w: this.padW, d: 8 };
     this.balls = [];
     this.drops = [];
@@ -169,6 +172,7 @@ export class Game {
   update(dt, axis = 0) {
     this.t += dt;
     this.shake = Math.max(0, this.shake - dt);
+    if (this.racket && (this.racket.t += dt) > RACKET_RING) this.racket = null;
     const p = this.paddle;
 
     if (this.state === 'serve' || this.state === 'play') {
@@ -289,6 +293,7 @@ export class Game {
       ball.speed = Math.min(ball.speed * SPEED_UP, this.level.speed * SPEED_CAP);
       ball.vz = 70;
       this.combo = 0;
+      this.racket = { t: 0, off };
       this.emit('paddle');
       return;
     }

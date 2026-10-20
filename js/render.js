@@ -2,7 +2,7 @@
 
 import { W, ctx, PAL, rect, disc, ring, rrect, text, textW, serif, serifW, icon } from './gfx.js';
 import { proj, drawBlock, drawBall, drawPaddle, drawShadow, MAT } from './scene.js';
-import { WW, WH, TOOL_TIME, START_LIVES, comboMult } from './game.js';
+import { WW, WH, TOOL_TIME, START_LIVES, RACKET_RING, comboMult } from './game.js';
 
 export function drawGame(g, time) {
   const frozen = g.fx.freeze > 0;
@@ -90,7 +90,7 @@ export function drawGame(g, time) {
       drawBall(g0.x, g0.y - ball.z * g0.s - r, r, hot);
     } else if (it.paddle) {
       const p = proj(it.paddle.x, it.paddle.y + it.paddle.d / 2);
-      drawPaddle(p.x, p.y, (it.paddle.w / 2) * p.s, g.fx.expand > 0);
+      drawPaddle(p.x, p.y, (it.paddle.w / 2) * p.s, g.fx.expand > 0, g.racket && { k: 1 - g.racket.t / RACKET_RING, off: g.racket.off });
     }
   }
 

@@ -864,58 +864,70 @@ function drawSides(time) {
 
 // ---------------------------------------------------------------- sprites
 
-// Block materials; `bits` are the colours of the pieces that fly off a hit
-// player (shirt, shirt shade, skin).
+// Block materials: the bricks on the landing screen use top/hi/front/lo;
+// `bits` are the pieces that fly off a hit player (jersey, its shade, skin).
 export const MAT = {
-  T: { top: '#cf6f4f', hi: '#e79069', front: '#a04d37', lo: '#733324', bits: ['#d8403a', '#a12a27', '#f0bf8e'] },
-  L: { top: '#ece3c8', hi: '#fbf6e2', front: '#c9bd9c', lo: '#9d906d', bits: ['#eeede4', '#c4c2b4', '#f0bf8e'] },
-  H: { top: '#3f7d38', hi: '#68ab52', front: '#2b5b29', lo: '#193a1b', bits: ['#3a74d8', '#28519c', '#f0bf8e'] },
-  S: { top: '#454a54', hi: '#69707c', front: '#272b32', lo: '#14171b', bits: ['#ee7a35', '#b4521c', '#f0bf8e'] },
+  T: { top: '#cf6f4f', hi: '#e79069', front: '#a04d37', lo: '#733324', bits: ['#e0403a', '#a82a26', '#f2c39a'] },
+  L: { top: '#ece3c8', hi: '#fbf6e2', front: '#c9bd9c', lo: '#9d906d', bits: ['#f2c230', '#c08f14', '#f2c39a'] },
+  H: { top: '#3f7d38', hi: '#68ab52', front: '#2b5b29', lo: '#193a1b', bits: ['#3a72d8', '#26509e', '#f2c39a'] },
+  S: { top: '#454a54', hi: '#69707c', front: '#272b32', lo: '#14171b', bits: ['#8a4fd0', '#5f2f9c', '#f2c39a'] },
 };
 
 // ---------------------------------------------------------------- players
-// The blocks are drawn as little tennis players standing on their spot: one
-// 14x15 pixel sprite (plus a 1-pixel outline), scaled to the block's width.
-// The shirt shows how many hits a player takes, as the brick colour did.
+// In play the blocks are little tennis players standing on their spot: one
+// 20x21 pixel sprite (plus a 1-pixel outline), scaled to the block's width.
+// Every player wears the same white headband; the jersey says how many hits
+// they take.
 
 const KIT = {
-  T: { shirt: '#d8403a', shade: '#a12a27', band: '#f4f4ee' }, // red, 1 hit
-  L: { shirt: '#eeede4', shade: '#c4c2b4', band: '#d8403a' }, // white, 1 hit
-  H: { shirt: '#3a74d8', shade: '#28519c', band: '#f4f4ee' }, // blue, 2 hits
-  S: { shirt: '#ee7a35', shade: '#b4521c', band: '#2b2b2b' }, // orange, 3 hits
+  T: { c: '#e0403a', C: '#f26b5e', d: '#a82a26', L: '#ffffff' }, // red, 1 hit
+  L: { c: '#f2c230', C: '#ffe07a', d: '#c08f14', L: '#28324a' }, // yellow, 1 hit
+  H: { c: '#3a72d8', C: '#6b9cf0', d: '#26509e', L: '#ffffff' }, // blue, 2 hits
+  S: { c: '#8a4fd0', C: '#b07ef0', d: '#5f2f9c', L: '#f2c230' }, // purple with gold trim, 3 hits
 };
 const PLAYER = [
-  '....hhhhh.....',
-  '...hhhhhhh....',
-  '...bbbbbbb.rr.',
-  '...hssssshrnnr',
-  '...hseseshrnnr',
-  '...hssmsshrnnr',
-  '.....sss...rr.',
-  '..cccccccc..g.',
-  '..sccccccs..g.',
-  '..sccccccsssg.',
-  '...dddddd.....',
-  '...wwwwww.....',
-  '...ww..ww.....',
-  '...kk..kk.....',
-  '...ff..ff.....',
+  '.....oooooo.........',
+  '....oOOoooooo.......',
+  '...ooooooooooo..rrr.',
+  '...bbbbbbbbbbb.rtttr',
+  '...ossssssssso.rtttr',
+  '...ossesssesso.rtttr',
+  '...ossesssesso.rtttr',
+  '...ospssssspso.rtttr',
+  '...ossssmsssso.rtttr',
+  '....SsssssssS...rrr.',
+  '.......sss.......a..',
+  '....CccLLLccc....g..',
+  '...SCcccLcccdS...g..',
+  '...sLLLLLLLLLssssss.',
+  '...sCcccccccdS......',
+  '....ddddddddd.......',
+  '....wwwwwwwww.......',
+  '....wwww.wwww.......',
+  '.....kk...kk........',
+  '.....qq...qq........',
+  '....ffF..ffF........',
 ];
-const SKIN = { h: '#2b1d16', s: '#f0bf8e', e: '#1d1410', m: '#c9845c', w: '#f2f1ea', k: '#e0a874', f: '#3a3a3a', r: '#3b3f46', n: '#c9ced6', g: '#8a5a2b' };
+const SKIN = {
+  o: '#2a1a12', O: '#5a3a26', b: '#f4f4ee', s: '#f2c39a', S: '#d9a074', e: '#1d1410', p: '#f09a8a', m: '#a5523c',
+  w: '#f4f3ec', k: '#e5ac7c', q: '#ffffff', f: '#2e3138', F: '#6b7280', r: '#3b3f46', t: '#cfd5dc', a: '#9aa1ab', g: '#7a4a26',
+};
+const PW = PLAYER[0].length + 2; // with the outline
+const PH = PLAYER.length + 2;
 const sprites = new Map();
 
-// v: '' as new, 'hurt' after a hit, 'hurt2' after two, 'ice' when frozen,
-// 'flash' (white) for the hit flash. flip mirrors it, racket on the left.
+// v: '' as new, 'hurt' after a hit (a drop of sweat), 'hurt2' after two
+// (headband gone too), 'ice' when frozen, 'flash' (white) for the hit flash.
+// flip mirrors it, racket on the left.
 function playerSprite(type, v, flip) {
   const key = type + v + (flip ? '<' : '>');
   let canvas = sprites.get(key);
   if (canvas) return canvas;
-  const k = KIT[type];
-  const col = { ...SKIN, b: v === 'hurt2' ? SKIN.h : k.band, c: v === 'hurt' || v === 'hurt2' ? k.shade : k.shirt, d: k.shade };
-  const x = makeLayer(16, 17);
-  const at = (i) => (flip ? 13 - i : i) + 1;
-  // Outline first, then the pixels over it.
-  x.fillStyle = '#14201a';
+  const col = { ...SKIN, ...KIT[type] };
+  if (v === 'hurt2') col.b = SKIN.o;
+  const x = makeLayer(PW, PH);
+  const at = (i) => (flip ? PLAYER[0].length - 1 - i : i) + 1;
+  x.fillStyle = '#14201a'; // outline first, then the pixels over it
   PLAYER.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && x.fillRect(at(i) - 1, j, 3, 3)));
   PLAYER.forEach((row, j) =>
     [...row].forEach((ch, i) => {
@@ -925,27 +937,28 @@ function playerSprite(type, v, flip) {
     }),
   );
   if (v === 'hurt' || v === 'hurt2') {
-    x.fillStyle = '#9fdcff'; // a drop of sweat
-    x.fillRect(at(2), 4, 1, 2);
+    x.fillStyle = '#9fdcff';
+    x.fillRect(at(2), 5, 1, 2);
+    if (v === 'hurt2') x.fillRect(at(1), 8, 1, 2);
   }
   if (v === 'ice' || v === 'flash') {
     x.globalCompositeOperation = 'source-atop';
     x.fillStyle = v === 'ice' ? 'rgba(191,232,255,0.6)' : '#ffffff';
-    x.fillRect(0, 0, 16, 17);
+    x.fillRect(0, 0, PW, PH);
   }
   canvas = x.canvas;
   sprites.set(key, canvas);
   return canvas;
 }
 
-// Same arguments as the old cuboid: (xl,xr,yn) is the near ground edge,
-// (xlf,xrf,yf) the far one. The player stands on the near edge, as wide as it.
+// Same arguments as a brick: (xl,xr,yn) is the near ground edge, (xlf,xrf,yf)
+// the far one. The player stands on the near edge, as wide as the block.
 export function drawBlock(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
   if (!KIT[type]) return;
   const w = xr - xl;
   if (w < 2) return;
-  const sw = Math.max(3, Math.round((w * 16) / 14));
-  const sh = Math.round((sw * 17) / 16);
+  const sw = Math.max(3, Math.round((w * PW) / (PW - 2)));
+  const sh = Math.round((sw * PH) / PW);
   const x = Math.round((xl + xr) / 2 - sw / 2);
   const y = Math.round(yn) - sh + 1;
   const flip = (seed >>> 3) % 2 === 1;
@@ -954,6 +967,84 @@ export function drawBlock(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
   if (o.flash > 0) {
     ctx.globalAlpha = Math.min(0.8, o.flash * 6);
     ctx.drawImage(playerSprite(type, 'flash', flip), x, y, sw, sh);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// A brick: a cuboid seen from the front and above (the landing screen keeps
+// these).  (xl,xr,yn) is the near ground edge,
+// (xlf,xrf,yf) the far ground edge; h/hf are the wall heights at each edge.
+export function drawBrick(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
+  const m = MAT[type];
+  xl = Math.round(xl);
+  xr = Math.round(xr);
+  yn = Math.round(yn);
+  h = Math.max(2, Math.round(h));
+  const topN = yn - h;
+  const topF = Math.min(topN - 2, Math.round(yf - hf));
+  const w = xr - xl;
+  if (w < 2) return;
+
+  trap(topF, xlf, xrf, topN, xl, xr, m.top);
+  rect(xl, topN, w, h, m.front);
+  rect(xl, topN, w, 1, m.hi);
+  rect(xl, yn - 1, w, 1, m.lo);
+  rect(xr - 1, topN + 1, 1, h - 1, m.lo);
+  trap(topF, xlf, xrf, topF + 1, xlf, xrf, m.hi);
+
+  const rnd = mulberry(seed);
+  const leafy = type === 'H';
+  // Fewer speckles on small blocks: they would not show, and big courts draw a thousand.
+  const n = Math.round((leafy ? 22 : type === 'S' ? 4 : 7) * Math.min(1, (w * h) / 200));
+  const th = topN - topF;
+  for (let i = 0; i < n; i++) {
+    const u = rnd();
+    const v = rnd();
+    const dark = rnd() < 0.5;
+    if (rnd() < 0.45) {
+      const y = topF + 1 + Math.floor(v * (th - 1));
+      const t = th > 1 ? (y - topF) / th : 1;
+      const a = lerp(xlf, xl, t) + 1;
+      const b = lerp(xrf, xr, t) - 2;
+      rect(lerp(a, b, u), y, leafy || rnd() < 0.5 ? 1 : 2, 1, dark ? m.front : m.hi);
+    } else {
+      rect(xl + 1 + u * (w - 3), topN + 1 + v * (h - 3), leafy || rnd() < 0.5 ? 1 : 2, 1, dark ? m.lo : m.top);
+    }
+  }
+
+  if (o.damage > 0) {
+    // Cracks spreading across the front and over the top edge.
+    const crack = mulberry(seed ^ 0x9e3779b9);
+    const count = Math.round(o.damage * 3);
+    for (let c = 0; c < count; c++) {
+      let x = xl + 3 + crack() * (w - 6);
+      for (let y = topN - 2; y < yn - 1; y++) {
+        rect(x, y, 1, 1, m.lo);
+        x += crack() < 0.5 ? -1 : crack() < 0.6 ? 1 : 0;
+        x = Math.max(xl + 1, Math.min(xr - 2, x));
+        if (crack() < 0.12) break;
+      }
+    }
+  }
+
+  if (o.frozen) {
+    ctx.globalAlpha = 0.5;
+    for (let y = topF; y < yn; y++) {
+      const t = y < topN ? (y - topF) / Math.max(1, th) : 1;
+      const a = Math.round(lerp(xlf, xl, t));
+      const b = Math.round(lerp(xrf, xr, t));
+      ctx.fillStyle = PAL.ice;
+      for (let x = a + ((y + a) & 1); x < b; x += 2) ctx.fillRect(x, y, 1, 1);
+    }
+    ctx.globalAlpha = 1;
+    rect(xl + 2, topN + 2, 2, 1, '#ffffff');
+    rect(xl + 2, topN + 3, 1, 1, '#ffffff');
+  }
+
+  if (o.flash > 0) {
+    ctx.globalAlpha = Math.min(0.8, o.flash * 6);
+    trap(topF, xlf, xrf, topN, xl, xr, '#ffffff');
+    rect(xl, topN, w, h, '#ffffff');
     ctx.globalAlpha = 1;
   }
 }
@@ -978,10 +1069,17 @@ export function drawBall(cx, cy, r, hot = false) {
   }
 }
 
-export function drawPaddle(cx, y, hw, glow = false) {
+// hit, right after the ball strikes: { k: 1 fading to 0, off: -1 left end ..
+// 1 right end }. The racket gives like a spring: it dips and bounces back, the
+// strings dent round the impact and ripple out, and the frame flashes.
+export function drawPaddle(cx, y, hw, glow = false, hit = null) {
   cx = Math.round(cx);
   y = Math.round(y);
   hw = Math.round(hw);
+  const k = hit ? Math.max(0, Math.min(1, hit.k)) : 0;
+  const wob = k * Math.sin((1 - k) * Math.PI * 5); // a damped spring, 2.5 bounces
+  const shadowY = y;
+  y += Math.round(wob * 4);
   // A tennis racket lying across the paddle's width: strung head on the
   // left, throat, then the handle with its grip and a red band.
   const left = cx - hw;
@@ -993,14 +1091,17 @@ export function drawPaddle(cx, y, hw, glow = false) {
   const rx = Math.floor(headW / 2);
   const ry = (th - 1) / 2;
   ctx.globalAlpha = 0.32;
-  rrect(left + 1, y - 2, len, 6, 3, '#07140a');
+  rrect(left + 1, shadowY - 2, len, 6, 3, '#07140a');
   ctx.globalAlpha = 1;
+  const ix = cx + Math.round((hit ? hit.off : 0) * hw); // where the ball struck
+  const onHead = k > 0 && Math.abs(ix - hx) < rx - 2;
+  const frame = glow ? PAL.yellowHi : k > 0.75 ? '#fff2a8' : '#e3b341';
   // Handle and shaft first, so the head sits over the join.
   const shaftL = left + headW - 2;
   const handleL = left + Math.round(len * 0.6);
   const right = left + len;
   rect(shaftL, mid - 2, handleL - shaftL, 5, '#1a1206');
-  rect(shaftL, mid - 1, handleL - shaftL, 3, glow ? PAL.yellowHi : '#e3b341');
+  rect(shaftL, mid - 1, handleL - shaftL, 3, frame);
   rect(handleL, mid - 3, right - handleL, 7, '#1a1206');
   rect(handleL + 1, mid - 2, right - handleL - 2, 5, '#9a6a3a');
   for (let gx = handleL + 5; gx < right - 3; gx += 3) rect(gx, mid - 2, 1, 5, '#6e4724'); // grip wrap
@@ -1009,16 +1110,50 @@ export function drawPaddle(cx, y, hw, glow = false) {
   rect(handleL + 1, mid - 2, right - handleL - 2, 1, 'rgba(255,255,255,0.18)');
   // Head: dark rim, gold frame, strung face.
   ellipse(hx, mid, rx + 1, ry + 1, '#1a1206');
-  ellipse(hx, mid, rx, ry, glow ? PAL.yellowHi : '#e3b341');
+  ellipse(hx, mid, rx, ry, frame);
   ellipse(hx, mid, rx - 2, ry - 2, '#262b31');
-  ctx.fillStyle = '#8b939e';
+  // Strings. Struck, they dent round the impact (most at the point, less
+  // further off) and spring back with the racket, lit up where the ball hit.
+  const spread = Math.max(4, rx * 0.45);
+  const dent = (x) => (onHead ? wob * Math.max(3, ry * 0.6) * Math.exp(-((x - ix) * (x - ix)) / (spread * spread)) : 0);
+  const lit = (x) => onHead && k > 0.3 && Math.abs(x - ix) < spread * 0.8;
   for (let dx = -rx + 3; dx <= rx - 3; dx += 2) {
     const half = Math.floor((ry - 2) * Math.sqrt(Math.max(0, 1 - (dx * dx) / ((rx - 2) * (rx - 2)))));
-    if (half > 0) ctx.fillRect(hx + dx, mid - half, 1, half * 2 + 1);
+    if (half <= 0) continue;
+    const x = hx + dx;
+    const sag = Math.round(dent(x));
+    ctx.fillStyle = lit(x) ? '#eef3f8' : '#8b939e';
+    ctx.fillRect(x, mid - half + Math.max(0, sag), 1, half * 2 + 1 - Math.abs(sag));
   }
   for (let dy = -ry + 3; dy <= ry - 3; dy += 2) {
     const half = Math.floor((rx - 2) * Math.sqrt(Math.max(0, 1 - (dy * dy) / ((ry - 2) * (ry - 2)))));
-    if (half > 0) ctx.fillRect(hx - half, mid + dy, half * 2 + 1, 1);
+    if (half <= 0) continue;
+    if (!onHead) {
+      ctx.fillStyle = '#8b939e';
+      ctx.fillRect(hx - half, mid + dy, half * 2 + 1, 1);
+      continue;
+    }
+    // Pixel by pixel, so the string can bow.
+    const edge = 1 - Math.abs(dy) / ry; // the middle strings give the most
+    for (let x = hx - half; x <= hx + half; x++) {
+      ctx.fillStyle = lit(x) ? '#eef3f8' : '#8b939e';
+      ctx.fillRect(x, mid + dy + Math.round(dent(x) * edge), 1, 1);
+    }
+  }
+  if (k > 0) {
+    // A ring rippling out from the strike, and a few lines of force under it.
+    const r = 2 + (1 - k) * (onHead ? rx * 0.9 : 8);
+    ctx.globalAlpha = k * 0.9;
+    ctx.fillStyle = '#fff6c8';
+    for (let a = 0; a < 16; a++) {
+      const t = (a / 16) * Math.PI * 2;
+      ctx.fillRect(Math.round(ix + Math.cos(t) * r), Math.round(mid + Math.sin(t) * r * 0.55), 1, 1);
+    }
+    if (k > 0.45) {
+      ctx.fillStyle = '#ffffff';
+      for (const d of [-4, 0, 4]) ctx.fillRect(ix + d, mid + ry + 3 + Math.round((1 - k) * 4), 1, 3);
+    }
+    ctx.globalAlpha = 1;
   }
   rect(hx - Math.round(rx * 0.5), mid - ry, Math.round(rx), 1, glow ? '#fff6c8' : '#f6d77a'); // shine on the frame
 }

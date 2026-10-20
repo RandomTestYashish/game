@@ -1362,7 +1362,7 @@ def analytics(browser, url):
 
     # 1. No key (as shipped): nothing loads, nothing is sent.
     seen.clear()
-    c, d = page("{}", stub=False)
+    c, d = page("{posthogKey:''}", stub=False)
     d.ev("__court.S.introSeen=true; __court.beginRun(0)")
     time.sleep(0.5)
     check("no PostHog key: no PostHog script and no requests", d.ev("typeof window.posthog") == "undefined" and not seen, seen[:2])

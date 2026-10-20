@@ -19,7 +19,7 @@ const DEFAULTS = {
   // PostHog analytics (js/analytics.js). Leave the key empty for no analytics.
   // Use the *project* API key ("phc_..."), from PostHog -> Settings -> Project.
   // It is public by design. NEVER put a personal API key ("phx_...") here.
-  posthogKey: '',
+  posthogKey: 'phc_rm6zMezF2NFmnoS4xfFr7tKdbRAL7ziTfj4gfWG9Rhmb',
   posthogHost: 'https://us.i.posthog.com', // or https://eu.i.posthog.com for EU Cloud
 };
 

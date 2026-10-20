@@ -73,6 +73,17 @@ Every court is dressed as one of four countries, and every third court has a Bla
 
 On a Black Court the surface turns near-black, the lines take the country's accent colour, and the paddle gets a pale rim so it stays visible. The background stays the country's.
 
+**Music follows the theme.** Each country has its own calm, looping piece, synthesised in `js/audio.js` (`SONGS`):
+
+| Theme | Music |
+|---|---|
+| Japan | Koto plucks on a pentatonic scale over a low drone, a breathy flute line, a woodblock (64 bpm) |
+| New York | Lo-fi jazz: soft electric piano on a ii-V-I, walking bass, brushed hats, swing (76 bpm) |
+| London | Slow baroque: harpsichord broken chords over a held cello, the Westminster chime now and then (68 bpm) |
+| India | Tanpura drone, a sitar-like line bending into the notes of raga Bhupali, soft tabla in keherwa (70 bpm) |
+
+A Black Court plays the same piece at night: about 8% slower, darker and sparser. A change of theme fades one piece into the next over about a second.
+
 **Choosing a theme.** PLAY on the landing screen opens a theme screen first: Automatic or one of the four countries, with the background showing the highlighted one. Continue saves the choice and goes on into the game (Back, or Esc, returns to the landing screen without saving). Arrow keys move the selection and Enter continues. It can be changed later from Pause, then Theme. Automatic follows the rotation. Picking a country keeps that country on every court until Automatic is picked again. The choice is saved with the sound settings (`settings.theme`: `auto`, `japan`, `newyork`, `london` or `india`). A change of theme cross-fades over about 0.35 s.
 
 ## Architecture

@@ -1298,7 +1298,9 @@ function draw() {
   P.landing = easeInOut(S.landing);
   setCam(S.cam + S.pitch, S.shift);
   if (S.screen !== 'themes') say(ARIA);
-  setTheme(S.screen === 'themes' || S.next === 'themes' ? getCourtTheme(S.level + 1, S.themePick) : courtTheme());
+  const look = S.screen === 'themes' || S.next === 'themes' ? getCourtTheme(S.level + 1, S.themePick) : courtTheme();
+  setTheme(look);
+  audio.setSong(look.countryId, look.isBlackCourt); // each country has its own music; Black Courts play it at night
   beginUI();
   S.primary = null;
   S.back = null;

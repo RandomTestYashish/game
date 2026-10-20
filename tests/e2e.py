@@ -1130,6 +1130,8 @@ def themes(browser, url):
         name = f"{t['countryId']}{' black' if t['isBlackCourt'] else ''}"
         check(f"court {court}: {name} is drawn (ground is {colour}, a court colour)", colour.lower() in (pal["court"].lower(), pal["alt"].lower()) and [t["countryId"], t["isBlackCourt"]] == got[court - 1], (colour, pal))
         d.shot(f"theme-c{court}-{name.replace(' ', '-')}")
+        check(f"court {court}: music is the {t['countryId']} song{', night version' if t['isBlackCourt'] else ''}",
+              d.ev("__court.audio.song") == t["countryId"] and d.ev("__court.audio.night") == t["isBlackCourt"])
     check("ball, paddle and HUD still drawn on a Black Court", d.ev("__court.S.game.balls.length>0") and d.ev("__court.S.screen") == "play")
 
     # 3. Picker from the pause menu: changes the look, never the game.
@@ -1151,7 +1153,7 @@ def themes(browser, url):
     d.click("theme-london")
     time.sleep(0.6)
     t = d.ev("__court.currentTheme()")
-    check("picking London applies it at once", t["countryId"] == "london" and t["mode"] == "manual" and d.ev("__court.save.data.settings.theme") == "london")
+    check("picking London applies it at once, music included", t["countryId"] == "london" and t["mode"] == "manual" and d.ev("__court.save.data.settings.theme") == "london" and d.ev("__court.audio.song") == "london")
     time.sleep(0.5)
     check("changing theme leaves court, score, lives, bricks, paddle and ball exactly as they were", d.ev(snap) == before)
     d.click("themedone")

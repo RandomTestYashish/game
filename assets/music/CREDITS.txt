@@ -1,0 +1,13 @@
+Music: "Chiptune Adventures" by Juhani Junkala (SubspaceAudio)
+https://opengameart.org/content/4-chiptunes-adventure
+https://juhanijunkala.com/
+
+Licence: CC0 1.0 Universal (public domain dedication)
+http://creativecommons.org/publicdomain/zero/1.0/
+Credit is not required; it is given here with thanks.
+
+Files (converted from the original WAV release to AAC .m4a, 128 kbps):
+  select.m4a  <- 4. Stage Select   (menus)
+  stage1.m4a  <- 1. Stage 1        (Japan and London courts)
+  stage2.m4a  <- 2. Stage2         (New York and India courts)
+  boss.m4a    <- 3. Boss Fight     (every Black Court)

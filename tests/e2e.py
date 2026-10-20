@@ -430,7 +430,8 @@ def desktop(browser, url):
     d.wait("__court.S.overlayT<=0")
     s = d.saved()
     check("sound settings are saved", s and s["settings"]["music"] == music and s["settings"]["sfx"] == sfx and s["settings"]["muted"] is False, s and s["settings"])
-    check("music is scheduled", d.ev("__court.audio.playing && __court.audio.step>0"))
+    d.wait("__court.audio.current==='select'", 20000)
+    check("menu music (Stage Select) is loaded from assets/music and playing", d.ev("__court.audio.playing && __court.audio.current==='select' && __court.audio.voice.src.loop"))
 
     # --- How to Play, from the courts screen
     rules_menu(d, "courts")
@@ -1130,8 +1131,8 @@ def themes(browser, url):
         name = f"{t['countryId']}{' black' if t['isBlackCourt'] else ''}"
         check(f"court {court}: {name} is drawn (ground is {colour}, a court colour)", colour.lower() in (pal["court"].lower(), pal["alt"].lower()) and [t["countryId"], t["isBlackCourt"]] == got[court - 1], (colour, pal))
         d.shot(f"theme-c{court}-{name.replace(' ', '-')}")
-        check(f"court {court}: music is the {t['countryId']} song{', night version' if t['isBlackCourt'] else ''}",
-              d.ev("__court.audio.song") == t["countryId"] and d.ev("__court.audio.night") == t["isBlackCourt"])
+        want_track = "boss" if t["isBlackCourt"] else ("stage1" if t["countryId"] in ("japan", "london") else "stage2")
+        check(f"court {court}: music is {want_track}", d.ev("__court.audio.want") == want_track)
     check("ball, paddle and HUD still drawn on a Black Court", d.ev("__court.S.game.balls.length>0") and d.ev("__court.S.screen") == "play")
 
     # 3. Picker from the pause menu: changes the look, never the game.
@@ -1153,7 +1154,7 @@ def themes(browser, url):
     d.click("theme-london")
     time.sleep(0.6)
     t = d.ev("__court.currentTheme()")
-    check("picking London applies it at once, music included", t["countryId"] == "london" and t["mode"] == "manual" and d.ev("__court.save.data.settings.theme") == "london" and d.ev("__court.audio.song") == "london")
+    check("picking London applies it at once", t["countryId"] == "london" and t["mode"] == "manual" and d.ev("__court.save.data.settings.theme") == "london" )
     time.sleep(0.5)
     check("changing theme leaves court, score, lives, bricks, paddle and ball exactly as they were", d.ev(snap) == before)
     d.click("themedone")

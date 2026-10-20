@@ -316,6 +316,15 @@ function chooseTheme(choice) {
   save.commit();
 }
 
+// Menus play Stage Select; courts play Stage 1 (Japan, London) or Stage 2
+// (New York, India); every Black Court plays Boss Fight.
+function musicFor(look) {
+  const inGame = GAME_SCREENS.has(S.screen) && S.game;
+  if (!inGame) return 'select';
+  if (look.isBlackCourt) return 'boss';
+  return look.countryId === 'japan' || look.countryId === 'london' ? 'stage1' : 'stage2';
+}
+
 // The theme for the court being played (or last played, in the menus).
 const courtTheme = () => getCourtTheme(S.level + 1, save.data.settings.theme);
 
@@ -1301,7 +1310,7 @@ function draw() {
   if (S.screen !== 'themes') say(ARIA);
   const look = S.screen === 'themes' || S.next === 'themes' ? getCourtTheme(S.level + 1, S.themePick) : courtTheme();
   setTheme(look);
-  audio.setSong(look.countryId, look.isBlackCourt); // each country has its own music; Black Courts play it at night
+  audio.setTrack(musicFor(look));
   beginUI();
   S.primary = null;
   S.back = null;

@@ -1,117 +1,17 @@
 // Synthesised sound effects and a small generative music loop (Web Audio).
 // Nothing is created until the first user gesture calls unlock().
 
-const NOTE = (n) => 440 * Math.pow(2, (n - 69) / 12);
-
-// ---------------------------------------------------------------- songs
-// One calm, looping piece per country, played in eighth-note steps. Each
-// song's step() is called once per step with the step number and its time.
-// Phrases are written out (not random), so a court always sounds the same.
-// A Black Court plays the same song slower, darker and sparser ("night").
-
-export const SONGS = {
-  // Koto plucks over a low drone, a breathy flute line, a woodblock now and then.
-  japan: {
-    bpm: 64,
-    level: 0.75, // songs are evened out to about the same loudness
-    cutoff: 2600,
-    step(a, s, at, n) {
-      const bar = Math.floor(s / 8) % 8;
-      const i = s % 8;
-      const root = [38, 38, 43, 43, 36, 36, 41, 45][bar];
-      if (i === 0) a.drone(NOTE(root), a.beat * 8, 0.12, at);
-      const scale = [62, 63, 67, 69, 72, 74, 75, 79];
-      const koto = [[0, 2, 4, 3], [1, 3, 5, 4], [2, 4, 6, 5], [0, 3, 2, 1]][bar % 4];
-      if (i % 2 === 0 && !(n && i === 6)) a.pluck(NOTE(scale[koto[i / 2]]), 1.4, 0.11, at, { type: 'triangle', cutoff: 2400 });
-      const flute = [
-        [[0, 74, 6], [6, 72, 2]],
-        [[0, 69, 4], [4, 67, 4]],
-        [[2, 72, 6]],
-        [[0, 63, 3], [3, 62, 5]],
-      ][Math.floor(s / 8) % 4];
-      if (Math.floor(s / 32) % 2 === 1 && !n) for (const [st, note, len] of flute) if (st === i) a.flute(NOTE(note), a.beat * len, 0.05, at);
-      if (i === 0 && bar % 2 === 1) a.wood(at, 0.08);
-    },
-  },
-  // Lo-fi jazz: soft electric piano on a ii-V-I, walking bass, brushed hats, swing.
-  newyork: {
-    bpm: 76,
-    level: 1.4,
-    swing: 0.62,
-    cutoff: 2200,
-    step(a, s, at, n) {
-      const bar = Math.floor(s / 8) % 4;
-      const i = s % 8;
-      const chords = [
-        [50, [53, 57, 60, 64]], // Dm9
-        [43, [53, 57, 59, 64]], // G13
-        [48, [52, 55, 59, 62]], // Cmaj9
-        [45, [55, 58, 61, 64]], // A7b9
-      ];
-      const [root, notes] = chords[bar];
-      if (i === 0 || i === 3) for (const m of notes) a.keys(NOTE(m), a.beat * (i === 0 ? 2.6 : 1.4), i === 0 ? 0.045 : 0.03, at);
-      const walk = [[0, 3, 7, 5], [0, 4, 7, 9], [0, 7, 4, 2], [0, 4, 7, 6]][bar];
-      if (i % 2 === 0) a.bass(NOTE(root - 12 + walk[i / 2]), a.beat * 1.8, 0.2, at);
-      if (!n && i % 2 === 1) a.hat(at, i === 3 || i === 7 ? 0.035 : 0.02);
-      if (!n && i === 2) a.hat(at, 0.05, true);
-      const horn = [[[2, 69, 3], [5, 72, 3]], [[1, 71, 2], [4, 67, 4]], [[0, 64, 6]], [[2, 64, 2], [4, 61, 4]]][bar];
-      if (Math.floor(s / 32) % 2 === 1) for (const [st, note, len] of horn) if (st === i) a.horn(NOTE(note), a.beat * len, n ? 0.025 : 0.04, at);
-    },
-  },
-  // A slow baroque garden: harpsichord broken chords over a held cello line,
-  // with the Westminster quarter chime drifting in every other time round.
-  london: {
-    bpm: 68,
-    level: 1.35,
-    cutoff: 2800,
-    step(a, s, at, n) {
-      const bar = Math.floor(s / 8) % 8;
-      const i = s % 8;
-      const prog = [
-        [45, [57, 60, 64]], // Am
-        [50, [57, 62, 65]], // Dm
-        [43, [55, 59, 62]], // G
-        [48, [55, 60, 64]], // C
-        [41, [57, 60, 65]], // F
-        [50, [57, 62, 65]], // Dm
-        [40, [56, 59, 64]], // E
-        [45, [57, 60, 64]], // Am
-      ];
-      const [root, ch] = prog[bar];
-      if (i === 0) a.cello(NOTE(root), a.beat * 7.6, 0.1, at);
-      const order = [0, 1, 2, 1, 0, 2, 1, 2];
-      if (!(n && i % 2 === 1)) a.harpsi(NOTE(ch[order[i]] + (i >= 4 ? 12 : 0)), 0.5, 0.05, at);
-      if (bar === 6 && Math.floor(s / 64) % 2 === 1) {
-        const chime = { 0: 68, 2: 66, 4: 64, 6: 59 }[i];
-        if (chime) a.bell(NOTE(chime), 2.2, 0.06, at);
-      }
-    },
-  },
-  // Tanpura drone, a sitar-like line that bends into its notes, soft tabla.
-  india: {
-    bpm: 70,
-    level: 2.1,
-    cutoff: 2400,
-    step(a, s, at, n) {
-      const i = s % 8;
-      const cyc = Math.floor(s / 8);
-      const drone = [45, 50, 50, 38]; // Pa Sa Sa low-Sa
-      if (i % 2 === 0) a.tanpura(NOTE(drone[(i / 2) % 4]), a.beat * 3.2, 0.07, at);
-      // Raga Bhupali on D: D E F# A B.
-      const phrases = [
-        [[0, 62, 2], [2, 64, 2], [4, 66, 4]],
-        [[0, 69, 3], [3, 66, 1], [4, 64, 4]],
-        [[0, 71, 2], [2, 69, 2], [4, 66, 2], [6, 64, 2]],
-        [[0, 62, 8]],
-      ];
-      const phrase = phrases[cyc % 4];
-      if (cyc % 8 >= 2) for (const [st, note, len] of phrase) if (st === i) a.sitar(NOTE(note), a.beat * len, n ? 0.04 : 0.06, at);
-      // Keherwa: dha ge na ti | na ka dhi na
-      const theka = ['dha', 'ge', 'na', 'ti', 'na', 'ka', 'dhi', 'na'][i];
-      if (cyc % 8 >= 1) a.tabla(theka, at, n ? 0.5 : 1);
-    },
-  },
+// Background music: four CC0 tracks by Juhani Junkala ("Chiptune
+// Adventures", opengameart.org/content/4-chiptunes-adventure), as AAC files
+// in assets/music. They are fetched after the first tap and loop seamlessly.
+export const TRACKS = {
+  select: 'assets/music/select.m4a', // menus
+  stage1: 'assets/music/stage1.m4a', // Japan and London courts
+  stage2: 'assets/music/stage2.m4a', // New York and India courts
+  boss: 'assets/music/boss.m4a', // every Black Court
 };
+const TRACK_GAIN = 0.55; // the files are mastered loud; this sits them under the effects
+const XFADE = 0.9; // seconds to cross-fade from one track to the next
 
 export class AudioSys {
   constructor(settings) {
@@ -119,28 +19,17 @@ export class AudioSys {
     this.ac = null;
     this.playing = false;
     this.timer = null;
-    this.song = 'japan';
-    this.night = false;
+    this.want = 'select'; // the track the game wants now
+    this.current = null; // the track actually playing
+    this.buffers = {};
+    this.loading = {};
   }
 
-  // Pick the music for a theme. A change fades the old song out and the new
-  // one in over about a second; the step counter restarts with the new song.
-  setSong(id, night) {
-    if (!SONGS[id]) return;
-    if (id === this.song && night === this.night) return;
-    const changeSong = id !== this.song;
-    this.song = id;
-    this.night = night;
-    if (!this.ac) return;
-    const t = this.ac.currentTime;
-    const song = SONGS[id];
-    this.tone_.frequency.setTargetAtTime(night ? song.cutoff * 0.55 : song.cutoff, t, 0.4);
-    if (changeSong) {
-      this.songG.gain.cancelScheduledValues(t);
-      this.songG.gain.setTargetAtTime(0, t, 0.15);
-      this.songG.gain.setTargetAtTime(song.level, t + 0.6, 0.3);
-      this.switchAt = t + 0.6;
-    }
+  // Ask for a track; a change cross-fades as soon as it has loaded.
+  setTrack(name) {
+    if (!TRACKS[name]) return;
+    this.want = name;
+    if (this.ac && this.playing && name !== this.current) this.play(name);
   }
 
   unlock() {
@@ -153,24 +42,7 @@ export class AudioSys {
       this.sfxG = this.ac.createGain();
       this.musicG.connect(this.master);
       this.sfxG.connect(this.master);
-      // Music: song bus -> soft low-pass -> music volume, with a quiet echo for space.
-      this.songG = this.ac.createGain();
-      this.tone_ = this.ac.createBiquadFilter();
-      this.tone_.type = 'lowpass';
-      this.tone_.frequency.value = 2400;
-      this.songG.connect(this.tone_);
-      this.tone_.connect(this.musicG);
-      this.echo = this.ac.createDelay(1);
-      this.echo.delayTime.value = 0.42;
-      const fb = this.ac.createGain();
-      fb.gain.value = 0.32;
-      const wet = this.ac.createGain();
-      wet.gain.value = 0.28;
-      this.tone_.connect(this.echo);
-      this.echo.connect(fb);
-      fb.connect(this.echo);
-      this.echo.connect(wet);
-      wet.connect(this.musicG);
+
       this.master.connect(this.ac.destination);
       const len = this.ac.sampleRate * 0.5;
       this.noiseBuf = this.ac.createBuffer(1, len, this.ac.sampleRate);
@@ -326,127 +198,62 @@ export class AudioSys {
   startMusic() {
     if (this.playing || !this.ac) return;
     this.playing = true;
-    this.step = 0;
-    this.nextT = this.ac.currentTime + 0.1;
-    const song = SONGS[this.song];
-    this.tone_.frequency.value = this.night ? song.cutoff * 0.55 : song.cutoff;
-    this.songG.gain.value = song.level;
-    this.timer = setInterval(() => this.schedule(), 90);
+    this.play(this.want);
+    // Fetch the rest in the background so later changes are instant.
+    for (const name in TRACKS) this.load(name);
   }
 
-  schedule() {
-    if (!this.ac || this.ac.state !== 'running') return;
-    if (this.nextT < this.ac.currentTime) this.nextT = this.ac.currentTime + 0.05;
-    this.fill(this.ac.currentTime + 0.3);
-  }
-
-  // Queue every step that starts before `until` (seconds on the audio clock).
-  fill(until) {
-    while (this.nextT < until) {
-      if (this.switchAt && this.nextT >= this.switchAt) {
-        this.switchAt = 0;
-        this.step = 0; // the new song starts from its first bar
-      }
-      const song = SONGS[this.song];
-      const bpm = song.bpm * (this.night ? 0.92 : 1);
-      this.beat = 60 / bpm / 2; // one eighth note
-      const sw = song.swing ? (this.step % 2 ? (1 - song.swing) * 2 : song.swing * 2) : 1;
-      song.step(this, this.step, this.nextT, this.night);
-      this.step++;
-      this.nextT += this.beat * sw;
+  load(name) {
+    if (!this.loading[name]) {
+      this.loading[name] = fetch(TRACKS[name])
+        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('http ' + r.status))))
+        .then((data) => new Promise((ok, bad) => this.ac.decodeAudioData(data, ok, bad)))
+        .then((buf) => (this.buffers[name] = { buf, ...loopPoints(buf) }))
+        .catch(() => {
+          delete this.loading[name]; // try again next time it is asked for
+          return null;
+        });
     }
+    return this.loading[name];
   }
 
-  // ---- instruments (all quiet, all through the song bus) ----
-
-  voice(type, freq, at, dur, vol, o = {}) {
-    const osc = this.ac.createOscillator();
+  async play(name) {
+    const track = this.buffers[name] || (await this.load(name));
+    if (!track || name !== this.want || name === this.current || !this.ac) return;
+    const t = this.ac.currentTime;
+    if (this.voice) {
+      const old = this.voice;
+      old.g.gain.cancelScheduledValues(t);
+      old.g.gain.setValueAtTime(old.g.gain.value, t);
+      old.g.gain.linearRampToValueAtTime(0, t + XFADE);
+      old.src.stop(t + XFADE + 0.05);
+    }
+    const src = this.ac.createBufferSource();
+    src.buffer = track.buf;
+    src.loop = true;
+    src.loopStart = track.start;
+    src.loopEnd = track.end;
     const g = this.ac.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(o.from || freq, at);
-    if (o.from) osc.frequency.exponentialRampToValueAtTime(freq, at + (o.glide || 0.08));
-    if (o.vib) {
-      const lfo = this.ac.createOscillator();
-      const lg = this.ac.createGain();
-      lfo.frequency.value = o.vib;
-      lg.gain.setValueAtTime(0, at);
-      lg.gain.linearRampToValueAtTime(freq * 0.012, at + dur * 0.5);
-      lfo.connect(lg);
-      lg.connect(osc.frequency);
-      lfo.start(at);
-      lfo.stop(at + dur + 0.1);
-    }
-    if (o.detune) osc.detune.value = o.detune;
-    let node = osc;
-    if (o.cutoff) {
-      const f = this.ac.createBiquadFilter();
-      f.type = o.band ? 'bandpass' : 'lowpass';
-      f.frequency.setValueAtTime(o.cutoff, at);
-      if (o.close) f.frequency.exponentialRampToValueAtTime(o.close, at + dur);
-      if (o.q) f.Q.value = o.q;
-      osc.connect(f);
-      node = f;
-    }
-    const atk = o.attack || 0.005;
-    g.gain.setValueAtTime(0.0001, at);
-    g.gain.linearRampToValueAtTime(vol, at + atk);
-    if (o.hold) g.gain.setValueAtTime(vol, at + Math.max(atk, dur - o.hold));
-    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    node.connect(g);
-    g.connect(this.songG);
-    osc.start(at);
-    osc.stop(at + dur + 0.05);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(TRACK_GAIN, t + (this.voice ? XFADE : 0.4));
+    src.connect(g);
+    g.connect(this.musicG);
+    src.start(t, track.start);
+    this.voice = { src, g, name };
+    this.current = name;
   }
+}
 
-  pluck(f, dur, vol, at, o = {}) {
-    this.voice(o.type || 'triangle', f, at, dur, vol, { cutoff: o.cutoff || 2000, close: 300 });
-    this.voice('sine', f * 2, at, dur * 0.4, vol * 0.3);
-  }
-  drone(f, dur, vol, at) {
-    this.voice('sine', f, at, dur, vol, { attack: 0.8, hold: dur * 0.5 });
-    this.voice('triangle', f * 1.5, at, dur, vol * 0.25, { attack: 1.2, hold: dur * 0.4, cutoff: 900 });
-  }
-  flute(f, dur, vol, at) {
-    this.voice('sine', f, at, dur, vol, { attack: 0.18, hold: dur * 0.4, vib: 5, from: f * 0.97, glide: 0.15 });
-    this.noise(Math.min(0.3, dur), vol * 0.25, 3000, { at, out: this.songG, type: 'bandpass' });
-  }
-  wood(at, vol) {
-    this.voice('sine', 880, at, 0.08, vol, { from: 1200, glide: 0.02 });
-  }
-  keys(f, dur, vol, at) {
-    this.voice('sine', f, at, dur, vol, { attack: 0.01 });
-    this.voice('triangle', f, at, dur * 0.6, vol * 0.35, { detune: 6, cutoff: 1800, close: 500 });
-  }
-  bass(f, dur, vol, at) {
-    this.voice('triangle', f, at, dur, vol, { attack: 0.01, cutoff: 600 });
-  }
-  hat(at, vol, snare) {
-    this.noise(snare ? 0.12 : 0.05, vol, snare ? 1800 : 7000, { at, out: this.songG, type: snare ? 'bandpass' : 'highpass' });
-  }
-  horn(f, dur, vol, at) {
-    this.voice('sawtooth', f, at, dur, vol, { attack: 0.06, hold: dur * 0.3, cutoff: 1100, vib: 4.5 });
-  }
-  cello(f, dur, vol, at) {
-    this.voice('sawtooth', f, at, dur, vol, { attack: 0.5, hold: dur * 0.5, cutoff: 700, vib: 4 });
-  }
-  harpsi(f, dur, vol, at) {
-    this.voice('square', f, at, dur, vol, { cutoff: 3200, close: 600 });
-    this.voice('sawtooth', f * 2, at, dur * 0.3, vol * 0.25, { cutoff: 4000, close: 900 });
-  }
-  bell(f, dur, vol, at) {
-    for (const [m, v] of [[1, 1], [2.76, 0.35], [5.4, 0.15]]) this.voice('sine', f * m, at, dur / m ** 0.3, vol * v);
-  }
-  tanpura(f, dur, vol, at) {
-    this.voice('sawtooth', f, at, dur, vol, { attack: 0.02, cutoff: 1400, close: 400, q: 2 });
-    this.voice('sine', f * 2, at, dur * 0.8, vol * 0.4, { attack: 0.3 });
-  }
-  sitar(f, dur, vol, at) {
-    this.voice('sawtooth', f, at, dur, vol, { from: f * 0.94, glide: 0.12, cutoff: 1600, band: true, q: 3, vib: 6 });
-    this.voice('triangle', f * 2, at, dur * 0.5, vol * 0.3, { cutoff: 2600, close: 700 });
-  }
-  tabla(bol, at, k) {
-    const low = bol === 'dha' || bol === 'ge' || bol === 'dhi';
-    if (low) this.voice('sine', 95, at, 0.35, 0.16 * k, { from: 160, glide: 0.08 });
-    if (bol !== 'ge') this.voice('sine', bol === 'ti' || bol === 'ka' ? 520 : 380, at, 0.12, 0.05 * k, { from: 640, glide: 0.03 });
-  }
+// AAC files carry a little encoder silence at each end; loop between the
+// first and last audible samples so the loop has no gap.
+function loopPoints(buf) {
+  const d = buf.getChannelData(0);
+  const quiet = 0.0008;
+  const most = Math.round(buf.sampleRate * 0.08); // encoder padding only, never a musical rest
+  let a = 0;
+  while (a < most && Math.abs(d[a]) < quiet) a++;
+  let b = d.length - 1;
+  while (b > d.length - 1 - most && Math.abs(d[b]) < quiet) b--;
+  if (b - a < buf.sampleRate) return { start: 0, end: buf.duration };
+  return { start: a / buf.sampleRate, end: (b + 1) / buf.sampleRate };
 }

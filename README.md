@@ -1,6 +1,6 @@
 # The Court
 
-A fast 2.5D pixel-art block-breaker set on a garden tennis court at dusk. 120 courts, six tools, a leaderboard, local saves, synthesised sound. Plain HTML, CSS and JavaScript modules: no build step, no dependencies, no image or audio files.
+A fast 2.5D pixel-art block-breaker set on a garden tennis court at dusk. 120 courts, six tools, a leaderboard, local saves, synthesised sound. Plain HTML, CSS and JavaScript modules: no build step, no dependencies, no image files; the only audio files are the four music tracks in `assets/music`.
 
 ## Setup
 
@@ -73,16 +73,16 @@ Every court is dressed as one of four countries, and every third court has a Bla
 
 On a Black Court the surface turns near-black, the lines take the country's accent colour, and the paddle gets a pale rim so it stays visible. The background stays the country's.
 
-**Music follows the theme.** Each country has its own calm, looping piece, synthesised in `js/audio.js` (`SONGS`):
+**Music follows the theme.** The background music is "Chiptune Adventures" by Juhani Junkala (CC0, [opengameart.org](https://opengameart.org/content/4-chiptunes-adventure)), four looping tracks in `assets/music` (see `CREDITS.txt` there):
 
-| Theme | Music |
+| When | Track |
 |---|---|
-| Japan | Koto plucks on a pentatonic scale over a low drone, a breathy flute line, a woodblock (64 bpm) |
-| New York | Lo-fi jazz: soft electric piano on a ii-V-I, walking bass, brushed hats, swing (76 bpm) |
-| London | Slow baroque: harpsichord broken chords over a held cello, the Westminster chime now and then (68 bpm) |
-| India | Tanpura drone, a sitar-like line bending into the notes of raga Bhupali, soft tabla in keherwa (70 bpm) |
+| Landing, theme screen, courts, leaderboard | Stage Select |
+| Japan and London courts | Stage 1 |
+| New York and India courts | Stage 2 |
+| Every Black Court | Boss Fight |
 
-A Black Court plays the same piece at night: about 8% slower, darker and sparser. A change of theme fades one piece into the next over about a second.
+`js/audio.js` fetches the tracks after the first tap (browsers allow sound only after one), loops each one, and cross-fades over about 0.9 s when the track changes. Sound effects are still synthesised.
 
 **Choosing a theme.** PLAY on the landing screen opens a theme screen first: Automatic or one of the four countries, with the background showing the highlighted one. Continue saves the choice and goes on into the game (Back, or Esc, returns to the landing screen without saving). Arrow keys move the selection and Enter continues. It can be changed later from Pause, then Theme. Automatic follows the rotation. Picking a country keeps that country on every court until Automatic is picked again. The choice is saved with the sound settings (`settings.theme`: `auto`, `japan`, `newyork`, `london` or `india`). A change of theme cross-fades over about 0.35 s.
 
@@ -98,7 +98,8 @@ js/scene.js       camera projection, background layers, block/ball/paddle sprite
 js/render.js      draws a Game into the court, plus the HUD
 js/ui.js          buttons, sliders, tilting panels
 js/gfx.js         low-res canvas, drawing primitives, fonts, icons
-js/audio.js       Web Audio effects and music
+js/audio.js       Web Audio effects, and playback of the music tracks
+assets/music/     background music (CC0, see CREDITS.txt)
 js/rules.js       How to Play text, built from the game's constants
 js/themes.js      court themes: colours and getCourtTheme()
 js/config.js      online leaderboard settings (empty = off)

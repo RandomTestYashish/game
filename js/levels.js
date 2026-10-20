@@ -1,6 +1,7 @@
 // Level data: five hand-made courts, then generated ones up to COUNT.
-// Blocks shrink court by court and the grid grows to fill the space: 7 cells
-// by up to 7 rows on court 1, up to 10 by 9 on court 120 (see grid()).
+// Courts come in steps of four: every court in a step has the same block
+// size and the same number of blocks, and each step has more, smaller ones
+// (24 blocks 28 wide on courts 1-4, up to 82 blocks 18 wide; see grid()).
 //   T terracotta (1 hit)   L limestone (1 hit)
 //   H hedge (2 hits)       S slate slab (3 hits)
 // Per level:
@@ -40,14 +41,18 @@ const SHAPES = [
   (c, r, R, d) => Math.abs(d - 1.5) + (Math.abs(r - (R - 1) / 2) * 7) / R <= 2.2,
 ];
 
-// Block size and grid width for court n (0-based). Cells shrink a little on
-// every court; as they do, more of them fit across the court.
+export const STEP = 4;
+
+// Block size, grid width and block count for court n (0-based). All change
+// once every STEP courts: smaller blocks, so more fit across the court.
 export function grid(n) {
-  const t = n / (COUNT - 1);
-  const cell = 28 - 10 * t; // 28 wide on court 1, 18 on court 120
-  const row = 20 - 5 * t; // 20 deep, down to 15
+  const k = Math.floor(n / STEP);
+  const t = k / (Math.ceil(COUNT / STEP) - 1);
+  const cell = 28 - 10 * t; // 28 wide on courts 1-4, 18 on the last step
+  const row = 20 - 6 * t; // 20 deep, down to 14
   const cols = Math.min(10, Math.floor(196 / cell));
-  return { cell, row, cols };
+  const most = Math.min(9, Math.floor(150 / row)); // rows that fit before the paddle's space
+  return { cell, row, cols, most, blocks: 24 + 2 * k };
 }
 
 // Deterministic hash -> [0, 1), so every device generates the same courts.
@@ -57,10 +62,46 @@ function hash(a, b, c) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
+// Add or take away blocks until the court has exactly `want`. Cells are
+// visited in a fixed hashed order and changed in mirrored pairs where that
+// fits, so courts stay symmetrical; the outer cells of sliding rows stay empty.
+function fit(cells, want, move, n) {
+  const R = cells.length;
+  const C = cells[0].length;
+  let have = cells.flat().filter((c) => c !== '.').length;
+  const order = [];
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) order.push([r, c, hash(n, r + 90, c + 90)]);
+  order.sort((a, b) => a[2] - b[2]);
+  const near = (r, c) => {
+    for (const [dr, dc] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const v = cells[r + dr] && cells[r + dr][c + dc];
+      if (v && v !== '.') return v;
+    }
+    return r % 2 ? 'L' : 'T';
+  };
+  for (const pairs of [true, false]) {
+    for (const [r, c] of order) {
+      const diff = want - have;
+      if (diff === 0) return;
+      const m = C - 1 - c;
+      if (pairs && m < c) continue; // each pair once, from its left cell
+      const spots = pairs && m !== c ? [c, m] : [c];
+      if (spots.length > Math.abs(diff)) continue;
+      const add = diff > 0;
+      const free = (x) => cells[r][x] === '.' && !(move.includes(r) && (x === 0 || x === C - 1));
+      if (!spots.every((x) => (add ? free(x) : cells[r][x] !== '.'))) continue;
+      const type = add && near(r, c);
+      for (const x of spots) cells[r][x] = add ? type : '.';
+      have += add ? spots.length : -spots.length;
+    }
+  }
+}
+
 function generate(n) {
   const hard = n / (COUNT - 1);
-  const C = grid(n).cols;
-  const R = Math.max(4, Math.min(9, 4 + Math.floor(hash(n, 1, 1) * 1.6 + hard * 4.6)));
+  const { cols: C, most, blocks } = grid(n);
+  // Enough rows to hold this step's blocks, plus room for sliding rows.
+  const R = Math.max(4, Math.min(most, Math.max(4 + Math.floor(hash(n, 1, 1) * 1.6 + hard * 4.6), Math.ceil((blocks + 6) / C))));
   const mid = (C - 1) / 2;
   const scheme = Math.floor(hash(n, 2, 2) * 4);
   const holes = hash(n, 3, 3) * 0.14;
@@ -100,15 +141,14 @@ function generate(n) {
     return move;
   };
 
-  // Courts get fuller as they go: a shape too sparse for this court falls
-  // back to a filled field.
-  const least = Math.round(14 + hard * 40);
+  // A shape far too sparse for this step starts from a filled field instead.
   let cells = build(SHAPES[Math.floor(hash(n, 4, 4) * SHAPES.length)]);
   let move = slide(cells);
-  if (cells.flat().filter((c) => c !== '.').length < least) {
+  if (cells.flat().filter((c) => c !== '.').length < blocks / 2) {
     cells = build(SHAPES[0]);
     move = slide(cells);
   }
+  fit(cells, blocks, move, n);
 
   return {
     id: 'court' + (n + 1),
@@ -123,6 +163,12 @@ export const LEVELS = [];
 for (let n = 0; n < COUNT; n++) {
   const lv = n < HAND.length ? { ...HAND[n] } : generate(n);
   Object.assign(lv, grid(n));
+  if (n < HAND.length) {
+    // The hand-made courts are trimmed or topped up to their step's count too.
+    const cells = lv.rows.map((r) => r.split(''));
+    fit(cells, lv.blocks, lv.move || [], n);
+    lv.rows = cells.map((r) => r.join(''));
+  }
   lv.speed = Math.round(168 + n * 1.15);
   lv.paddle = Math.max(36, Math.round(52 - n * 0.14));
   lv.drop = Math.max(0.09, 0.16 - n * 0.0006);

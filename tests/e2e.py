@@ -356,21 +356,13 @@ class Driver:
             "const k=c.width/document.getElementById('court').width;return [c.left+(r.x+r.w/2)*k,c.top+(r.y+r.h/2)*k]})()" % rid
         )
 
-    # PLAY on the landing screen opens the theme screen; most tests just
-    # Continue with the saved choice. raw=True stops on the theme screen.
-    def click(self, rid, raw=False):
+    def click(self, rid):
         x, y = self.point(rid)
         self.pg.mouse.click(x, y)
-        if rid == "play" and not raw:
-            self.screen("themes", 0.45)
-            self.click("continue")
 
-    def tap(self, rid, raw=False):
+    def tap(self, rid):
         x, y = self.point(rid)
         self.pg.touchscreen.tap(x, y)
-        if rid == "play" and not raw:
-            self.screen("themes", 0.45)
-            self.tap("continue")
 
     def shot(self, name):
         if SHOTS:
@@ -1068,36 +1060,12 @@ def themes(browser, url):
     d.pg.goto(url)
     d.screen("title", 1.0)
 
-    # 0. Landing -> theme screen -> Continue.
-    d.click("play", raw=True)
-    d.screen("themes", 0.5)
-    ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
-    check("PLAY opens the theme screen, not the game", d.ev("__court.S.game") is None and all(i in ids for i in ["themeauto", "theme-japan", "theme-newyork", "theme-london", "theme-india", "continue", "themesback"]), ids)
-    check("no offline option anywhere on it", "offline" not in ids.lower() and "tablocal" not in ids)
-    d.shot("theme-screen-desktop")
-    d.click("theme-london")
-    time.sleep(0.5)
-    check("one card selected at a time; the background previews it; nothing saved before Continue",
-          d.ev("__court.S.themePick") == "london" and d.ev("__court.currentTheme().countryId") == "london" and d.ev("__court.save.data.settings.theme") == "auto")
-    d.pg.keyboard.press("ArrowRight")
-    time.sleep(0.2)
-    check("arrow keys move the selection", d.ev("__court.S.themePick") == "india")
-    check("the canvas label names the selection for screen readers", "India" in d.ev("document.getElementById('court').getAttribute('aria-label')") or "INDIA" in d.ev("document.getElementById('court').getAttribute('aria-label')"))
-    d.pg.keyboard.press("ArrowLeft")
-    d.pg.keyboard.press("Escape")
-    d.screen("title", 0.5)
-    check("Back returns to the landing screen without saving", d.ev("__court.save.data.settings.theme") == "auto")
-    d.click("play", raw=True)
-    time.sleep(0.05)
-    check("reopening shows the saved theme from the first frame (no flash of the old unsaved pick)",
-          d.ev("__court.S.themePick") == "auto" and d.ev("__court.currentTheme().countryId") == d.ev("__court.getCourtTheme(__court.S.level+1).countryId"))
-    d.screen("themes", 0.5)
-    check("the theme screen opens on the saved choice again", d.ev("__court.S.themePick") == "auto")
-    d.click("theme-london")
-    d.click("continue")
+    # 0. PLAY goes straight into the game: no theme screen on launch.
+    d.click("play")
+    time.sleep(0.1)
+    check("PLAY skips the theme screen and goes straight on", d.ev("__court.S.screen") != "themes" and d.ev("__court.S.next") != "themes"
+          and not d.ev("__court.ui.regions.some(r=>r.id==='continue'||r.id==='themesback')"))
     d.screen("courts", 0.5)
-    check("Continue saves the choice and carries on into the game flow", d.ev("__court.save.data.settings.theme") == "london" and d.ev("__court.currentTheme().countryId") == "london")
-    d.ev("__court.save.data.settings.theme='auto'; __court.save.commit()")
     d.pg.keyboard.press("Escape")
     d.screen("title", 0.5)
 
@@ -1197,14 +1165,6 @@ def themes(browser, url):
     d = Driver(ctx.new_page())
     d.pg.goto(url)
     d.screen("title", 1.0)
-    d.tap("play", raw=True)
-    d.screen("themes", 0.5)
-    fits = d.ev("(()=>{const r=__court.ui.regions; const s=__court.size(); return r.every(q=>q.x>=0&&q.y>=0&&q.x+q.w<=s[0]&&q.y+q.h<=s[1]) && r.filter(q=>q.id.startsWith('theme-')).every(q=>q.w>=60&&q.h>=40)})()")
-    d.tap("theme-japan")
-    d.shot("theme-screen-mobile")
-    d.tap("continue")
-    d.screen("courts", 0.5)
-    check("phone: theme screen fits, cards are big enough to tap, Continue works by touch", fits and d.ev("__court.save.data.settings.theme") == "japan")
     d.ev("__court.go('title')")
     d.screen("title", 0.5)
     d.ev("__court.beginRun(0)")
@@ -1222,6 +1182,39 @@ def themes(browser, url):
     ctx.close()
 
 
+def slow_first_visit(browser, url):
+    """A fresh visitor on a slow connection must not see the "could not start" message."""
+    print("slow first visit")
+    ctx = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    ctx.add_init_script(OFFLINE)
+
+    # Hold the game script back for 3 s, like a cold cache on a slow phone.
+    held = []
+    ctx.route("**/js/main.js", lambda route: held.append(route))
+    d = Driver(ctx.new_page())
+    d.pg.goto(url, wait_until="commit")
+    end = time.time() + 2.5
+    while time.time() < end:
+        d.pg.wait_for_timeout(100)
+    check("still loading after 2.5 s, and no start-up error is shown",
+          bool(held) and d.ev("!document.getElementById('court').dataset.ready && document.getElementById('fallback').hidden"))
+    for r in held:
+        r.continue_()
+    d.pg.wait_for_function("window.__court", timeout=30000)
+    d.screen("title", 0.5, 30000)
+    check("the game then starts and the message stays hidden", d.ev("document.getElementById('fallback').hidden"))
+    ctx.close()
+
+    # A script that really fails to load still explains itself.
+    ctx = browser.new_context()
+    ctx.route("**/js/main.js", lambda route: route.abort())
+    pg = ctx.new_page()
+    pg.goto(url)
+    pg.wait_for_function("!document.getElementById('fallback').hidden", timeout=5000)
+    check("a script that fails to load still shows the help message", True)
+    ctx.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1230,6 +1223,7 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome", headless=True)
         try:
+            slow_first_visit(browser, url)
             first_time(browser, url)
             desktop(browser, url)
             touch_device(browser, url, "tablet", 820, 1180)

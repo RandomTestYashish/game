@@ -19,12 +19,14 @@
       instead: run <code>python3 -m http.server 8000</code> here and open <code>http://localhost:8000</code>.
     </p>
     <script>
-      // A module that fails to load (e.g. opened from file://) leaves the canvas blank; say why.
-      setTimeout(function () {
-        var c = document.getElementById('court');
-        if (!c.dataset.ready) document.getElementById('fallback').hidden = false;
-      }, 1500);
+      // Browsers refuse to run module scripts from file://, which leaves the
+      // canvas blank; say why. Only for real failures: a slow first download
+      // on a fresh visit must not show this message.
+      function courtFailed() {
+        if (!document.getElementById('court').dataset.ready) document.getElementById('fallback').hidden = false;
+      }
+      if (location.protocol === 'file:') courtFailed();
     </script>
-    <script type="module" src="js/main.js"></script>
+    <script type="module" src="js/main.js" onerror="courtFailed()"></script>
   </body>
 </html>

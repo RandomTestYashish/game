@@ -23,7 +23,7 @@ const save = new Save();
 const audio = new AudioSys(save.data.settings);
 const debug = new URLSearchParams(location.search).has('debug');
 
-const CAM = { loading: 0, title: 0, themes: 0.14, intro: 0.14, courts: 0.38, tools: 0.5, countdown: 1, play: 1, paused: 1, complete: 0.82, name: 0.82, scores: 0.55 };
+const CAM = { loading: 0, title: 0, intro: 0.14, courts: 0.38, tools: 0.5, countdown: 1, play: 1, paused: 1, complete: 0.82, name: 0.82, scores: 0.55 };
 const GAME_SCREENS = new Set(['countdown', 'play', 'paused', 'complete', 'name']);
 const PER_PAGE = 20;
 const KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ-';
@@ -74,7 +74,6 @@ const S = {
   online: { state: 'idle', rows: [], error: '', at: -99 },
   post: { state: 'idle', error: '', entry: null }, // sending the last saved run to the online board
   coach: null, // first-time guided rally: { step, t, moved, lastX, toolSeen }
-  themePick: 'auto', // the choice highlighted on the theme screen, saved on Continue
 };
 
 // ---------------------------------------------------------------- flow
@@ -101,7 +100,6 @@ function enter(name) {
     S.beat = 4;
   }
   if (name === 'intro') S.introSeen = true;
-  if (name === 'themes') S.themePick = save.data.settings.theme;
   if (name === 'courts') S.page = Math.floor((Math.min(save.data.progress.unlocked, LEVELS.length) - 1) / PER_PAGE);
   if (name === 'name') S.name = save.data.lastName;
   if (name === 'scores') {
@@ -636,43 +634,9 @@ const SCREENS = {
       rect(sx, sy - arm, 1, arm * 2 + 1, '#ffffff');
     }
     const y = wb + 46 + Math.round(H * 0.04) + Math.round((1 - k) * 8);
-    pill('play', 'PLAY', W / 2, y, 118, 23, openThemes, { scale: 2, sp: 3, pulse: S.time });
+    pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3, pulse: S.time });
     ctx.globalAlpha = 1;
-    S.primary = openThemes;
-  },
-
-  themes(k) {
-    const pick = S.themePick;
-    const auto = pick === 'auto';
-    const w = Math.min(W - 16, 320);
-    const cw = Math.floor((w - 30) / 2);
-    // Cards shrink on short screens so everything fits above the buttons.
-    const ph = Math.round(clamp(Math.min(cw * 0.5, (H - 12 - 126) / 2 - 24), 30, 78));
-    const ch = ph + 24;
-    const h = Math.min(H - 12, 80 + ch * 2 + 6 + 40);
-    const x = Math.round((W - w) / 2);
-    const y = Math.round((H - h) / 2);
-    const back = () => go('title');
-    panel(k, x, y, w, h, 'dark', () => {
-      const tw = Math.floor(S.time * 2) % 2;
-      const titleW = blockTitle('CHOOSE A THEME', W / 2, y + 11, 2);
-      sparkle(W / 2 - titleW / 2 - 9, y + 14, 1 + tw);
-      sparkle(W / 2 + titleW / 2 + 8, y + 14, 2 - tw);
-      text('CHANGE IT LATER IN PAUSE - THEME', W / 2, y + 33, PAL.dim, { align: 'center' });
-      ghost('themeauto', auto ? 'AUTOMATIC  ON' : 'AUTOMATIC', W / 2, y + 45, w - 28, 15, () => (S.themePick = 'auto'),
-        auto ? { fill: PAL.yellow, color: PAL.ink, line: PAL.yellow } : {});
-      text(auto ? 'NEW COUNTRY EVERY 2 COURTS' : getCourtTheme(1, pick).countryName + ' ON EVERY COURT', W / 2, y + 66, PAL.cream, { align: 'center' });
-      COUNTRIES.forEach((c, i) => {
-        const cx = x + 12 + (i % 2) * (cw + 6);
-        const cy = y + 80 + Math.floor(i / 2) * (ch + 6);
-        themeCard(c, cx, cy, cw, ch, ph, pick === c.id, false, () => (S.themePick = c.id));
-      });
-      ghost('themesback', 'BACK', x + 38, y + h - 30, 50, 17, back);
-      pill('continue', 'CONTINUE', W / 2 + 28, y + h - 31, Math.min(150, w - 88), 19, continueFromThemes, { sp: 3 });
-    });
-    S.primary = continueFromThemes;
-    S.back = back;
-    say('Choose a theme. Selected: ' + (auto ? 'Automatic' : getCourtTheme(1, pick).countryName) + '. Arrow keys change it, Enter continues, Escape goes back.');
+    S.primary = play;
   },
 
   intro(k) {
@@ -1111,24 +1075,6 @@ function themeCard(c, cx, cy, cw, ch, ph, picked, nowTag, pick) {
   region(id, cx, cy, cw, ch, pick);
 }
 
-// Theme screen, between the landing screen and the game: Automatic or one
-// country. The background follows the highlighted choice; Continue saves it.
-const PICKS = ['auto', ...COUNTRIES.map((c) => c.id)];
-// Start from the saved choice at once, so the background does not flash an
-// unsaved pick from an earlier visit while the screen slides in.
-function openThemes() {
-  S.themePick = save.data.settings.theme;
-  go('themes');
-}
-function continueFromThemes() {
-  save.data.settings.theme = S.themePick;
-  save.commit();
-  play();
-}
-function movePick(d) {
-  S.themePick = PICKS[(PICKS.indexOf(S.themePick) + d + PICKS.length) % PICKS.length];
-}
-
 // Theme picker: Automatic, or one of the four countries. Picking one shows
 // it straight away behind the panel; the court itself carries on as it was.
 function drawThemeOverlay(k) {
@@ -1307,8 +1253,8 @@ function draw() {
   S.pitch = (S.pitch || 0) + (pitch - (S.pitch || 0)) * 0.05;
   P.landing = easeInOut(S.landing);
   setCam(S.cam + S.pitch, S.shift);
-  if (S.screen !== 'themes') say(ARIA);
-  const look = S.screen === 'themes' || S.next === 'themes' ? getCourtTheme(S.level + 1, S.themePick) : courtTheme();
+  say(ARIA);
+  const look = courtTheme();
   setTheme(look);
   audio.setTrack(musicFor(look));
   beginUI();
@@ -1462,11 +1408,6 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
-  if (S.screen === 'themes' && !S.leaving && !S.overlay && ['arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'tab'].includes(k)) {
-    movePick(k === 'arrowleft' || k === 'arrowup' || (k === 'tab' && e.shiftKey) ? -1 : 1);
-    e.preventDefault();
-    return;
-  }
   if (S.screen === 'courts' && !S.leaving && !S.overlay && (k === 'arrowleft' || k === 'arrowright')) {
     S.page = clamp(S.page + (k === 'arrowleft' ? -1 : 1), 0, Math.ceil(LEVELS.length / PER_PAGE) - 1);
     e.preventDefault();
@@ -1535,6 +1476,8 @@ async function boot() {
   resize();
   requestAnimationFrame(frame);
   canvas.dataset.ready = '1';
+  const fallback = document.getElementById('fallback');
+  if (fallback) fallback.hidden = true;
   await save.init();
   audio.settings = save.data.settings;
   S.ready = true;

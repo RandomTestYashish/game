@@ -77,14 +77,14 @@ On a Black Court the surface turns near-black, the lines take the country's acce
 
 | When | Track |
 |---|---|
-| Landing, theme screen, courts, leaderboard | Stage Select |
+| Landing, courts, leaderboard | Stage Select |
 | Japan and London courts | Stage 1 |
 | New York and India courts | Stage 2 |
 | Every Black Court | Boss Fight |
 
 `js/audio.js` fetches the tracks after the first tap (browsers allow sound only after one), loops each one, and cross-fades over about 0.9 s when the track changes. Sound effects are still synthesised.
 
-**Choosing a theme.** PLAY on the landing screen opens a theme screen first: Automatic or one of the four countries, with the background showing the highlighted one. Continue saves the choice and goes on into the game (Back, or Esc, returns to the landing screen without saving). Arrow keys move the selection and Enter continues. It can be changed later from Pause, then Theme. Automatic follows the rotation. Picking a country keeps that country on every court until Automatic is picked again. The choice is saved with the sound settings (`settings.theme`: `auto`, `japan`, `newyork`, `london` or `india`). A change of theme cross-fades over about 0.35 s.
+**Choosing a theme.** PLAY goes straight into the game on Automatic. The theme can be changed from Pause, then Theme: Automatic or one of the four countries. Automatic follows the rotation. Picking a country keeps that country on every court until Automatic is picked again. The choice is saved with the sound settings (`settings.theme`: `auto`, `japan`, `newyork`, `london` or `india`). A change of theme cross-fades over about 0.35 s.
 
 ## Architecture
 

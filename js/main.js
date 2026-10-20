@@ -1123,9 +1123,10 @@ function movePick(d) {
 // Theme picker: Automatic, or one of the four countries. Picking one shows
 // it straight away behind the panel; the court itself carries on as it was.
 function drawThemeOverlay(k) {
-  ctx.globalAlpha = 0.45 * k;
+  ctx.globalAlpha = 0.55 * k;
   rect(0, 0, W, H, '#06120c');
   ctx.globalAlpha = 1;
+  checker(0, 0, W, H, 'rgba(6,18,12,' + (0.35 * k).toFixed(2) + ')');
   const choice = save.data.settings.theme;
   const now = courtTheme();
   const w = Math.min(W - 16, 300);
@@ -1337,7 +1338,9 @@ function draw() {
   } else {
     const k = easeOut(S.t / 0.4);
     ui.live = k > 0.9 && S.overlayT <= 0;
-    SCREENS[S.screen](k);
+    // The pause menu folds away while a popup opened from it is up, so the
+    // two panels never show one through the other.
+    SCREENS[S.screen](S.screen === 'paused' ? k * (1 - easeOut(S.overlayT)) : k);
   }
   ui.live = true;
 

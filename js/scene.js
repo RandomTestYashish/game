@@ -3,6 +3,7 @@
 
 import { W, H, ctx, PAL, makeLayer, setTarget, rect, disc, ellipse, line, trap, rrect, lerp, mulberry, bayer } from './gfx.js';
 import { WW, WH, PADDLE_Y } from './game.js';
+import { COUNTRIES } from './themes.js';
 
 // ---------------------------------------------------------------- projection
 // cam 0 = low view from behind the baseline (menus), cam 1 = raised play view.
@@ -73,6 +74,8 @@ export function buildLayers() {
   for (let i = 0; i < Math.round(W / 22); i++) flies.push({ x: rnd() * W, y: rnd(), p: rnd() * 6.28, f: 0.5 + rnd() });
   petals = [];
   for (let i = 0; i < Math.round(W / 14); i++) petals.push({ x: rnd() * W, y: rnd(), p: rnd() * 6.28, v: 5 + rnd() * 7, k: rnd() });
+  // Build every country now, so none is built in the middle of a frame later.
+  for (const c of COUNTRIES) layersFor({ countryId: c.id, backgroundPalette: c.bg });
   if (theme) L = layersFor(theme);
 }
 
@@ -127,6 +130,9 @@ export function drawThemePreview(t, x, y, w, h) {
 }
 
 function makeLayers(id, T) {
+  // Building draws into scratch layers; put back whatever was being drawn to
+  // (a panel mid-animation, say), or the rest of that frame lands elsewhere.
+  const was = ctx;
   const rnd = mulberry(20261013 + id.length * 977);
   const out = {};
   const LW = W + M * 2;
@@ -329,7 +335,7 @@ function makeLayers(id, T) {
   }
   out.bushes = bushes.canvas;
 
-  setTarget(null);
+  setTarget(was);
   return out;
 }
 
@@ -602,13 +608,14 @@ export function drawScene(time) {
     if (!fadeLayer || fadeLayer.canvas.width !== W || fadeLayer.canvas.height !== H) fadeLayer = makeLayer(W, H);
     const now = theme;
     const nowL = L;
+    const was = ctx;
     theme = prev;
     L = layersFor(prev);
     setTarget(fadeLayer);
     fadeLayer.setTransform(1, 0, 0, 1, 0, 0);
     fadeLayer.clearRect(0, 0, W, H);
     drawSceneOnce(time);
-    setTarget(null);
+    setTarget(was);
     theme = now;
     L = nowL;
     drawSceneOnce(time);

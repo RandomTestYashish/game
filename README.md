@@ -73,7 +73,7 @@ Every court is dressed as one of four countries, and every third court has a Bla
 
 On a Black Court the surface turns near-black, the lines take the country's accent colour, and the paddle gets a pale rim so it stays visible. The background stays the country's.
 
-**Choosing a theme.** Pause, then Theme. Automatic follows the rotation. Picking a country keeps that country on every court until Automatic is picked again. The choice is saved with the sound settings (`settings.theme`: `auto`, `japan`, `newyork`, `london` or `india`). A change of theme cross-fades over about 0.35 s.
+**Choosing a theme.** PLAY on the landing screen opens a theme screen first: Automatic or one of the four countries, with the background showing the highlighted one. Continue saves the choice and goes on into the game (Back, or Esc, returns to the landing screen without saving). Arrow keys move the selection and Enter continues. It can be changed later from Pause, then Theme. Automatic follows the rotation. Picking a country keeps that country on every court until Automatic is picked again. The choice is saved with the sound settings (`settings.theme`: `auto`, `japan`, `newyork`, `london` or `india`). A change of theme cross-fades over about 0.35 s.
 
 ## Architecture
 
@@ -100,7 +100,7 @@ supabase/         SQL to run once in Supabase (submit_score)
 - **Rendering and layout.** Everything is drawn in code onto one low-resolution canvas that fills the window and is scaled up with nearest-neighbour sampling. A game pixel is sized so that at least 240 x 320 of them fit; spare room becomes more court and garden (up to 760 wide or 520 tall), so phones, tablets and wide desktops all get a full-bleed view. Screens centre their panels on the canvas width.
 - **2.5D.** The simulation is flat: `game.js` works in court coordinates (200 x 240). `scene.js` projects those through a perspective camera with one parameter, `cam`, from 0 (low menu view) to 1 (raised play view). Screen changes tween `cam`, so the court, net and parallax layers move together; panels tilt up from the grass; blocks drop in from above. During play the camera also trucks sideways with the paddle (`shift`), keeping the paddle's depth fixed while nearer and farther layers slide against it, and blocks float above their shadows.
 - **Background motion.** Clouds drift, stars twinkle, a flock crosses the sky, fireflies and petals move, lanterns flicker and the canopy sways. All of it is drawn per frame in `drawScene`.
-- **Screens.** `main.js` holds a small state machine: `loading → title → intro → courts → tools → countdown → play ⇄ paused → complete → name → scores`. Each screen is one function that draws itself and registers its hit regions every frame.
+- **Screens.** `main.js` holds a small state machine: `loading → title → themes → intro → courts → tools → countdown → play ⇄ paused → complete → name → scores`. Each screen is one function that draws itself and registers its hit regions every frame.
 - **Game and view are separate.** `Game` knows nothing about drawing, sound or storage. It reports what happened through an `emit(event)` callback, and takes its random source as an argument, which is what makes it testable.
 - **Adding levels.** Raise `COUNT` in `js/levels.js` for more generated courts, or add to `HAND` for hand-made ones. The courts screen, unlocking and saving pick them up.
 
@@ -125,7 +125,7 @@ It is written when a rally ends, when a score is posted and when sound settings 
 
 ## Online leaderboard (optional)
 
-Off when `js/config.js` is empty: the game makes no network calls and the leaderboard is the device one. With a Supabase project URL and its publishable key filled in, the Scores screen gains an **Online** tab (top 20), and every score the player saves at the end of a run is also sent online. Skip sends nothing. If sending fails, the score is still on the device and the board offers "tap to retry".
+With a Supabase project URL and its publishable key in `js/config.js`, the Scores screen shows the **online** board only (top 20): there is no device/online switch. Every score the player saves at the end of a run is sent online, the board is fetched again, and the player's row is highlighted. Scores are still kept on the device in the save, just not shown. If loading fails the board says so and offers Try Again. With `js/config.js` empty (a local copy), the game makes no network calls and shows the device board instead. Skip sends nothing. If sending fails, the score is still on the device and the board offers "tap to retry".
 
 **How writing is protected.** The publishable key ships to every visitor, so it must not be able to write freely. `supabase/submit_score.sql` takes insert, update and delete on the table away from that key and adds one database function, `submit_score(name, score, court)`, that checks the values and inserts a single row:
 

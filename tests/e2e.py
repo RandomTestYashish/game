@@ -61,7 +61,7 @@ def serve():
                 return self.reply(500, {"message": "boom"})
             if self.headers.get("apikey") != MOCK["key"]:
                 return self.reply(401, {"message": "Invalid API key"})
-            self.reply(200, [] if MOCK["mode"] == "empty" else MOCK["rows"])
+            self.reply(200, [] if MOCK["mode"] == "empty" else MOCK["posted"] + MOCK["rows"])
 
         # Mirrors supabase/submit_score.sql: the function is the only way in,
         # and it refuses anything outside the limits written there.
@@ -356,13 +356,21 @@ class Driver:
             "const k=c.width/document.getElementById('court').width;return [c.left+(r.x+r.w/2)*k,c.top+(r.y+r.h/2)*k]})()" % rid
         )
 
-    def click(self, rid):
+    # PLAY on the landing screen opens the theme screen; most tests just
+    # Continue with the saved choice. raw=True stops on the theme screen.
+    def click(self, rid, raw=False):
         x, y = self.point(rid)
         self.pg.mouse.click(x, y)
+        if rid == "play" and not raw:
+            self.screen("themes", 0.45)
+            self.click("continue")
 
-    def tap(self, rid):
+    def tap(self, rid, raw=False):
         x, y = self.point(rid)
         self.pg.touchscreen.tap(x, y)
+        if rid == "play" and not raw:
+            self.screen("themes", 0.45)
+            self.tap("continue")
 
     def shot(self, name):
         if SHOTS:
@@ -823,20 +831,21 @@ def online_board(browser, url):
     d.wait("__court.S.online.state==='ok'")
     rows = d.ev("__court.S.online.rows")
     req = MOCK["requests"][0]
-    check("online on: opens on the Online tab and sends the anon key", d.ev("__court.S.boardTab") == "online" and req["apikey"] == MOCK["key"] and req["auth"] == "Bearer " + MOCK["key"], req)
+    check("online on: the board is the online one and sends the anon key", d.ev("__court.S.boardTab") == "online" and req["apikey"] == MOCK["key"] and req["auth"] == "Bearer " + MOCK["key"], req)
+    ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
+    check("online only: no This Device / Online switch on the board", "tablocal" not in ids and "tabonline" not in ids and ids == "back", ids)
     check("request asks for the top 20, best first", "order=score.desc" in req["path"] and "limit=20" in req["path"] and "select=name,score,court" in req["path"], req["path"])
     names = [r["name"] for r in rows[:4]]
     check("rows shown in score order with unsafe names cleaned", names == ["AANYA", "SCRIPTX", "PLAYER", "AVERYVER"] and rows[3]["court"] == 5 and [r["score"] for r in rows] == sorted([r["score"] for r in rows], reverse=True), names)
     check("malformed rows dropped and the list capped at 20", len(rows) == 20 and all(isinstance(r["score"], int) and r["score"] >= 0 for r in rows) and "BAD" not in [r["name"] for r in rows])
     d.shot("online-1-board")
-    d.click("tablocal")
-    time.sleep(0.2)
-    check("This Device tab still shows the local board, untouched", d.ev("__court.S.boardTab") == "local" and d.ev("__court.save.data.leaderboard[0].name") == "LOCAL")
-    d.shot("online-2-device")
+    check("the device copy of scores is kept, just not shown", d.ev("__court.save.data.leaderboard[0].name") == "LOCAL")
+    d.pg.keyboard.press("Escape")
+    d.screen("title", 0.6)
     n = len(MOCK["requests"])
-    d.click("tabonline")
-    time.sleep(0.4)
-    check("switching back reuses the recent result instead of re-fetching", len(MOCK["requests"]) == n and d.ev("__court.S.online.state") == "ok")
+    d.ev("__court.go('scores')")
+    d.screen("scores", 0.6)
+    check("opening the board again within 30 s reuses the result instead of re-fetching", len(MOCK["requests"]) == n and d.ev("__court.S.online.state") == "ok")
     d.pg.keyboard.press("Escape")
     d.screen("title", 0.6)
 
@@ -863,13 +872,14 @@ def online_board(browser, url):
           len(posts) == 1 and mine and MOCK["posted"] == [{"name": "ME", "score": mine["score"], "court": mine["court"]}], (posts, mine))
     check("it goes through the submit_score function with the public key, never straight into the table",
           posts[0]["path"] == "/rest/v1/rpc/submit_score" and posts[0]["apikey"] == MOCK["key"] and posts[0]["prefer"] == "return=minimal", posts[0])
-    check("the device board is shown with an 'also saved online' note", d.ev("__court.S.boardTab") == "local" and d.ev("__court.S.board.rank") >= 0)
-    d.shot("online-4-sent")
-    n = len([r for r in MOCK["requests"] if r["method"] == "GET"])
-    d.click("tabonline")
+    gets = [r for r in MOCK["requests"] if r["method"] == "GET"]
     d.wait("__court.S.online.state==='ok'")
-    check("the Online tab fetches again after a score is sent", len([r for r in MOCK["requests"] if r["method"] == "GET"]) == n + 1)
-    d.click("tablocal")
+    time.sleep(0.4)
+    d.wait("__court.S.online.rows.some(r=>r.name==='ME')")
+    check("after the run the online board is shown, fetched again so the new score is on it",
+          d.ev("__court.S.boardTab") == "online" and len(gets) >= 1)
+    check("the player's own score is highlighted on the online board", d.ev("__court.S.online.rows.findIndex(r=>r.name==='ME' && r.score===__court.S.post.entry.score)") >= 0)
+    d.shot("online-4-sent")
     d.pg.keyboard.press("Escape")
     d.screen("title", 0.6)
     finish_run(d, None)
@@ -924,7 +934,6 @@ def online_board(browser, url):
     ctx, d = open_board({"width": 1280, "height": 800}, key="wrong-key")
     d.wait("__court.S.online.state==='error'")
     check("wrong key: handled as an error (401), game keeps working", d.ev("__court.S.online.error") == "http-401")
-    d.click("tablocal")
     d.pg.keyboard.press("Escape")
     d.screen("title", 0.6)
     ctx.close()
@@ -951,12 +960,9 @@ def online_board(browser, url):
         d.wait("__court.S.online.state==='ok'")
         box = d.ev("(()=>{const r=__court.ui.regions; const s=__court.size(); return r.every(q=>q.x>=0&&q.y>=0&&q.x+q.w<=s[0]&&q.y+q.h<=s[1])})()")
         d.shot(f"online-{name}")
-        d.tap("tablocal")
-        time.sleep(0.2)
-        t1 = d.ev("__court.S.boardTab")
-        d.tap("tabonline")
-        time.sleep(0.2)
-        check(f"{name}: shows Loading, then rows; tabs work by touch and fit the screen", seen == "loading" and t1 == "local" and d.ev("__court.S.boardTab") == "online" and box, seen)
+        d.tap("back")
+        d.screen("title", 0.3)
+        check(f"{name}: shows Loading, then rows; fits the screen; Back works by touch", seen == "loading" and box, seen)
         check(f"no console errors (online, {name})", not d.errors, d.errors[:3])
         ctx.close()
     MOCK["mode"] = "ok"
@@ -1061,6 +1067,36 @@ def themes(browser, url):
     d.pg.goto(url)
     d.screen("title", 1.0)
 
+    # 0. Landing -> theme screen -> Continue.
+    d.click("play", raw=True)
+    d.screen("themes", 0.5)
+    ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
+    check("PLAY opens the theme screen, not the game", d.ev("__court.S.game") is None and all(i in ids for i in ["themeauto", "theme-japan", "theme-newyork", "theme-london", "theme-india", "continue", "themesback"]), ids)
+    check("no offline option anywhere on it", "offline" not in ids.lower() and "tablocal" not in ids)
+    d.shot("theme-screen-desktop")
+    d.click("theme-london")
+    time.sleep(0.5)
+    check("one card selected at a time; the background previews it; nothing saved before Continue",
+          d.ev("__court.S.themePick") == "london" and d.ev("__court.currentTheme().countryId") == "london" and d.ev("__court.save.data.settings.theme") == "auto")
+    d.pg.keyboard.press("ArrowRight")
+    time.sleep(0.2)
+    check("arrow keys move the selection", d.ev("__court.S.themePick") == "india")
+    check("the canvas label names the selection for screen readers", "India" in d.ev("document.getElementById('court').getAttribute('aria-label')") or "INDIA" in d.ev("document.getElementById('court').getAttribute('aria-label')"))
+    d.pg.keyboard.press("ArrowLeft")
+    d.pg.keyboard.press("Escape")
+    d.screen("title", 0.5)
+    check("Back returns to the landing screen without saving", d.ev("__court.save.data.settings.theme") == "auto")
+    d.click("play", raw=True)
+    d.screen("themes", 0.5)
+    check("the theme screen opens on the saved choice again", d.ev("__court.S.themePick") == "auto")
+    d.click("theme-london")
+    d.click("continue")
+    d.screen("courts", 0.5)
+    check("Continue saves the choice and carries on into the game flow", d.ev("__court.save.data.settings.theme") == "london" and d.ev("__court.currentTheme().countryId") == "london")
+    d.ev("__court.save.data.settings.theme='auto'; __court.save.commit()")
+    d.pg.keyboard.press("Escape")
+    d.screen("title", 0.5)
+
     # 1. The two rules, checked on their own and for all 120 courts.
     got = d.ev("Array.from({length:120},(_,i)=>{const t=__court.getCourtTheme(i+1);return [t.countryId,t.isBlackCourt]})")
     want = [[COUNTRY[((n - 1) // 2) % 4], n % 3 == 0] for n in range(1, 121)]
@@ -1149,12 +1185,22 @@ def themes(browser, url):
     check("no console errors (themes, desktop)", not d.errors, d.errors[:3])
     ctx.close()
 
-    # 5. Phone: the picker fits and works by touch.
+    # 5. Phone: the theme screen and the picker fit and work by touch.
     ctx = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
     ctx.add_init_script(RETURNING)
     d = Driver(ctx.new_page())
     d.pg.goto(url)
     d.screen("title", 1.0)
+    d.tap("play", raw=True)
+    d.screen("themes", 0.5)
+    fits = d.ev("(()=>{const r=__court.ui.regions; const s=__court.size(); return r.every(q=>q.x>=0&&q.y>=0&&q.x+q.w<=s[0]&&q.y+q.h<=s[1]) && r.filter(q=>q.id.startsWith('theme-')).every(q=>q.w>=60&&q.h>=40)})()")
+    d.tap("theme-japan")
+    d.shot("theme-screen-mobile")
+    d.tap("continue")
+    d.screen("courts", 0.5)
+    check("phone: theme screen fits, cards are big enough to tap, Continue works by touch", fits and d.ev("__court.save.data.settings.theme") == "japan")
+    d.ev("__court.go('title')")
+    d.screen("title", 0.5)
     d.ev("__court.beginRun(0)")
     d.screen("play", 0.3, 20000)
     d.tap("pause")

@@ -1,7 +1,6 @@
 // Level data: five hand-made courts, then generated ones up to COUNT.
-// Courts come in steps of four: every court in a step has the same block
-// size and the same number of blocks, and each step has more, smaller ones
-// (24 blocks 28 wide on courts 1-4, up to 82 blocks 18 wide; see grid()).
+// Every court has more, smaller blocks than the one before: 24 blocks 28
+// wide on court 1, up to 1000 blocks about 5 wide on court 120 (see grid()).
 //   T terracotta (1 hit)   L limestone (1 hit)
 //   H hedge (2 hits)       S slate slab (3 hits)
 // Per level:
@@ -41,18 +40,19 @@ const SHAPES = [
   (c, r, R, d) => Math.abs(d - 1.5) + (Math.abs(r - (R - 1) / 2) * 7) / R <= 2.2,
 ];
 
-export const STEP = 4;
+export const MAX_BLOCKS = 1000;
 
-// Block size, grid width and block count for court n (0-based). All change
-// once every STEP courts: smaller blocks, so more fit across the court.
+// Block count, block size and grid size for court n (0-based). The count
+// grows on every court, from 24 to MAX_BLOCKS on the last one, and the blocks
+// shrink to make room: the grid always has about half as many cells again
+// as there are blocks, inside a field 196 wide and 144 deep.
 export function grid(n) {
-  const k = Math.floor(n / STEP);
-  const t = k / (Math.ceil(COUNT / STEP) - 1);
-  const cell = 28 - 10 * t; // 28 wide on courts 1-4, 18 on the last step
-  const row = 20 - 6 * t; // 20 deep, down to 14
-  const cols = Math.min(10, Math.floor(196 / cell));
-  const most = Math.min(9, Math.floor(150 / row)); // rows that fit before the paddle's space
-  return { cell, row, cols, most, blocks: 24 + 2 * k };
+  const blocks = 24 + Math.round(((MAX_BLOCKS - 24) * n) / (COUNT - 1));
+  const cell = Math.min(28, Math.sqrt((196 * 144) / (0.72 * 1.5 * blocks)));
+  const row = Math.min(20, cell * 0.72);
+  const cols = Math.floor(196 / cell);
+  const most = Math.floor(144 / row); // rows that fit before the paddle's space
+  return { cell, row, cols, most, blocks };
 }
 
 // Deterministic hash -> [0, 1), so every device generates the same courts.
@@ -100,8 +100,8 @@ function fit(cells, want, move, n) {
 function generate(n) {
   const hard = n / (COUNT - 1);
   const { cols: C, most, blocks } = grid(n);
-  // Enough rows to hold this step's blocks, plus room for sliding rows.
-  const R = Math.max(4, Math.min(most, Math.max(4 + Math.floor(hash(n, 1, 1) * 1.6 + hard * 4.6), Math.ceil((blocks + 6) / C))));
+  // Enough rows to hold this court's blocks with some gaps, plus room for sliding rows.
+  const R = Math.max(4, Math.min(most, Math.max(4 + Math.floor(hash(n, 1, 1) * 1.6 + hard * 4.6), Math.ceil((blocks * 1.25 + 6) / C))));
   const mid = (C - 1) / 2;
   const scheme = Math.floor(hash(n, 2, 2) * 4);
   const holes = hash(n, 3, 3) * 0.14;
@@ -141,7 +141,7 @@ function generate(n) {
     return move;
   };
 
-  // A shape far too sparse for this step starts from a filled field instead.
+  // A shape far too sparse for this court starts from a filled field instead.
   let cells = build(SHAPES[Math.floor(hash(n, 4, 4) * SHAPES.length)]);
   let move = slide(cells);
   if (cells.flat().filter((c) => c !== '.').length < blocks / 2) {
@@ -164,8 +164,14 @@ for (let n = 0; n < COUNT; n++) {
   const lv = n < HAND.length ? { ...HAND[n] } : generate(n);
   Object.assign(lv, grid(n));
   if (n < HAND.length) {
-    // The hand-made courts are trimmed or topped up to their step's count too.
-    const cells = lv.rows.map((r) => r.split(''));
+    // The hand-made courts are topped up to their court's count too: the
+    // drawn pattern stays in the middle, widened and deepened as needed.
+    const side = Math.max(0, lv.cols - 7);
+    const pad = (r) => '.'.repeat(Math.floor(side / 2)) + r + '.'.repeat(side - Math.floor(side / 2));
+    const cells = lv.rows.map((r) => pad(r).split(''));
+    const C = cells[0].length;
+    const moving = (lv.move || []).length;
+    while (cells.length < lv.most && C * cells.length - 2 * moving < lv.blocks * 1.1) cells.push(Array(C).fill('.'));
     fit(cells, lv.blocks, lv.move || [], n);
     lv.rows = cells.map((r) => r.join(''));
   }

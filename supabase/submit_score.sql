@@ -14,8 +14,8 @@
 -- cannot prove it is real; these checks only stop nonsense and floods):
 --   name   1-8 characters: A-Z, 0-9, space, dot, dash (what the game allows)
 --   court  1-120
---   score  1 to court x 12900 (12900 is the most one court can ever give:
---          84 blocks x 50 points x the x3 combo, plus 3 lives x 100)
+--   score  1 to court x 150300 (150300 is the most one court can ever give:
+--          1000 blocks x 50 points x the x3 combo, plus 3 lives x 100)
 --   flood  at most 30 new scores per minute across the whole board
 
 -- 1. The public key may read, but never write the table directly.
@@ -35,7 +35,7 @@ begin
   if p_court is null or p_court < 1 or p_court > 120 then
     raise exception 'invalid court' using errcode = '22023';
   end if;
-  if p_score is null or p_score < 1 or p_score > p_court * 12900 then
+  if p_score is null or p_score < 1 or p_score > p_court * 150300 then
     raise exception 'invalid score' using errcode = '22023';
   end if;
   if (select count(*) from public.thecourt where created_at > now() - interval '1 minute') >= 30 then

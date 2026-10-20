@@ -194,12 +194,12 @@ async () => {
   // Level set
   const ids = new Set(LEVELS.map(l => l.id)), names = new Set(LEVELS.map(l => l.name));
   out.levelCount = LEVELS.length >= 100 && ids.size === LEVELS.length && names.size === LEVELS.length;
-  out.levelsWellFormed = LEVELS.every(l => l.rows.length >= 4 && l.rows.length <= 9 && l.rows.every(r => r.length === l.cols && /^[.TLHS]+$/.test(r))
+  out.levelsWellFormed = LEVELS.every(l => l.rows.length >= 4 && l.rows.length <= l.most && l.rows.every(r => r.length === l.cols && /^[.TLHS]+$/.test(r))
     && l.rows.join('').replace(/\./g, '').length >= 14 && (l.move || []).every(r => l.rows[r][0] === '.' && l.rows[r][l.cols - 1] === '.'));
-  // Every 4 courts: same size and count within the step, then smaller blocks and more of them.
+  // Every court: more blocks than the last (24 up to 1000), and smaller ones once they no longer fit at full size.
   const count = (i) => new Game(LEVELS[i]).blocks.length;
-  out.blocksShrink = LEVELS.every((l, i) => i === 0 || (i % 4 ? l.cell === LEVELS[i - 1].cell : l.cell < LEVELS[i - 1].cell)) && LEVELS[0].cols === 7 && LEVELS[119].cols > 7;
-  out.moreBlocks = LEVELS.every((l, i) => count(i) === 24 + 2 * Math.floor(i / 4)) && count(0) === 24 && count(119) === 82;
+  out.blocksShrink = LEVELS.every((l, i) => i === 0 || l.cell < LEVELS[i - 1].cell || (l.cell === 28 && LEVELS[i - 1].cell === 28)) && LEVELS[0].cols === 7 && LEVELS[119].cell < 6;
+  out.moreBlocks = LEVELS.every((l, i) => count(i) === l.blocks && (i === 0 || count(i) > count(i - 1))) && count(0) === 24 && count(119) === 1000;
   out.blocksOnCourt = LEVELS.every(l => new Game(l).blocks.every(b => b.x - (b.amp || 0) >= 0 && b.x + b.w + (b.amp || 0) <= WW && b.y + b.d < PADDLE_Y - 30));
   out.getsHarder = LEVELS[119].speed > LEVELS[0].speed * 1.6 && LEVELS[119].paddle < LEVELS[0].paddle - 10 && LEVELS[0].speed >= 160;
 

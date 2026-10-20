@@ -78,7 +78,12 @@ export class Game {
     const cols = rows[0].length;
     const left = (WW - cols * cell) / 2 + 1; // centred across the court
     const top = 30 + Math.max(0, 6 - rows.length) * 6;
-    const tall = 0.6 + (0.4 * cell) / 28; // smaller blocks stand a little lower
+    const tall = 0.35 + (0.65 * cell) / 28; // smaller blocks stand lower
+    const gap = Math.min(2, Math.max(1, cell * 0.12)); // between blocks across
+    const deep = Math.max(ROW - 6, ROW * 0.7); // block depth; the rest is the gap
+    // Blocks drop in row by row; a big grid drops in as fast as a small one.
+    const dr = 0.07 * Math.min(1, 7 / rows.length);
+    const dc = 0.025 * Math.min(1, 7 / cols);
     const drift = this.level.drift || 0;
     const wave = this.level.wave ?? 2;
     rows.forEach((row, r) => {
@@ -98,8 +103,8 @@ export class Game {
           bob: 0,
           drift,
           wave,
-          w: cell - 2,
-          d: ROW - 6,
+          w: cell - gap,
+          d: deep,
           hz: Math.round(BLOCKS[type].hz * tall),
           hp: BLOCKS[type].hp,
           max: BLOCKS[type].hp,
@@ -107,11 +112,11 @@ export class Game {
           alive: true,
           landed: false,
           bounced: false,
-          delay: 0.25 + r * 0.07 + c * 0.025,
+          delay: 0.25 + r * dr + c * dc,
           z: 170,
           vz: 0,
           flash: 0,
-          amp: moving ? cell - 2 : 0,
+          amp: moving ? cell - gap : 0,
           freq: 0.9 + (r % 3) * 0.25,
           phase: r * 1.7,
         });

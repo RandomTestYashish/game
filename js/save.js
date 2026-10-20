@@ -18,6 +18,7 @@ export function defaultSave() {
     stats: { plays: 0, wins: 0, blocks: 0 },
     leaderboard: [], // { name, score, court, at } best first
     lastName: '',
+    names: [], // names this device has saved scores under: they stay its own
   };
 }
 
@@ -60,6 +61,8 @@ export function migrate(raw) {
   d.leaderboard.sort((a, b) => b.score - a.score || a.at - b.at);
   d.leaderboard.length = Math.min(d.leaderboard.length, BOARD_SIZE);
   d.lastName = cleanName(raw.lastName);
+  const own = [...(Array.isArray(raw.names) ? raw.names : []), d.lastName, ...d.leaderboard.map((e) => e.name)];
+  d.names = [...new Set(own.map(cleanName).filter(Boolean))].slice(0, 40);
   // Saves from before the guided first rally: anyone who has already played is not a new user.
   d.onboarded = raw.onboarded === true || d.stats.plays > 0 || d.progress.unlocked > 1 || d.leaderboard.length > 0;
   d.updatedAt = num(raw.updatedAt, 0, 0, Number.MAX_SAFE_INTEGER);
@@ -142,6 +145,7 @@ export class Save {
     board.sort((a, b) => b.score - a.score || a.at - b.at);
     board.length = Math.min(board.length, BOARD_SIZE);
     this.data.lastName = entry.name;
+    if (!this.data.names.includes(entry.name)) this.data.names = [entry.name, ...this.data.names].slice(0, 40);
     this.commit();
     return board.indexOf(entry);
   }

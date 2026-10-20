@@ -16,6 +16,7 @@ import re
 import sys
 import threading
 import time
+import urllib.parse
 
 from playwright.sync_api import sync_playwright
 
@@ -61,7 +62,12 @@ def serve():
                 return self.reply(500, {"message": "boom"})
             if self.headers.get("apikey") != MOCK["key"]:
                 return self.reply(401, {"message": "Invalid API key"})
-            self.reply(200, [] if MOCK["mode"] == "empty" else MOCK["posted"] + MOCK["rows"])
+            rows = [] if MOCK["mode"] == "empty" else MOCK["posted"] + MOCK["rows"]
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if "name" in q:  # the unique-name check: ?select=name&name=eq.X&limit=1
+                want = q["name"][0].removeprefix("eq.")
+                rows = [{"name": r["name"]} for r in rows if r and r.get("name") == want][:1]
+            self.reply(200, rows)
 
         # Mirrors supabase/submit_score.sql: the function is the only way in,
         # and it refuses anything outside the limits written there.
@@ -1064,6 +1070,7 @@ def themes(browser, url):
     """Court themes: rotation rules, all eight looks, the picker, persistence."""
     print("court themes")
     COUNTRY = ["japan", "newyork", "london", "india"]
+    url += "&look=0"  # every visit turns the rotation; these checks pin it at Japan-first
     ctx = browser.new_context(viewport={"width": 1280, "height": 800})
     ctx.add_init_script(OFFLINE + "; if(!localStorage.getItem('the-court.save')) localStorage.setItem('the-court.save', JSON.stringify({version:3,onboarded:true,progress:{unlocked:20}}))")
     d = Driver(ctx.new_page())
@@ -1265,6 +1272,76 @@ def live_place(browser, url):
     ctx.close()
 
 
+def visits_and_names(browser, url):
+    """Each visit opens on another country; a name already on the online board is refused."""
+    print("new theme every visit, unique names")
+    ctx = browser.new_context(viewport={"width": 390, "height": 844})
+    ctx.add_init_script(RETURNING)
+    d = Driver(ctx.new_page())
+    looks = []
+    for _ in range(6):
+        d.pg.goto(url)
+        d.screen("title", 0.3)
+        looks.append(d.ev("[__court.S.look, __court.currentTheme().countryId]"))
+    check("every reload opens on a different country than the one before", all(looks[i][1] != looks[i - 1][1] for i in range(1, len(looks))), looks)
+    check("no console errors (visits)", not d.errors, d.errors[:3])
+    ctx.close()
+
+    origin = url.split("/?")[0]
+    MOCK["mode"] = "ok"
+    MOCK["posted"].clear()
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(RETURNING + f"; window.COURT_CONFIG={{supabaseUrl:'{origin}', supabaseAnonKey:'{MOCK['key']}'}}")
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.0)
+
+    def to_name_screen():
+        d.ev("__court.S.run={lives:0,score:420,saved:false}; __court.S.nameTitle='RALLY OVER'; __court.go('name')")
+        d.screen("name", 0.5)
+
+    to_name_screen()
+    d.pg.keyboard.type("aanya")
+    d.wait("__court.S.nameCheck.name==='AANYA' && __court.S.nameCheck.state!=='checking'", 5000)
+    check("a name someone else has on the board is reported as taken", d.ev("__court.S.nameCheck.state") == "taken")
+    d.pg.keyboard.press("Enter")
+    time.sleep(0.3)
+    check("...and Save refuses it: still on the name screen, nothing posted",
+          d.ev("__court.S.screen") == "name" and not d.ev("__court.S.run.saved") and not MOCK["posted"])
+    for _ in range(5):
+        d.pg.keyboard.press("Backspace")
+    d.pg.keyboard.type("zeddy")
+    d.wait("__court.S.nameCheck.name==='ZEDDY' && __court.S.nameCheck.state==='free'", 5000)
+    check("a new name is reported as available", True)
+    d.pg.keyboard.press("Enter")
+    d.screen("scores", 0.5)
+    d.wait("__court.S.post.state==='sent'", 5000)
+    check("...and saves and posts", [r["name"] for r in MOCK["posted"]] == ["ZEDDY"] and "ZEDDY" in d.ev("__court.save.data.names"))
+    # Now ZEDDY is on the board, but it is this device's own name.
+    d.ev("__court.go('title')")
+    d.screen("title", 0.5)
+    to_name_screen()
+    check("the name screen offers the last name again", d.ev("__court.S.name") == "ZEDDY")
+    d.pg.keyboard.press("Enter")
+    d.screen("scores", 0.5)
+    d.wait("__court.S.post.state==='sent'", 5000)
+    check("this device can keep saving under its own name", [r["name"] for r in MOCK["posted"]] == ["ZEDDY", "ZEDDY"])
+    # Typing straight into Save waits for the answer instead of skipping the check.
+    d.ev("__court.go('title')")
+    d.screen("title", 0.5)
+    to_name_screen()
+    for _ in range(8):
+        d.pg.keyboard.press("Backspace")
+    d.pg.keyboard.type("AANYA")
+    d.pg.keyboard.press("Enter")
+    time.sleep(0.6)
+    check("pressing Save at once still checks first: AANYA (taken) is refused", d.ev("__court.S.screen") == "name" and d.ev("__court.S.nameCheck.state") == "taken")
+    d.shot("name-taken")
+    check("no console errors (names)", not d.errors, d.errors[:3])
+    MOCK["posted"].clear()
+    ctx.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1281,6 +1358,7 @@ def main():
             online_board(browser, url)
             themes(browser, url)
             live_place(browser, url)
+            visits_and_names(browser, url)
         finally:
             browser.close()
             srv.shutdown()

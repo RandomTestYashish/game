@@ -84,7 +84,7 @@ On a Black Court the surface turns near-black, the lines take the country's acce
 
 `js/audio.js` fetches the tracks after the first tap (browsers allow sound only after one), loops each one, and cross-fades over about 0.9 s when the track changes. Sound effects are still synthesised.
 
-**Choosing a theme.** PLAY goes straight into the game on Automatic. The theme can be changed from Pause, then Theme: Automatic or one of the four countries. Automatic follows the rotation. Picking a country keeps that country on every court until Automatic is picked again. The choice is saved with the sound settings (`settings.theme`: `auto`, `japan`, `newyork`, `london` or `india`). A change of theme cross-fades over about 0.35 s.
+**Choosing a theme.** PLAY goes straight into the game on Automatic. Every visit turns the rotation to start on a different country than the last visit did (kept in `localStorage` under `the-court.look`, apart from the save). The theme can be changed from Pause, then Theme: Automatic or one of the four countries. Automatic follows the rotation. Picking a country keeps that country on every court until Automatic is picked again. The choice is saved with the sound settings (`settings.theme`: `auto`, `japan`, `newyork`, `london` or `india`). A change of theme cross-fades over about 0.35 s.
 
 ## Architecture
 
@@ -137,7 +137,7 @@ It is written when a rally ends, when a score is posted and when sound settings 
 
 ## Online leaderboard (optional)
 
-With a Supabase project URL and its publishable key in `js/config.js`, the Scores screen shows the **online** board only (top 20): there is no device/online switch. Every score the player saves at the end of a run is sent online, the board is fetched again, and the player's row is highlighted. Scores are still kept on the device in the save, just not shown. If loading fails the board says so and offers Try Again. With `js/config.js` empty (a local copy), the game makes no network calls and shows the device board instead. Closing the name screen with its X (or Esc) sends nothing. If sending fails, the score is still on the device and the board offers "tap to retry".
+With a Supabase project URL and its publishable key in `js/config.js`, the Scores screen shows the **online** board only (top 20): there is no device/online switch. Every score the player saves at the end of a run is sent online, the board is fetched again, and the player's row is highlighted. Scores are still kept on the device in the save, just not shown. If loading fails the board says so and offers Try Again. With `js/config.js` empty (a local copy), the game makes no network calls and shows the device board instead. Closing the name screen with its X (or Esc) sends nothing. **Unique names:** while a name is typed, the game asks the board whether it is already there (a read: `?select=name&name=eq.NAME&limit=1`). A name someone else has is shown as NAME TAKEN and cannot be saved; names this device has saved under before (`names` in the save) stay its own. This is a check in the browser, not a database rule: if the board cannot be reached, the name is not blocked. If sending fails, the score is still on the device and the board offers "tap to retry".
 
 **How writing is protected.** The publishable key ships to every visitor, so it must not be able to write freely. `supabase/submit_score.sql` takes insert, update and delete on the table away from that key and adds one database function, `submit_score(name, score, court)`, that checks the values and inserts a single row:
 

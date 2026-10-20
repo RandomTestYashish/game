@@ -93,10 +93,12 @@ export const cleanThemeChoice = (v) => (THEME_CHOICES.includes(v) ? v : 'auto');
 export const autoCountryIndex = (court) => Math.floor((court - 1) / 2) % COUNTRIES.length;
 export const isBlackCourt = (court) => court % 3 === 0;
 
-export function getCourtTheme(courtNumber, choice = 'auto') {
+// shift turns the automatic rotation by that many countries; the game picks
+// a new one on every visit, so each load opens on a different country.
+export function getCourtTheme(courtNumber, choice = 'auto', shift = 0) {
   const court = Math.max(1, Math.floor(courtNumber) || 1);
   const pick = cleanThemeChoice(choice);
-  const c = pick === 'auto' ? COUNTRIES[autoCountryIndex(court)] : BY_ID[pick];
+  const c = pick === 'auto' ? COUNTRIES[(autoCountryIndex(court) + shift) % COUNTRIES.length] : BY_ID[pick];
   const black = isBlackCourt(court);
   const surface = black ? c.black : c.court;
   return {

@@ -503,7 +503,10 @@ export class Game {
     if (this.parts.length > 260) this.parts.splice(0, this.parts.length - 260);
   }
 
+  // A puff where a block lands. Big courts land hundreds at once, so the
+  // puffs share the same particle budget as the debris.
   dust(b) {
+    if (this.parts.length > 200) return;
     for (let i = 0; i < 3; i++) {
       this.parts.push({
         x: b.x + this.rng() * b.w,

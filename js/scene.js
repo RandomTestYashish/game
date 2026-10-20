@@ -893,7 +893,8 @@ export function drawBlock(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
 
   const rnd = mulberry(seed);
   const leafy = type === 'H';
-  const n = leafy ? 22 : type === 'S' ? 4 : 7;
+  // Fewer speckles on small blocks: they would not show, and big courts draw a thousand.
+  const n = Math.round((leafy ? 22 : type === 'S' ? 4 : 7) * Math.min(1, (w * h) / 200));
   const th = topN - topF;
   for (let i = 0; i < n; i++) {
     const u = rnd();

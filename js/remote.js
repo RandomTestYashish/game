@@ -33,6 +33,28 @@ export async function fetchTopScores(limit = BOARD_SIZE) {
   }
 }
 
+// Is this name already on the online board? A read, like fetchTopScores.
+// Returns { ok: true, taken } or { ok: false, error }. Never throws.
+export async function nameTaken(name) {
+  if (!onlineEnabled()) return { ok: false, error: 'not-configured' };
+  const clean = cleanName(name);
+  if (!clean) return { ok: true, taken: false };
+  const url = `${base()}/rest/v1/${encodeURIComponent(CONFIG.table)}?select=name&name=eq.${encodeURIComponent(clean)}&limit=1`;
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { headers: headers(), signal: abort.signal });
+    if (!res.ok) return { ok: false, error: 'http-' + res.status };
+    const data = await res.json();
+    if (!Array.isArray(data)) return { ok: false, error: 'bad-response' };
+    return { ok: true, taken: data.length > 0 };
+  } catch (e) {
+    return { ok: false, error: e && e.name === 'AbortError' ? 'timeout' : 'network' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Post one score. Returns { ok: true } or { ok: false, error }. Never throws.
 export async function submitScore(name, score, court) {
   if (!onlineEnabled()) return { ok: false, error: 'not-configured' };

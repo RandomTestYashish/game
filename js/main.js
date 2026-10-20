@@ -9,9 +9,9 @@ import { LEVELS } from './levels.js';
 import { drawGame, drawHUD } from './render.js';
 import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, panel } from './ui.js';
 import { AudioSys } from './audio.js';
-import { Save, BOARD_SIZE } from './save.js';
+import { Save, BOARD_SIZE, cleanName } from './save.js';
 import { onlineEnabled } from './config.js';
-import { fetchTopScores, submitScore } from './remote.js';
+import { fetchTopScores, submitScore, nameTaken } from './remote.js';
 
 const canvas = document.getElementById('court');
 // Screen readers get the canvas label; the theme screen describes its choice there.
@@ -72,6 +72,8 @@ const S = {
   board: { rank: -1, fromRun: false },
   boardTab: 'local', // 'local' | 'online' (online only when js/config.js is filled in)
   online: { state: 'idle', rows: [], error: '', at: -99 },
+  look: 0, // this visit's turn of the automatic theme rotation (set at boot)
+  nameCheck: { name: '', state: 'idle', at: 0 }, // is the typed name free on the online board?
   post: { state: 'idle', error: '', entry: null }, // sending the last saved run to the online board
   coach: null, // first-time guided rally: { step, t, moved, lastX, toolSeen }
 };
@@ -101,7 +103,11 @@ function enter(name) {
   }
   if (name === 'intro') S.introSeen = true;
   if (name === 'courts') S.page = Math.floor((Math.min(save.data.progress.unlocked, LEVELS.length) - 1) / PER_PAGE);
-  if (name === 'name') S.name = save.data.lastName;
+  if (name === 'name') {
+    S.name = save.data.lastName;
+    S.nameCheck = { name: '', state: 'idle', at: 0 };
+    S.typedAt = -99;
+  }
   if (name === 'scores') {
     // The shared board is the only one shown when it is set up; without a
     // configured project (a local copy of the game) the device board stands in.
@@ -237,9 +243,42 @@ function endRun(title) {
   S.coach = null; // leaving mid-tutorial: it will be offered again next time
 }
 
+// ---- unique names: a name already on the online board belongs to someone
+// else, unless this device has saved a score under it before. The board is
+// only read for this; if it cannot be reached, the name is not blocked.
+
+const typedName = () => cleanName(S.name) || 'PLAYER';
+
+function checkName() {
+  const name = typedName();
+  const c = { name, state: 'checking', at: S.time, saveAfter: false };
+  S.nameCheck = c;
+  if (!onlineEnabled() || save.data.names.includes(name)) {
+    c.state = 'own';
+    return;
+  }
+  nameTaken(name).then((res) => {
+    if (S.nameCheck !== c) return; // the name has changed since
+    c.state = res.ok ? (res.taken ? 'taken' : 'free') : 'error';
+    if (c.saveAfter && c.state !== 'taken' && S.screen === 'name' && !S.leaving) saveScore();
+  });
+}
+
 function saveScore() {
+  if (!S.run || S.run.saved) return;
+  if (S.nameCheck.name !== typedName() || S.nameCheck.state === 'idle') checkName();
+  const c = S.nameCheck;
+  if (c.state === 'checking') {
+    c.saveAfter = true; // saves as soon as the board answers
+    return;
+  }
+  if (c.state === 'taken') {
+    c.at = S.time; // shakes the message
+    audio.sfx('wall');
+    return;
+  }
   S.run.saved = true;
-  S.board = { rank: save.addScore(S.name, S.run.score, S.level + 1), fromRun: true };
+  S.board = { rank: save.addScore(typedName(), S.run.score, S.level + 1), fromRun: true };
   S.post = { state: 'idle', error: '', entry: { name: save.data.lastName, score: S.run.score, court: S.level + 1 } };
   postScore();
   go('scores');
@@ -289,6 +328,7 @@ function showBoard(tab) {
 function typeKey(ch) {
   if (ch === 'del') S.name = S.name.slice(0, -1);
   else if (S.name.length < 8) S.name += ch;
+  S.typedAt = S.time;
 }
 
 function pause() {
@@ -330,7 +370,7 @@ function musicFor(look) {
 }
 
 // The theme for the court being played (or last played, in the menus).
-const courtTheme = () => getCourtTheme(S.level + 1, save.data.settings.theme);
+const courtTheme = () => getCourtTheme(S.level + 1, save.data.settings.theme, S.look);
 
 function openRules() {
   S.overlay = S.overlayKind = 'rules';
@@ -387,6 +427,8 @@ function update(dt) {
   if (S.eraseArmed > 0) S.eraseArmed -= dt;
 
   if (S.screen === 'loading' && S.ready && S.t > 1.5) go('title');
+  // Ask about the typed name once typing pauses.
+  if (S.screen === 'name' && S.run && !S.run.saved && S.nameCheck.name !== typedName() && S.time - S.typedAt > 0.4) checkName();
   if (S.screen === 'intro' && S.t > 2.6 && !S.leaving) afterIntro();
 
   const g = S.game;
@@ -982,7 +1024,12 @@ const SCREENS = {
         return;
       }
       iconBtn('close', 'close', x + w - 23, y + 7, skip); // leave without saving
-      text('YOUR NAME FOR THE LEADERBOARD', W / 2, y + 49, '#7d7354', { align: 'center' });
+      // What the board says about the typed name.
+      const nc = S.nameCheck.name === typedName() ? S.nameCheck.state : 'idle';
+      const msg = { checking: 'CHECKING NAME...', free: 'NAME AVAILABLE', taken: 'NAME TAKEN - TRY ANOTHER' }[nc] || 'YOUR NAME FOR THE LEADERBOARD';
+      const col = nc === 'taken' ? '#b3541e' : nc === 'free' ? '#3f7d38' : '#7d7354';
+      const shake = nc === 'taken' && S.time - S.nameCheck.at < 0.3 ? Math.round(Math.sin(S.time * 60) * 2) : 0;
+      text(msg, W / 2 + shake, y + 49, col, { align: 'center' });
       rect(W / 2 - 58, y + 60, 116, 21, PAL.ink);
       rect(W / 2 - 57, y + 61, 114, 19, PAL.panel);
       const shown = S.name + (S.name.length < 8 && Math.floor(S.time * 2.5) % 2 ? '_' : '');
@@ -1568,6 +1615,23 @@ async function boot() {
   const fallback = document.getElementById('fallback');
   if (fallback) fallback.hidden = true;
   await save.init();
+  // Each visit opens on a different country than the last one (Automatic
+  // theme only; a country picked in Pause stays picked).
+  // Kept apart from the save, so a first visit does not create one.
+  let prev = 0;
+  try {
+    prev = Math.floor(Number(localStorage.getItem('the-court.look'))) || 0;
+  } catch {
+    /* storage blocked: any start will do */
+  }
+  S.look = (prev + 1 + Math.floor(Math.random() * (COUNTRIES.length - 1))) % COUNTRIES.length;
+  const pinned = debug && new URLSearchParams(location.search).get('look'); // tests fix the rotation
+  if (pinned) S.look = Math.floor(Number(pinned)) % COUNTRIES.length || 0;
+  try {
+    localStorage.setItem('the-court.look', String(S.look));
+  } catch {
+    /* not kept: the next visit may repeat it */
+  }
   audio.settings = save.data.settings;
   S.ready = true;
 }

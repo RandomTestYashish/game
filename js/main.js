@@ -971,7 +971,9 @@ const SCREENS = {
       go('scores');
     };
     panel(k, x, y, w, h, 'cream', () => {
-      serif(S.nameTitle, W / 2 + 1, y + 13, 20, PAL.ink, { align: 'center', sp: 1 });
+      // The title moves left just enough to clear the close button.
+      const tx = scored ? Math.min(W / 2 + 1, x + w - 30 - serifW(S.nameTitle, 20, 1) / 2) : W / 2 + 1;
+      serif(S.nameTitle, tx, y + 13, 20, PAL.ink, { align: 'center', sp: 1 });
       text('SCORE ' + run.score + '   COURT ' + (S.level + 1), W / 2, y + 37, PAL.ink, { align: 'center', sp: 1 });
       if (!scored) {
         text('NO POINTS THIS TIME', W / 2, y + 52, '#7d7354', { align: 'center' });
@@ -979,6 +981,7 @@ const SCREENS = {
         roundBtn('home', 'home', 'HOME', W / 2 + 30, y + 96, () => go('title'));
         return;
       }
+      iconBtn('close', 'close', x + w - 23, y + 7, skip); // leave without saving
       text('YOUR NAME FOR THE LEADERBOARD', W / 2, y + 49, '#7d7354', { align: 'center' });
       rect(W / 2 - 58, y + 60, 116, 21, PAL.ink);
       rect(W / 2 - 57, y + 61, 114, 19, PAL.panel);
@@ -994,8 +997,7 @@ const SCREENS = {
         text(ch === 'del' ? '<' : ch, kx + 13, ky + 5, PAL.ink, { align: 'center' });
         region(id, kx, ky, 26, 19, () => typeKey(ch));
       });
-      ghost('skip', 'SKIP', x + 38, y + h - 30, 50, 17, skip);
-      pill('save', 'SAVE SCORE', W / 2 + 28, y + h - 31, 118, 18, saveScore);
+      pill('save', 'SAVE SCORE', W / 2, y + h - 31, 130, 18, saveScore);
     });
     S.primary = scored ? saveScore : retry;
     S.back = scored ? skip : () => go('title');

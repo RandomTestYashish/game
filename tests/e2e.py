@@ -136,7 +136,7 @@ window.__bot = { mode: 'win', on: false };
 # Pure rules checks, run in the page against a fresh Game with a seeded RNG.
 RULES = """
 async () => {
-  const { Game, WW, WH, TOOL_TIME, BLOCKS } = await import('/js/game.js');
+  const { Game, WW, WH, TOOL_TIME, BLOCKS, PADDLE_Y } = await import('/js/game.js');
   const { LEVELS } = await import('/js/levels.js');
   const out = {};
   const rng = (seed) => () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
@@ -194,8 +194,14 @@ async () => {
   // Level set
   const ids = new Set(LEVELS.map(l => l.id)), names = new Set(LEVELS.map(l => l.name));
   out.levelCount = LEVELS.length >= 100 && ids.size === LEVELS.length && names.size === LEVELS.length;
-  out.levelsWellFormed = LEVELS.every(l => l.rows.length >= 4 && l.rows.length <= 7 && l.rows.every(r => /^[.TLHS]{7}$/.test(r))
-    && l.rows.join('').replace(/\./g, '').length >= 14 && (l.move || []).every(r => l.rows[r][0] === '.' && l.rows[r][6] === '.'));
+  out.levelsWellFormed = LEVELS.every(l => l.rows.length >= 4 && l.rows.length <= 9 && l.rows.every(r => r.length === l.cols && /^[.TLHS]+$/.test(r))
+    && l.rows.join('').replace(/\./g, '').length >= 14 && (l.move || []).every(r => l.rows[r][0] === '.' && l.rows[r][l.cols - 1] === '.'));
+  // Blocks shrink on every court, the grid widens, and courts fill up.
+  const count = (i) => new Game(LEVELS[i]).blocks.length;
+  const avg = (a, b) => { let n = 0; for (let i = a; i < b; i++) n += count(i); return n / (b - a); };
+  out.blocksShrink = LEVELS.every((l, i) => i === 0 || l.cell < LEVELS[i - 1].cell) && LEVELS[0].cols === 7 && LEVELS[119].cols > 7;
+  out.moreBlocks = [avg(0, 20), avg(20, 60), avg(60, 100), avg(100, 120)].every((v, i, a) => i === 0 || v > a[i - 1] + 5);
+  out.blocksOnCourt = LEVELS.every(l => new Game(l).blocks.every(b => b.x - (b.amp || 0) >= 0 && b.x + b.w + (b.amp || 0) <= WW && b.y + b.d < PADDLE_Y - 30));
   out.getsHarder = LEVELS[119].speed > LEVELS[0].speed * 1.6 && LEVELS[119].paddle < LEVELS[0].paddle - 10 && LEVELS[0].speed >= 160;
 
   // Tools
@@ -566,6 +572,8 @@ def desktop(browser, url):
     d.click("keyA")
     check("name entry by keyboard and on-screen keys", d.ev("__court.S.name") == "PANDA", d.ev("__court.S.name"))
     d.shot("12-name-entry")
+    check("name screen: no Skip button; a close (X) sits in the panel's top-right corner",
+          d.ev("(()=>{const r=__court.ui.regions, c=r.find(q=>q.id==='close'), sv=r.find(q=>q.id==='save'); return !r.some(q=>q.id==='skip') && c && sv && c.x > sv.x + sv.w - 10 && c.y < sv.y - 100})()"))
     d.click("save")
     d.screen("scores", 0.8)
     d.shot("13-leaderboard")
@@ -599,7 +607,7 @@ def desktop(browser, url):
         check("a scoreless run offers Retry instead of name entry", d.ev("__court.ui.regions.some(r=>r.id==='retry') && !__court.ui.regions.some(r=>r.id==='save')"))
         d.click("home")
     else:
-        d.click("skip")
+        d.click("close")
         d.screen("scores", 0.6)
         check("Skip leaves the leaderboard unchanged", len(d.saved()["leaderboard"]) == 2)
         d.click("home")
@@ -854,7 +862,7 @@ def online_board(browser, url):
         dd.ev("__bot.mode='lose'")
         dd.screen("name", 0.8, 240000)
         if name is None:
-            dd.click("skip")
+            dd.click("close")
         else:
             dd.pg.keyboard.type(name)
             dd.pg.keyboard.press("Enter")

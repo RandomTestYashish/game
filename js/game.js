@@ -37,9 +37,6 @@ export const brickPoints = (type, n) => Math.round((BLOCKS[type].pts * comboMult
 
 export const TOOL_TIME = { smash: 7, freeze: 8, expand: 14, lowgrav: 10 };
 
-const COLS = 7;
-const CELL = 28;
-const ROW = 20;
 const WEIGHTS = { shield: 1, multiball: 1.2, smash: 0.9, freeze: 0.9, expand: 1.2, lowgrav: 0.9 };
 
 export class Game {
@@ -77,16 +74,19 @@ export class Game {
   }
 
   buildBlocks() {
-    const { rows, move = [] } = this.level;
+    const { rows, move = [], cell = 28, row: ROW = 20 } = this.level;
+    const cols = rows[0].length;
+    const left = (WW - cols * cell) / 2 + 1; // centred across the court
     const top = 30 + Math.max(0, 6 - rows.length) * 6;
+    const tall = 0.6 + (0.4 * cell) / 28; // smaller blocks stand a little lower
     const drift = this.level.drift || 0;
     const wave = this.level.wave ?? 2;
     rows.forEach((row, r) => {
       const moving = move.includes(r);
-      for (let c = 0; c < COLS; c++) {
+      for (let c = 0; c < cols; c++) {
         const type = row[c];
         if (!BLOCKS[type]) continue;
-        const x = 3 + c * CELL;
+        const x = left + c * cell;
         this.blocks.push({
           type,
           c,
@@ -98,9 +98,9 @@ export class Game {
           bob: 0,
           drift,
           wave,
-          w: CELL - 2,
+          w: cell - 2,
           d: ROW - 6,
-          hz: BLOCKS[type].hz,
+          hz: Math.round(BLOCKS[type].hz * tall),
           hp: BLOCKS[type].hp,
           max: BLOCKS[type].hp,
           seed: (r * 31 + c * 17 + 7) * 2654435761,
@@ -111,7 +111,7 @@ export class Game {
           z: 170,
           vz: 0,
           flash: 0,
-          amp: moving ? CELL - 2 : 0,
+          amp: moving ? cell - 2 : 0,
           freq: 0.9 + (r % 3) * 0.25,
           phase: r * 1.7,
         });

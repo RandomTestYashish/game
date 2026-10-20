@@ -1460,6 +1460,29 @@ def analytics(browser, url):
     MOCK["posted"].clear()
 
 
+def players_and_racket(browser, url):
+    """code-2 look: blocks are drawn as tennis players, the paddle as a racket."""
+    print("players and racket")
+    ctx = browser.new_context(viewport={"width": 390, "height": 844})
+    ctx.add_init_script(RETURNING)
+    d = Driver(ctx.new_page())
+    d.pg.goto(url + "&look=0")
+    d.screen("title", 0.5)
+    d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+    d.wait("__court.S.screen==='play' && __court.S.game.ready && __court.S.t>0.3", 20000)
+    d.ev("__court.S.timeScale=0.0001")
+    time.sleep(0.2)
+    hexes = d.ev("""(()=>{const c=document.getElementById('court'), x=c.getContext('2d'), d=x.getImageData(0,0,c.width,c.height).data, s=new Set();
+      for(let i=0;i<d.length;i+=4) s.add('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')); return [...s]})()""")
+    want = {"red shirts": "#d8403a", "white shirts": "#eeede4", "blue shirts": "#3a74d8", "skin": "#f0bf8e", "racket frame": "#e3b341", "racket grip": "#9a6a3a", "racket strings": "#8b939e"}
+    missing = [k for k, v in want.items() if v not in hexes]
+    check("court 1 shows players (shirts, skin) and the racket (frame, strings, grip)", not missing, missing)
+    check("the old black paddle is gone", "#22262d" not in hexes)
+    d.shot("players-court1")
+    check("no console errors (players)", not d.errors, d.errors[:3])
+    ctx.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1478,6 +1501,7 @@ def main():
             live_place(browser, url)
             visits_and_names(browser, url)
             analytics(browser, url)
+            players_and_racket(browser, url)
         finally:
             browser.close()
             srv.shutdown()

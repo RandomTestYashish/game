@@ -864,86 +864,96 @@ function drawSides(time) {
 
 // ---------------------------------------------------------------- sprites
 
+// Block materials; `bits` are the colours of the pieces that fly off a hit
+// player (shirt, shirt shade, skin).
 export const MAT = {
-  T: { top: '#cf6f4f', hi: '#e79069', front: '#a04d37', lo: '#733324', bits: ['#cf6f4f', '#a04d37', '#e79069'] },
-  L: { top: '#ece3c8', hi: '#fbf6e2', front: '#c9bd9c', lo: '#9d906d', bits: ['#ece3c8', '#c9bd9c', '#fbf6e2'] },
-  H: { top: '#3f7d38', hi: '#68ab52', front: '#2b5b29', lo: '#193a1b', bits: ['#3f7d38', '#2b5b29', '#68ab52'] },
-  S: { top: '#454a54', hi: '#69707c', front: '#272b32', lo: '#14171b', bits: ['#454a54', '#272b32', '#69707c'] },
+  T: { top: '#cf6f4f', hi: '#e79069', front: '#a04d37', lo: '#733324', bits: ['#d8403a', '#a12a27', '#f0bf8e'] },
+  L: { top: '#ece3c8', hi: '#fbf6e2', front: '#c9bd9c', lo: '#9d906d', bits: ['#eeede4', '#c4c2b4', '#f0bf8e'] },
+  H: { top: '#3f7d38', hi: '#68ab52', front: '#2b5b29', lo: '#193a1b', bits: ['#3a74d8', '#28519c', '#f0bf8e'] },
+  S: { top: '#454a54', hi: '#69707c', front: '#272b32', lo: '#14171b', bits: ['#ee7a35', '#b4521c', '#f0bf8e'] },
 };
 
-// A cuboid seen from the front and above. (xl,xr,yn) is the near ground edge,
-// (xlf,xrf,yf) the far ground edge; h/hf are the wall heights at each edge.
+// ---------------------------------------------------------------- players
+// The blocks are drawn as little tennis players standing on their spot: one
+// 14x15 pixel sprite (plus a 1-pixel outline), scaled to the block's width.
+// The shirt shows how many hits a player takes, as the brick colour did.
+
+const KIT = {
+  T: { shirt: '#d8403a', shade: '#a12a27', band: '#f4f4ee' }, // red, 1 hit
+  L: { shirt: '#eeede4', shade: '#c4c2b4', band: '#d8403a' }, // white, 1 hit
+  H: { shirt: '#3a74d8', shade: '#28519c', band: '#f4f4ee' }, // blue, 2 hits
+  S: { shirt: '#ee7a35', shade: '#b4521c', band: '#2b2b2b' }, // orange, 3 hits
+};
+const PLAYER = [
+  '....hhhhh.....',
+  '...hhhhhhh....',
+  '...bbbbbbb.rr.',
+  '...hssssshrnnr',
+  '...hseseshrnnr',
+  '...hssmsshrnnr',
+  '.....sss...rr.',
+  '..cccccccc..g.',
+  '..sccccccs..g.',
+  '..sccccccsssg.',
+  '...dddddd.....',
+  '...wwwwww.....',
+  '...ww..ww.....',
+  '...kk..kk.....',
+  '...ff..ff.....',
+];
+const SKIN = { h: '#2b1d16', s: '#f0bf8e', e: '#1d1410', m: '#c9845c', w: '#f2f1ea', k: '#e0a874', f: '#3a3a3a', r: '#3b3f46', n: '#c9ced6', g: '#8a5a2b' };
+const sprites = new Map();
+
+// v: '' as new, 'hurt' after a hit, 'hurt2' after two, 'ice' when frozen,
+// 'flash' (white) for the hit flash. flip mirrors it, racket on the left.
+function playerSprite(type, v, flip) {
+  const key = type + v + (flip ? '<' : '>');
+  let canvas = sprites.get(key);
+  if (canvas) return canvas;
+  const k = KIT[type];
+  const col = { ...SKIN, b: v === 'hurt2' ? SKIN.h : k.band, c: v === 'hurt' || v === 'hurt2' ? k.shade : k.shirt, d: k.shade };
+  const x = makeLayer(16, 17);
+  const at = (i) => (flip ? 13 - i : i) + 1;
+  // Outline first, then the pixels over it.
+  x.fillStyle = '#14201a';
+  PLAYER.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && x.fillRect(at(i) - 1, j, 3, 3)));
+  PLAYER.forEach((row, j) =>
+    [...row].forEach((ch, i) => {
+      if (ch === '.') return;
+      x.fillStyle = col[ch];
+      x.fillRect(at(i), j + 1, 1, 1);
+    }),
+  );
+  if (v === 'hurt' || v === 'hurt2') {
+    x.fillStyle = '#9fdcff'; // a drop of sweat
+    x.fillRect(at(2), 4, 1, 2);
+  }
+  if (v === 'ice' || v === 'flash') {
+    x.globalCompositeOperation = 'source-atop';
+    x.fillStyle = v === 'ice' ? 'rgba(191,232,255,0.6)' : '#ffffff';
+    x.fillRect(0, 0, 16, 17);
+  }
+  canvas = x.canvas;
+  sprites.set(key, canvas);
+  return canvas;
+}
+
+// Same arguments as the old cuboid: (xl,xr,yn) is the near ground edge,
+// (xlf,xrf,yf) the far one. The player stands on the near edge, as wide as it.
 export function drawBlock(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
-  const m = MAT[type];
-  xl = Math.round(xl);
-  xr = Math.round(xr);
-  yn = Math.round(yn);
-  h = Math.max(2, Math.round(h));
-  const topN = yn - h;
-  const topF = Math.min(topN - 2, Math.round(yf - hf));
+  if (!KIT[type]) return;
   const w = xr - xl;
   if (w < 2) return;
-
-  trap(topF, xlf, xrf, topN, xl, xr, m.top);
-  rect(xl, topN, w, h, m.front);
-  rect(xl, topN, w, 1, m.hi);
-  rect(xl, yn - 1, w, 1, m.lo);
-  rect(xr - 1, topN + 1, 1, h - 1, m.lo);
-  trap(topF, xlf, xrf, topF + 1, xlf, xrf, m.hi);
-
-  const rnd = mulberry(seed);
-  const leafy = type === 'H';
-  // Fewer speckles on small blocks: they would not show, and big courts draw a thousand.
-  const n = Math.round((leafy ? 22 : type === 'S' ? 4 : 7) * Math.min(1, (w * h) / 200));
-  const th = topN - topF;
-  for (let i = 0; i < n; i++) {
-    const u = rnd();
-    const v = rnd();
-    const dark = rnd() < 0.5;
-    if (rnd() < 0.45) {
-      const y = topF + 1 + Math.floor(v * (th - 1));
-      const t = th > 1 ? (y - topF) / th : 1;
-      const a = lerp(xlf, xl, t) + 1;
-      const b = lerp(xrf, xr, t) - 2;
-      rect(lerp(a, b, u), y, leafy || rnd() < 0.5 ? 1 : 2, 1, dark ? m.front : m.hi);
-    } else {
-      rect(xl + 1 + u * (w - 3), topN + 1 + v * (h - 3), leafy || rnd() < 0.5 ? 1 : 2, 1, dark ? m.lo : m.top);
-    }
-  }
-
-  if (o.damage > 0) {
-    // Cracks spreading across the front and over the top edge.
-    const crack = mulberry(seed ^ 0x9e3779b9);
-    const count = Math.round(o.damage * 3);
-    for (let c = 0; c < count; c++) {
-      let x = xl + 3 + crack() * (w - 6);
-      for (let y = topN - 2; y < yn - 1; y++) {
-        rect(x, y, 1, 1, m.lo);
-        x += crack() < 0.5 ? -1 : crack() < 0.6 ? 1 : 0;
-        x = Math.max(xl + 1, Math.min(xr - 2, x));
-        if (crack() < 0.12) break;
-      }
-    }
-  }
-
-  if (o.frozen) {
-    ctx.globalAlpha = 0.5;
-    for (let y = topF; y < yn; y++) {
-      const t = y < topN ? (y - topF) / Math.max(1, th) : 1;
-      const a = Math.round(lerp(xlf, xl, t));
-      const b = Math.round(lerp(xrf, xr, t));
-      ctx.fillStyle = PAL.ice;
-      for (let x = a + ((y + a) & 1); x < b; x += 2) ctx.fillRect(x, y, 1, 1);
-    }
-    ctx.globalAlpha = 1;
-    rect(xl + 2, topN + 2, 2, 1, '#ffffff');
-    rect(xl + 2, topN + 3, 1, 1, '#ffffff');
-  }
-
+  const sw = Math.max(3, Math.round((w * 16) / 14));
+  const sh = Math.round((sw * 17) / 16);
+  const x = Math.round((xl + xr) / 2 - sw / 2);
+  const y = Math.round(yn) - sh + 1;
+  const flip = (seed >>> 3) % 2 === 1;
+  const v = o.frozen ? 'ice' : o.damage >= 0.6 ? 'hurt2' : o.damage > 0 ? 'hurt' : '';
+  ctx.drawImage(playerSprite(type, v, flip), x, y, sw, sh);
   if (o.flash > 0) {
     ctx.globalAlpha = Math.min(0.8, o.flash * 6);
-    trap(topF, xlf, xrf, topN, xl, xr, '#ffffff');
-    rect(xl, topN, w, h, '#ffffff');
+    ctx.drawImage(playerSprite(type, 'flash', flip), x, y, sw, sh);
     ctx.globalAlpha = 1;
   }
 }
@@ -972,14 +982,43 @@ export function drawPaddle(cx, y, hw, glow = false) {
   cx = Math.round(cx);
   y = Math.round(y);
   hw = Math.round(hw);
+  // A tennis racket lying across the paddle's width: strung head on the
+  // left, throat, then the handle with its grip and a red band.
+  const left = cx - hw;
+  const len = hw * 2;
+  const th = Math.max(7, Math.min(20, Math.round(len * 0.26))) | 1; // head height, odd for a centre line
+  const mid = y - 4;
+  const headW = Math.round(len * 0.44);
+  const hx = left + Math.floor(headW / 2);
+  const rx = Math.floor(headW / 2);
+  const ry = (th - 1) / 2;
   ctx.globalAlpha = 0.32;
-  rrect(cx - hw + 1, y - 2, hw * 2, 8, 4, '#07140a');
+  rrect(left + 1, y - 2, len, 6, 3, '#07140a');
   ctx.globalAlpha = 1;
-  // On a Black Court the dark paddle gets a pale rim so it stays easy to see.
-  if (theme && theme.isBlackCourt) rrect(cx - hw - 1, y - 12, hw * 2 + 2, 16, 7, '#8d96a3');
-  rrect(cx - hw, y - 11, hw * 2, 14, 6, '#0d0f12');
-  rrect(cx - hw + 1, y - 11, hw * 2 - 2, 9, 5, '#22262d');
-  rect(cx - hw + 5, y - 10, hw * 2 - 10, 1, '#4a505b');
-  rect(cx - hw + 3, y - 3, hw * 2 - 6, 1, glow ? PAL.yellowHi : PAL.yellow);
-  if (glow) rect(cx - hw + 3, y - 4, hw * 2 - 6, 1, PAL.yellowLo);
+  // Handle and shaft first, so the head sits over the join.
+  const shaftL = left + headW - 2;
+  const handleL = left + Math.round(len * 0.6);
+  const right = left + len;
+  rect(shaftL, mid - 2, handleL - shaftL, 5, '#1a1206');
+  rect(shaftL, mid - 1, handleL - shaftL, 3, glow ? PAL.yellowHi : '#e3b341');
+  rect(handleL, mid - 3, right - handleL, 7, '#1a1206');
+  rect(handleL + 1, mid - 2, right - handleL - 2, 5, '#9a6a3a');
+  for (let gx = handleL + 5; gx < right - 3; gx += 3) rect(gx, mid - 2, 1, 5, '#6e4724'); // grip wrap
+  rect(handleL + 1, mid - 2, 2, 5, '#c8352e'); // red band
+  rect(right - 3, mid - 2, 2, 5, '#e3b341'); // butt cap
+  rect(handleL + 1, mid - 2, right - handleL - 2, 1, 'rgba(255,255,255,0.18)');
+  // Head: dark rim, gold frame, strung face.
+  ellipse(hx, mid, rx + 1, ry + 1, '#1a1206');
+  ellipse(hx, mid, rx, ry, glow ? PAL.yellowHi : '#e3b341');
+  ellipse(hx, mid, rx - 2, ry - 2, '#262b31');
+  ctx.fillStyle = '#8b939e';
+  for (let dx = -rx + 3; dx <= rx - 3; dx += 2) {
+    const half = Math.floor((ry - 2) * Math.sqrt(Math.max(0, 1 - (dx * dx) / ((rx - 2) * (rx - 2)))));
+    if (half > 0) ctx.fillRect(hx + dx, mid - half, 1, half * 2 + 1);
+  }
+  for (let dy = -ry + 3; dy <= ry - 3; dy += 2) {
+    const half = Math.floor((rx - 2) * Math.sqrt(Math.max(0, 1 - (dy * dy) / ((ry - 2) * (ry - 2)))));
+    if (half > 0) ctx.fillRect(hx - half, mid + dy, half * 2 + 1, 1);
+  }
+  rect(hx - Math.round(rx * 0.5), mid - ry, Math.round(rx), 1, glow ? '#fff6c8' : '#f6d77a'); // shine on the frame
 }

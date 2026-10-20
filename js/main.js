@@ -9,7 +9,7 @@ import { LEVELS } from './levels.js';
 import { drawGame, drawHUD } from './render.js';
 import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, panel } from './ui.js';
 import { AudioSys } from './audio.js';
-import { Save } from './save.js';
+import { Save, BOARD_SIZE } from './save.js';
 import { onlineEnabled } from './config.js';
 import { fetchTopScores, submitScore } from './remote.js';
 
@@ -127,6 +127,7 @@ function onGameEvent(type, arg) {
 function beginRun(i) {
   if (S.coach) return firstRally(); // restarting mid-tutorial restarts the tutorial
   S.run = { lives: START_LIVES, score: 0, saved: false };
+  S.place = null;
   startLevel(i);
 }
 
@@ -142,6 +143,7 @@ function afterIntro() {
 function firstRally() {
   S.coach = { step: 'move', t: 0, moved: 0, lastX: null, toolSeen: false };
   S.run = { lives: START_LIVES, score: 0, saved: false };
+  S.place = null;
   startLevel(0, { ...LEVELS[0], speed: Math.round(LEVELS[0].speed * 0.8) }, { firstTool: 'expand' });
 }
 
@@ -181,6 +183,7 @@ function coachText() {
 
 function startLevel(i, level, extra) {
   S.cleared = null;
+  if (onlineEnabled()) loadOnline(); // fresh rows for the live place (reused for 30 s)
   S.level = clamp(i, 0, LEVELS.length - 1);
   S.game = new Game(level || LEVELS[S.level], onGameEvent, Math.random, { lives: S.run.lives, score: S.run.score, ...extra });
   S.ending = 0;
@@ -425,6 +428,8 @@ function update(dt) {
     if ((c.step === 'break' && c.t > 4) || (c.step === 'tool' && c.t > 7) || (c.step === 'caught' && c.t > 2.5)) c.step = 'idle';
   }
 
+  trackPlace(dt);
+
   if (S.ending > 0 && S.screen === 'play') {
     S.ending -= dt;
     if (S.ending <= 0) {
@@ -440,6 +445,63 @@ function update(dt) {
         go('name');
       }
     }
+  }
+}
+
+// ---- live place on the leaderboard ------------------------------------------
+// While a run is on, its score is placed against the same board the
+// Leaderboard screen shows. Passing someone pops a short "you beat" note.
+
+function boardRows() {
+  if (!onlineEnabled()) return save.data.leaderboard;
+  return S.online.state === 'ok' || S.online.rows.length ? S.online.rows : null; // not loaded: no place yet
+}
+
+function trackPlace(dt) {
+  const g = S.game;
+  const rows = boardRows();
+  if (!g || !S.run || !rows) return;
+  const ahead = rows.filter((r) => r.score > g.score).length; // rows are best first
+  const p = S.place;
+  // A new or refreshed board only sets the starting point, without a note.
+  if (!p || p.rows !== rows) {
+    S.place = { rows, ahead, beat: '', t: 0 };
+    return;
+  }
+  if (ahead < p.ahead) {
+    const e = rows[ahead]; // the best entry just passed
+    const mine = e.name === save.data.lastName;
+    p.beat = mine && !rows.slice(0, ahead).some((r) => r.name === e.name) ? 'NEW PERSONAL BEST!' : 'YOU BEAT ' + e.name + '!';
+    p.t = 2;
+    audio.sfx('power');
+  }
+  p.ahead = ahead;
+  if (p.t > 0) p.t = Math.max(0, p.t - dt);
+}
+
+const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? 'TH' : ['TH', 'ST', 'ND', 'RD'][n % 10] || 'TH');
+
+function drawPlace() {
+  const p = S.place;
+  const g = S.game;
+  if (!p || !g) return;
+  const n = p.ahead + 1;
+  const label = n <= BOARD_SIZE ? ordinal(n) + ' PLACE' : p.rows[BOARD_SIZE - 1].score - g.score + 1 + ' TO TOP ' + BOARD_SIZE;
+  const w = textW(label) + 12;
+  const x = W - w - 5;
+  rrect(x - 1, 37, w + 2, 15, 5, PAL.ink);
+  rrect(x, 38, w, 13, 4, PAL.panel);
+  text(label, x + 6, 41, n <= 3 ? PAL.yellow : PAL.cream);
+  if (p.t > 0) {
+    const msg = p.beat;
+    const mw = textW(msg, 1, 1) + 18;
+    const pop = p.t > 1.85 ? 2 : 0;
+    const y = 58 - pop;
+    ctx.globalAlpha = Math.min(1, p.t / 0.35);
+    rrect(W / 2 - mw / 2 - 1, y - 1, mw + 2, 19, 6, PAL.ink);
+    rrect(W / 2 - mw / 2, y, mw, 17, 5, PAL.yellow);
+    text(msg, W / 2, y + 5, PAL.ink, { align: 'center', sp: 1 });
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -801,7 +863,7 @@ const SCREENS = {
     if (c) {
       // How the court just won went: no button, it fades with the countdown.
       const w = 150;
-      const y = 50;
+      const y = 56;
       rrect(W / 2 - w / 2 - 1, y - 1, w + 2, 47, 6, PAL.ink);
       rrect(W / 2 - w / 2, y, w, 45, 5, PAL.panel);
       text('COURT ' + c.court + ' COMPLETE', W / 2, y + 6, PAL.cream, { align: 'center', sp: 1 });
@@ -1307,7 +1369,10 @@ function draw() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 
   const hud = S.leaving ? S.leaving.name : S.screen;
-  if (g && (hud === 'countdown' || hud === 'play' || hud === 'paused')) drawHUD(g, 'COURT ' + (S.level + 1));
+  if (g && (hud === 'countdown' || hud === 'play' || hud === 'paused')) {
+    drawHUD(g, 'COURT ' + (S.level + 1));
+    drawPlace();
+  }
 
   if (S.leaving) {
     ui.live = false;

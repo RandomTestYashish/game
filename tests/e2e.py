@@ -1218,6 +1218,46 @@ def slow_first_visit(browser, url):
     ctx.close()
 
 
+def live_place(browser, url):
+    """While playing: the run's place on the leaderboard, and a note for each name passed."""
+    print("live leaderboard place")
+    board = "[{name:'AANYA',score:2000,court:4,at:1},{name:'RAVI',score:400,court:2,at:2},{name:'PANDA',score:250,court:1,at:3},{name:'MIA',score:120,court:1,at:4},{name:'JO',score:60,court:1,at:5}]"
+    ctx = browser.new_context(viewport={"width": 390, "height": 844})
+    ctx.add_init_script(OFFLINE + "; localStorage.setItem('the-court.save', JSON.stringify({version:3,onboarded:true,lastName:'PANDA',leaderboard:" + board + "}))")
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.0)
+    d.pg.evaluate(BOT)
+    d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+    d.screen("countdown", 0.3)
+    check("a new run starts in 6th place on a 5-name board, with no note", d.ev("__court.S.place.ahead") == 5 and d.ev("__court.S.place.t") == 0)
+    d.ev("window.__msgs=[]; setInterval(()=>{const p=__court.S.place; if(p&&p.t>0&&!__msgs.includes(p.beat)) __msgs.push(p.beat)},10); __court.S.timeScale=1.5; __bot.on=true")
+    d.wait("__court.S.game.score>420 || (__court.S.screen!=='play' && __court.S.screen!=='countdown')", 240000)
+    d.ev("__court.S.timeScale=0.0001")
+    time.sleep(0.2)
+    msgs = d.ev("__msgs")
+    score = d.ev("__court.S.game.score")
+    check("passing names pops 'you beat' notes in order; passing your own best says so",
+          score > 420 and msgs[:2] == ["YOU BEAT JO!", "YOU BEAT MIA!"] and "NEW PERSONAL BEST!" in msgs and msgs.index("NEW PERSONAL BEST!") == 2, (score, msgs))
+    check("the place follows the score (2nd, behind AANYA)", d.ev("__court.S.place.ahead") == 1)
+    check("no console errors (live place)", not d.errors, d.errors[:3])
+    ctx.close()
+
+    # Online: the place is taken against the shared board.
+    origin = url.split("/?")[0]
+    MOCK["mode"] = "ok"
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(RETURNING + f"; window.COURT_CONFIG={{supabaseUrl:'{origin}', supabaseAnonKey:'{MOCK['key']}'}}")
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.0)
+    d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+    d.wait("__court.S.online.state==='ok' && __court.S.place")
+    want = d.ev("__court.S.online.rows.filter(r=>r.score>__court.S.game.score).length")
+    check("online: the place is counted against the online board", d.ev("__court.S.place.rows===__court.S.online.rows") and d.ev("__court.S.place.ahead") == want, want)
+    ctx.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1233,6 +1273,7 @@ def main():
             touch_device(browser, url, "mobile", 390, 844)
             online_board(browser, url)
             themes(browser, url)
+            live_place(browser, url)
         finally:
             browser.close()
             srv.shutdown()

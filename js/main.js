@@ -1,7 +1,8 @@
 // Boot, screen flow, input and the frame loop.
 
 import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, ellipse, line, text, textW, wrap, blockTitle, sparkle, racket, cup, trophy, laurel, rays, globe, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
-import { P, setCam, buildLayers, drawScene, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
+import { P, setCam, buildLayers, drawScene, setTheme, currentTheme, drawThemePreview, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
+import { COUNTRIES, getCourtTheme } from './themes.js';
 import { Game, TOOLS, START_LIVES } from './game.js';
 import { sections } from './rules.js';
 import { LEVELS } from './levels.js';
@@ -42,7 +43,7 @@ const S = {
   gameVis: 0,
   titleVis: 0,
   landing: 1, // 1 on the first screen (no net or canopy yet), easing to 0 after Play
-  overlay: false, // false | 'sound' | 'rules'
+  overlay: false, // false | 'sound' | 'rules' | 'theme'
   overlayKind: 'sound',
   rulesTab: 0,
   rulesFits: true,
@@ -284,6 +285,24 @@ function openSound() {
   S.overlay = S.overlayKind = 'sound';
   S.eraseArmed = 0;
 }
+
+function openTheme() {
+  S.overlay = S.overlayKind = 'theme';
+}
+
+function closeTheme() {
+  S.overlay = false;
+  save.commit();
+}
+
+// 'auto' or a country id. Visual only: the court, score and lives are untouched.
+function chooseTheme(choice) {
+  save.data.settings.theme = choice;
+  save.commit();
+}
+
+// The theme for the court being played (or last played, in the menus).
+const courtTheme = () => getCourtTheme(S.level + 1, save.data.settings.theme);
 
 function openRules() {
   S.overlay = S.overlayKind = 'rules';
@@ -784,7 +803,7 @@ const SCREENS = {
 
   paused(k) {
     const w = 150;
-    const h = 171;
+    const h = 192;
     const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
     const resume = () => go('play');
@@ -794,8 +813,9 @@ const SCREENS = {
       pill('resume', 'RESUME', W / 2, y + 46, 104, 19, resume);
       ghost('restart', 'RESTART', W / 2, y + 76, 104, 15, () => beginRun(S.level));
       ghost('sound', 'SOUND', W / 2, y + 97, 104, 15, openSound);
-      ghost('rules', 'HOW TO PLAY', W / 2, y + 118, 104, 15, openRules);
-      ghost('home', 'HOME', W / 2, y + 139, 104, 15, () => endRun('RALLY ENDED'));
+      ghost('theme', 'THEME', W / 2, y + 118, 104, 15, openTheme);
+      ghost('rules', 'HOW TO PLAY', W / 2, y + 139, 104, 15, openRules);
+      ghost('home', 'HOME', W / 2, y + 160, 104, 15, () => endRun('RALLY ENDED'));
     });
     S.primary = resume;
     S.back = resume;
@@ -996,6 +1016,70 @@ function drawSoundOverlay(k) {
   S.back = closeSound;
 }
 
+// Theme picker: Automatic, or one of the four countries. Picking one shows
+// it straight away behind the panel; the court itself carries on as it was.
+function drawThemeOverlay(k) {
+  ctx.globalAlpha = 0.45 * k;
+  rect(0, 0, W, H, '#06120c');
+  ctx.globalAlpha = 1;
+  const choice = save.data.settings.theme;
+  const now = courtTheme();
+  const w = Math.min(W - 16, 300);
+  const cw = Math.floor((w - 30) / 2);
+  const ph = Math.round(clamp(cw * 0.42, 38, 60));
+  const ch = ph + 24;
+  const h = 96 + ch * 2 + 8 + 34;
+  const x = Math.round((W - w) / 2);
+  const y = Math.round((H - h) / 2);
+  panel(easeBack(k), x, y, w, h, 'dark', () => {
+    serif('THEME', W / 2 + 3, y + 14, 16, PAL.cream, { align: 'center', sp: 5 });
+    rect(W / 2 - 12, y + 32, 24, 1, PAL.cream);
+    const auto = choice === 'auto';
+    ghost('themeauto', auto ? 'AUTOMATIC  ON' : 'AUTOMATIC', W / 2, y + 42, w - 28, 15, () => chooseTheme('auto'),
+      auto ? { fill: PAL.yellow, color: PAL.ink, line: PAL.yellow } : {});
+    text(auto ? 'A NEW COUNTRY EVERY 2 COURTS' : 'KEPT ON EVERY COURT', W / 2, y + 63, PAL.dim, { align: 'center' });
+    text('THIS COURT: ' + now.countryName + (now.isBlackCourt ? ' - BLACK COURT' : ''), W / 2, y + 75, PAL.cream, { align: 'center' });
+    COUNTRIES.forEach((c, i) => {
+      const cx = x + 12 + (i % 2) * (cw + 6);
+      const cy = y + 90 + Math.floor(i / 2) * (ch + 6);
+      const picked = choice === c.id;
+      const id = 'theme-' + c.id;
+      const hot = ui.hover === id || ui.pressed === id;
+      rrect(cx - 1, cy - 1, cw + 2, ch + 2, 4, picked ? PAL.cream : hot ? PAL.yellow : '#3c5a48');
+      rrect(cx, cy, cw, ch, 3, picked ? PAL.panelHi : '#0d1f16');
+      const t = getCourtTheme(1, c.id);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(cx + 3, cy + 3, cw - 6, ph);
+      ctx.clip();
+      drawThemePreview(t, cx + 3, cy + 3, cw - 6, ph);
+      ctx.restore();
+      // Black Court swatch in the corner.
+      const sx = cx + cw - 17;
+      const sy = cy + ph - 8;
+      rect(sx - 1, sy - 1, 13, 9, PAL.ink);
+      rect(sx, sy, 11, 7, c.black.court);
+      rect(sx, sy + 3, 11, 1, c.black.alt);
+      rect(sx + 5, sy, 1, 7, c.black.lines);
+      text(c.name, cx + 5, cy + ph + 6, picked ? PAL.yellow : PAL.cream, { sp: 1 });
+      text(c.short, cx + 5, cy + ph + 15, PAL.dim);
+      if (picked) {
+        disc(cx + cw - 9, cy + 9, 6, PAL.ink);
+        disc(cx + cw - 9, cy + 9, 5, PAL.cream);
+        line(cx + cw - 12, cy + 9, cx + cw - 10, cy + 11, PAL.ink);
+        line(cx + cw - 10, cy + 11, cx + cw - 6, cy + 6, PAL.ink);
+      } else if (auto && now.countryId === c.id) {
+        rrect(cx + cw - 25, cy + 5, 21, 9, 3, PAL.yellow);
+        text('NOW', cx + cw - 14, cy + 6, PAL.ink, { align: 'center' });
+      }
+      region(id, cx, cy, cw, ch, () => chooseTheme(c.id));
+    });
+    pill('themedone', 'DONE', W / 2, y + h - 27, 80, 17, closeTheme);
+  });
+  S.primary = closeTheme;
+  S.back = closeTheme;
+}
+
 // How to Play: numbered cards per tab, laid out first so the panel can size
 // itself and drop the tip on short screens instead of overflowing.
 function ruleCardLayout(sec, card, CARD_W, LH) {
@@ -1139,6 +1223,7 @@ function draw() {
   S.pitch = (S.pitch || 0) + (pitch - (S.pitch || 0)) * 0.05;
   P.landing = easeInOut(S.landing);
   setCam(S.cam + S.pitch, S.shift);
+  setTheme(courtTheme());
   beginUI();
   S.primary = null;
   S.back = null;
@@ -1183,6 +1268,7 @@ function draw() {
     beginUI();
     ui.live = S.overlay && S.overlayT >= 1;
     if (S.overlayKind === 'rules') drawRulesOverlay(S.overlayT);
+    else if (S.overlayKind === 'theme') drawThemeOverlay(S.overlayT);
     else drawSoundOverlay(S.overlayT);
     ui.live = true;
   }
@@ -1360,6 +1446,6 @@ async function boot() {
   S.ready = true;
 }
 
-if (debug) window.__court = { S, save, audio, ui, LEVELS, go, beginRun, proj, size: () => [W, H], onlineEnabled };
+if (debug) window.__court = { S, save, audio, ui, LEVELS, go, beginRun, proj, size: () => [W, H], onlineEnabled, getCourtTheme, currentTheme };
 
 boot();

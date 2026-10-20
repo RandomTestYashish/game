@@ -2,6 +2,8 @@
 // methods (load / save / clear), so a remote database store can replace
 // LocalStore without touching the game. See README "Database upgrade path".
 
+import { cleanThemeChoice } from './themes.js';
+
 const KEY = 'the-court.save';
 export const SAVE_VERSION = 3;
 export const BOARD_SIZE = 20;
@@ -11,7 +13,7 @@ export function defaultSave() {
     version: SAVE_VERSION,
     updatedAt: 0,
     onboarded: false, // true once the first-time guided rally is finished or skipped
-    settings: { music: 0.6, sfx: 0.8, muted: false },
+    settings: { music: 0.6, sfx: 0.8, muted: false, theme: 'auto' },
     progress: { unlocked: 1, levels: {} }, // levels[id] = { best, stars }
     stats: { plays: 0, wins: 0, blocks: 0 },
     leaderboard: [], // { name, score, court, at } best first
@@ -36,6 +38,7 @@ export function migrate(raw) {
   d.settings.music = num(s.music, d.settings.music, 0, 1);
   d.settings.sfx = num(s.sfx, d.settings.sfx, 0, 1);
   d.settings.muted = !!s.muted;
+  d.settings.theme = cleanThemeChoice(s.theme);
   const p = raw.progress || {};
   d.progress.unlocked = Math.floor(num(p.unlocked, 1, 1, 999));
   for (const [id, v] of Object.entries(p.levels || {})) {

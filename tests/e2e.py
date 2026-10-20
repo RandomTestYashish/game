@@ -1051,6 +1051,125 @@ def first_time(browser, url):
     ctx.close()
 
 
+def themes(browser, url):
+    """Court themes: rotation rules, all eight looks, the picker, persistence."""
+    print("court themes")
+    COUNTRY = ["japan", "newyork", "london", "india"]
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(OFFLINE + "; if(!localStorage.getItem('the-court.save')) localStorage.setItem('the-court.save', JSON.stringify({version:3,onboarded:true,progress:{unlocked:20}}))")
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.0)
+
+    # 1. The two rules, checked on their own and for all 120 courts.
+    got = d.ev("Array.from({length:120},(_,i)=>{const t=__court.getCourtTheme(i+1);return [t.countryId,t.isBlackCourt]})")
+    want = [[COUNTRY[((n - 1) // 2) % 4], n % 3 == 0] for n in range(1, 121)]
+    check("country = floor((court-1)/2) % 4 for courts 1-120", [g[0] for g in got] == [w[0] for w in want])
+    check("Black Court = every third court, for courts 1-120", [g[1] for g in got] == [w[1] for w in want])
+    table = {1: ("japan", False), 2: ("japan", False), 3: ("newyork", True), 4: ("newyork", False), 5: ("london", False), 6: ("london", True),
+             7: ("india", False), 8: ("india", False), 9: ("japan", True), 10: ("japan", False), 12: ("newyork", True), 30: ("london", True),
+             60: ("newyork", True), 90: ("japan", True), 120: ("india", True)}
+    bad = {n: v for n, v in table.items() if tuple(got[n - 1]) != v}
+    check("checkpoint courts 1,2,3,4,5,6,7,8,9,10,12,30,60,90,120", not bad, bad)
+    manual = d.ev("[1,3,8,9].map(n=>{const t=__court.getCourtTheme(n,'india');return [t.countryId,t.isBlackCourt]})")
+    check("manual choice fixes the country but keeps every third court black", manual == [["india", False], ["india", True], ["india", False], ["india", True]], manual)
+    keys = d.ev("Object.keys(__court.getCourtTheme(5)).sort().join()")
+    check("getCourtTheme returns the documented fields", all(k in keys for k in ["countryId", "countryName", "isBlackCourt", "courtPalette", "backgroundPalette", "courtLineColor", "accentColor", "ambientEffects"]), keys)
+
+    # 2. Every country, normal and black, actually drawn: the ground at the
+    #    bottom of the screen is that theme's court colour.
+    d.pg.evaluate(BOT)
+    px = "(()=>{const c=document.getElementById('court');const g=c.getContext('2d');const s=__court.size();const d=g.getImageData(Math.round(s[0]/2)+18,s[1]-2,1,1).data;return '#'+[d[0],d[1],d[2]].map(v=>v.toString(16).padStart(2,'0')).join('')})()"
+    for court in (1, 4, 5, 7, 9, 3, 6, 15):
+        d.ev(f"__bot.mode='win'; __bot.on=true; __court.S.timeScale=1; __court.beginRun({court - 1})")
+        d.wait("__court.S.screen==='play' && __court.S.game.score>=20", 60000)
+        d.ev("__court.S.timeScale=0.0001")
+        time.sleep(0.6)
+        t = d.ev("__court.currentTheme()")
+        colour = d.ev(px)
+        pal = t["courtPalette"]
+        name = f"{t['countryId']}{' black' if t['isBlackCourt'] else ''}"
+        check(f"court {court}: {name} is drawn (ground is {colour}, a court colour)", colour.lower() in (pal["court"].lower(), pal["alt"].lower()) and [t["countryId"], t["isBlackCourt"]] == got[court - 1], (colour, pal))
+        d.shot(f"theme-c{court}-{name.replace(' ', '-')}")
+    check("ball, paddle and HUD still drawn on a Black Court", d.ev("__court.S.game.balls.length>0") and d.ev("__court.S.screen") == "play")
+
+    # 3. Picker from the pause menu: changes the look, never the game.
+    d.ev("__court.S.timeScale=1; __bot.on=false")
+    d.ev("__court.beginRun(3)")  # court 4: New York, normal
+    d.screen("play", 0.3, 20000)
+    d.ev("__bot.mode='win'; __bot.on=true")
+    d.wait("__court.S.game.score>=20", 60000)
+    d.ev("__bot.on=false")
+    d.pg.keyboard.press("p")
+    d.screen("paused", 0.5)
+    snap = "JSON.stringify([__court.S.level,__court.S.game.score,__court.S.game.lives,__court.S.game.blocks.filter(b=>b.alive).length,__court.S.game.paddle.w,__court.S.game.balls.map(b=>[b.x,b.y,b.vx,b.vy])])"
+    before = d.ev(snap)
+    d.click("theme")
+    d.wait("__court.S.overlayT>=1")
+    ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
+    check("pause menu has Theme: Automatic plus four country cards and Done", all(i in ids for i in ["themeauto", "theme-japan", "theme-newyork", "theme-london", "theme-india", "themedone"]), ids)
+    d.shot("theme-picker-desktop")
+    d.click("theme-london")
+    time.sleep(0.6)
+    t = d.ev("__court.currentTheme()")
+    check("picking London applies it at once", t["countryId"] == "london" and t["mode"] == "manual" and d.ev("__court.save.data.settings.theme") == "london")
+    time.sleep(0.5)
+    check("changing theme leaves court, score, lives, bricks, paddle and ball exactly as they were", d.ev(snap) == before)
+    d.click("themedone")
+    d.wait("__court.S.overlayT<=0")
+    d.click("resume")
+    d.screen("play", 0.3)
+    check("Done and Resume return to the same court", d.ev("__court.S.level") == 3)
+    # Manual stays on the next courts; black still every third.
+    d.ev("__court.beginRun(5)")  # court 6
+    d.screen("countdown", 0.1, 20000)
+    t = d.ev("__court.currentTheme()")
+    check("manual London is kept on court 6, which is still a Black Court", t["countryId"] == "london" and t["isBlackCourt"])
+    d.ev("__court.beginRun(6)")  # court 7: automatic would be India
+    d.screen("countdown", 0.1, 20000)
+    check("manual London is not replaced when rotation reaches India", d.ev("__court.currentTheme().countryId") == "london")
+
+    # 4. Persistence: the choice survives a reload.
+    d.pg.reload()
+    d.screen("title", 1.0)
+    check("theme choice is saved and comes back after a refresh", d.ev("__court.save.data.settings.theme") == "london" and d.ev("__court.currentTheme().countryId") == "london")
+    # Back to Automatic.
+    d.ev("__court.beginRun(6)")
+    d.screen("play", 0.3, 20000)
+    d.pg.keyboard.press("p")
+    d.screen("paused", 0.5)
+    d.click("theme")
+    d.wait("__court.S.overlayT>=1")
+    d.click("themeauto")
+    time.sleep(0.5)
+    check("Automatic restores the rotation (court 7 is India)", d.ev("__court.save.data.settings.theme") == "auto" and d.ev("__court.currentTheme().countryId") == "india")
+    d.pg.keyboard.press("Escape")
+    d.wait("__court.S.overlayT<=0")
+    check("Esc closes the picker back to the pause menu", d.ev("__court.S.screen") == "paused")
+    check("no console errors (themes, desktop)", not d.errors, d.errors[:3])
+    ctx.close()
+
+    # 5. Phone: the picker fits and works by touch.
+    ctx = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    ctx.add_init_script(RETURNING)
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.0)
+    d.ev("__court.beginRun(0)")
+    d.screen("play", 0.3, 20000)
+    d.tap("pause")
+    d.screen("paused", 0.5)
+    d.tap("theme")
+    d.wait("__court.S.overlayT>=1")
+    fits = d.ev("(()=>{const r=__court.ui.regions; const s=__court.size(); return r.every(q=>q.x>=0&&q.y>=0&&q.x+q.w<=s[0]&&q.y+q.h<=s[1])})()")
+    d.tap("theme-india")
+    time.sleep(0.5)
+    check("phone: picker fits the screen and a tap picks India", fits and d.ev("__court.currentTheme().countryId") == "india")
+    d.shot("theme-picker-mobile")
+    check("no console errors (themes, phone)", not d.errors, d.errors[:3])
+    ctx.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1064,6 +1183,7 @@ def main():
             touch_device(browser, url, "tablet", 820, 1180)
             touch_device(browser, url, "mobile", 390, 844)
             online_board(browser, url)
+            themes(browser, url)
         finally:
             browser.close()
             srv.shutdown()

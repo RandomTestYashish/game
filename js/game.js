@@ -21,6 +21,7 @@ export const TOOLS = [
   { id: 'lowgrav', name: 'LOW GRAVITY', desc: ['BALLS AND TOOLS DRIFT', 'DOWN SLOWLY.'] },
 ];
 
+export const PADDLE_Y = WH - 34; // just in front of the baseline
 export const START_LIVES = 3; // a run's lives; a lost life never comes back
 export const MAX_BALLS = 9;
 export const MAX_DROPS = 2; // tools falling at once
@@ -63,7 +64,7 @@ export class Game {
     this.fx = { smash: 0, freeze: 0, expand: 0, lowgrav: 0 };
     this.sinceDrop = 0;
     this.shake = 0;
-    this.paddle = { x: WW / 2, y: WH - 14, w: this.padW, d: 8 };
+    this.paddle = { x: WW / 2, y: PADDLE_Y, w: this.padW, d: 8 };
     this.balls = [];
     this.drops = [];
     this.parts = [];

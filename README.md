@@ -55,6 +55,26 @@ A player with no save is not sent through the court grid and tools briefing. Pla
 
 The tutorial is marked done (`onboarded` in the save) when that first rally ends or is skipped; from then on the game is exactly the normal one. Saves from before this feature count as returning if they show any play. "Erase save data" brings the tutorial back.
 
+## Court themes
+
+Every court is dressed as one of four countries, and every third court has a Black Court surface. Only the look changes: bricks, ball, paddle, scoring and rules are the same everywhere.
+
+| Theme | Background |
+|---|---|
+| Japan, Sakura Court | Mount Fuji, a pagoda, a torii gate, cherry blossom, falling petals |
+| New York, City Lights | Skyscrapers with lit windows, a suspension bridge, a statue |
+| London, Classic Garden | A clock tower, a long Gothic hall, a low bridge, garden trees |
+| India, Jaipur Royal Court | A sandstone palace with domes and arches, a hill fort, palms |
+
+`js/themes.js` holds the colours and one function, `getCourtTheme(court, choice)`:
+
+- country = `Math.floor((court - 1) / 2) % 4`, in the order Japan, New York, London, India
+- Black Court = `court % 3 === 0`, worked out separately, so it also applies when a country is chosen by hand
+
+On a Black Court the surface turns near-black, the lines take the country's accent colour, and the paddle gets a pale rim so it stays visible. The background stays the country's.
+
+**Choosing a theme.** Pause, then Theme. Automatic follows the rotation. Picking a country keeps that country on every court until Automatic is picked again. The choice is saved with the sound settings (`settings.theme`: `auto`, `japan`, `newyork`, `london` or `india`). A change of theme cross-fades over about 0.35 s.
+
 ## Architecture
 
 ```
@@ -69,6 +89,7 @@ js/ui.js          buttons, sliders, tilting panels
 js/gfx.js         low-res canvas, drawing primitives, fonts, icons
 js/audio.js       Web Audio effects and music
 js/rules.js       How to Play text, built from the game's constants
+js/themes.js      court themes: colours and getCourtTheme()
 js/config.js      online leaderboard settings (empty = off)
 js/remote.js      online scores: read the top 20, post a saved run
 js/save.js        save data, migration, storage adapter
@@ -92,7 +113,7 @@ One JSON document in `localStorage` under `the-court.save`:
   "version": 3,
   "updatedAt": 1791901112459,
   "onboarded": true,
-  "settings": { "music": 0.6, "sfx": 0.8, "muted": false },
+  "settings": { "music": 0.6, "sfx": 0.8, "muted": false, "theme": "auto" },
   "progress": { "unlocked": 2, "levels": { "baseline": { "best": 610, "stars": 2 } } },
   "stats": { "plays": 3, "wins": 1, "blocks": 51 },
   "leaderboard": [{ "name": "PANDA", "score": 1730, "court": 2, "at": 1791901112459 }],

@@ -2,7 +2,7 @@
 // shared sprite painters (blocks, ball, paddle).
 
 import { W, H, ctx, PAL, makeLayer, setTarget, rect, disc, ellipse, line, trap, rrect, lerp, mulberry, bayer } from './gfx.js';
-import { WW, WH } from './game.js';
+import { WW, WH, PADDLE_Y } from './game.js';
 
 // ---------------------------------------------------------------- projection
 // cam 0 = low view from behind the baseline (menus), cam 1 = raised play view.
@@ -22,7 +22,7 @@ export function setCam(cam, shift = 0) {
   P.dFar = lerp(2.3, 1.45, cam);
   P.G = (yBot - yTop) / (1 - 1 / P.dFar);
   P.hor = yBot - P.G;
-  P.sRef = P.kx / depth(WH - 14);
+  P.sRef = P.kx / depth(PADDLE_Y);
 }
 
 const depth = (wy) => P.dFar + (1 - P.dFar) * (wy / WH);
@@ -44,25 +44,96 @@ function unprojY(sy) {
 }
 
 // ---------------------------------------------------------------- layers
+// Each court theme (js/themes.js) gets its own set of background layers,
+// built the first time it is shown and kept until the window is resized.
 
-const L = {};
 const M = 26; // spare layer width each side, revealed as the camera trucks
 const WALL_H = 14;
 const LAYER_H = 64;
+const HILL_H = 64;
+const LAND_H = 90;
 let lanterns = [];
 let speckles = [];
-let stars = [];
 let flies = [];
 let petals = [];
-
-const SKY = ['#2b2547', '#4a3560', '#7d4668', '#b85a5e', '#e07f52', '#f2a85c', '#f6c873'];
+let cache = {};
+let theme = null; // the theme being drawn
+let L = null; // its layers
 
 export function buildLayers() {
   const rnd = mulberry(20261013);
-  const LW = W + M * 2;
+  cache = {};
   lanterns = [M + W / 2 - 82, M + W / 2 + 81].map(Math.round);
+  speckles = [];
+  const reach = W / 2 / 0.5; // world half-width visible at the far edge of the low view
+  for (let i = 0; i < Math.round(W * 1.3); i++) {
+    speckles.push({ x: WW / 2 + (rnd() - 0.5) * 2 * reach, y: -40 + rnd() * (WH + 60), light: rnd() < 0.5, wide: rnd() < 0.3 });
+  }
+  flies = [];
+  for (let i = 0; i < Math.round(W / 22); i++) flies.push({ x: rnd() * W, y: rnd(), p: rnd() * 6.28, f: 0.5 + rnd() });
+  petals = [];
+  for (let i = 0; i < Math.round(W / 14); i++) petals.push({ x: rnd() * W, y: rnd(), p: rnd() * 6.28, v: 5 + rnd() * 7, k: rnd() });
+  if (theme) L = layersFor(theme);
+}
+
+export function layersFor(t) {
+  return cache[t.countryId] || (cache[t.countryId] = makeLayers(t.countryId, t.backgroundPalette));
+}
+
+// Switch theme. A change of country or surface cross-fades over ~350 ms.
+const FADE = 0.35;
+let snap = null;
+let frozen = null;
+let fadeT = 1;
+export function setTheme(t) {
+  if (theme && t.key === theme.key) return;
+  const first = !theme;
+  theme = t;
+  L = layersFor(t);
+  if (!first && snap) {
+    if (!frozen || frozen.canvas.width !== W || frozen.canvas.height !== H) frozen = makeLayer(W, H);
+    frozen.clearRect(0, 0, W, H);
+    frozen.drawImage(snap.canvas, 0, 0);
+    fadeT = 0;
+  }
+}
+export const currentTheme = () => theme;
+
+// A small picture of a theme for the theme picker: its sky, landmarks and
+// trees, and a little court in its normal colours.
+export function drawThemePreview(t, x, y, w, h) {
+  const Lt = layersFor(t);
+  const mid = M + Math.round(W / 2);
+  const gy = Math.round(y + h * 0.6);
+  const skyH = Lt.sky.height;
+  ctx.drawImage(Lt.sky, 0, skyH * 0.25, W, skyH * 0.75, x, y, w, gy - y);
+  const span = 230;
+  const sc = w / span;
+  const hh = Math.round(HILL_H * sc);
+  ctx.drawImage(Lt.hills, mid - span / 2, 0, span, HILL_H, x, gy - hh + 3, w, hh);
+  const lh = Math.round(LAND_H * sc);
+  ctx.drawImage(Lt.land, mid - span / 2, 0, span, LAND_H, x, gy - lh + 2, w, lh);
+  const th = Math.round(96 * sc);
+  ctx.drawImage(Lt.trees, mid - span / 2, 0, span, 96, x, gy - th + 4, w, th);
+  const cp = t.courtPalette;
+  for (let yy = gy; yy < y + h; yy++) rect(x, yy, w, 1, Math.floor((yy - gy) / 3) % 2 ? cp.alt : cp.court);
+  const cx = x + w / 2;
+  const top = Math.round(w * 0.26);
+  const bot = Math.round(w * 0.44);
+  line(cx - top, gy + 1, cx - bot, y + h - 1, t.courtLineColor);
+  line(cx + top, gy + 1, cx + bot, y + h - 1, t.courtLineColor);
+  rect(cx - top, gy + 1, top * 2, 1, t.courtLineColor);
+  rect(cx, gy + 1, 1, Math.round((y + h - gy) * 0.5), t.courtLineColor);
+}
+
+function makeLayers(id, T) {
+  const rnd = mulberry(20261013 + id.length * 977);
+  const out = {};
+  const LW = W + M * 2;
+  const mid = M + Math.round(W / 2);
 
   // Sky: banded dusk gradient with dithered seams.
+  const SKY = T.sky;
   const skyH = Math.round(0.58 * H) + 14;
   const sky = makeLayer(W, skyH);
   setTarget(sky);
@@ -75,9 +146,9 @@ export function buildLayers() {
       sky.fillRect(x, y, 1, 1);
     }
   }
-  L.sky = sky.canvas;
-  stars = [];
-  for (let i = 0; i < Math.round(W / 14); i++) stars.push({ x: rnd() * W, y: rnd() * skyH * 0.32, p: rnd() * 6.28, f: 0.6 + rnd() * 1.6 });
+  out.sky = sky.canvas;
+  out.stars = [];
+  for (let i = 0; i < Math.round(W / 14); i++) out.stars.push({ x: rnd() * W, y: rnd() * skyH * 0.32, p: rnd() * 6.28, f: 0.6 + rnd() * 1.6 });
 
   // Clouds drift on their own wrapping strip.
   const cw = W + 90;
@@ -87,65 +158,81 @@ export function buildLayers() {
     const y = 6 + rnd() * skyH * 0.62;
     const len = 18 + rnd() * 46;
     const x = rnd() * (cw - len);
-    const c = y / skyH > 0.4 ? '#c96a5a' : '#5a3a66';
+    const c = y / skyH > 0.4 ? T.clouds[1] : T.clouds[0];
     rect(x, y, len, 1, c);
     rect(x + 4, y + 1, len - 10, 1, c);
     if (rnd() < 0.5) rect(x + 10, y - 1, len - 22, 1, c);
   }
-  L.clouds = clouds.canvas;
+  out.clouds = clouds.canvas;
 
-  // Distant hills.
-  const hills = makeLayer(LW, 40);
+  // Distant hills, and whatever stands far off on them.
+  const hills = makeLayer(LW, HILL_H);
   setTarget(hills);
+  if (id === 'japan') fuji(mid + 34, HILL_H, T);
   for (let x = 0; x < LW; x++) {
     const a = 14 + Math.sin(x * 0.035 + 1) * 6 + Math.sin(x * 0.09) * 3;
-    rect(x, 40 - a - 10, 1, a + 10, '#2c3d4b');
+    rect(x, HILL_H - a - 10, 1, a + 10, T.hills[0]);
     const b = 10 + Math.sin(x * 0.05 + 4) * 5 + Math.sin(x * 0.13 + 2) * 2;
-    rect(x, 40 - b, 1, b, '#20372f');
+    rect(x, HILL_H - b, 1, b, T.hills[1]);
   }
-  L.hills = hills.canvas;
+  if (id === 'india') hillFort(mid + 70, HILL_H - 26, T, rnd);
+  out.hills = hills.canvas;
 
-  // Cypress and broadleaf silhouettes.
+  // Landmarks, between the hills and the trees.
+  const land = makeLayer(LW, LAND_H);
+  setTarget(land);
+  if (id === 'japan') {
+    pagoda(mid - 58, LAND_H);
+    torii(mid + 62, LAND_H);
+  } else if (id === 'newyork') {
+    skyline(LW, LAND_H, rnd, mid);
+  } else if (id === 'london') {
+    westminster(mid, LAND_H, rnd);
+  } else if (id === 'india') {
+    palace(mid, LAND_H, rnd);
+  }
+  out.land = land.canvas;
+
+  // Trees: kept to the sides so the landmarks show between them.
   const trees = makeLayer(LW, 96);
   setTarget(trees);
+  const tc = T.trees;
   const cypress = (x, h, w) => {
     for (let i = 0; i < h; i++) {
       const t = i / h;
       const half = Math.max(0, Math.round(w * Math.min(1, Math.pow(t * 1.9, 0.75)) * (t > 0.86 ? 1 - (t - 0.86) * 2 : 1)));
-      rect(x - half, 96 - h + i, half * 2 + 1, 1, '#15301f');
-      if (half > 1 && rnd() < 0.55) rect(x + half - 1, 96 - h + i, 1, 1, '#2c5a38');
-      if (half > 2 && rnd() < 0.3) rect(x - half + 1 + rnd() * half, 96 - h + i, 1, 1, '#0f2417');
+      rect(x - half, 96 - h + i, half * 2 + 1, 1, tc.dark);
+      if (half > 1 && rnd() < 0.55) rect(x + half - 1, 96 - h + i, 1, 1, tc.hi);
+      if (half > 2 && rnd() < 0.3) rect(x - half + 1 + rnd() * half, 96 - h + i, 1, 1, tc.shade);
     }
   };
-  const bush = (x, y, r) => {
-    disc(x, y, r, '#1a3d26');
-    disc(x - r * 0.3, y - r * 0.3, r * 0.6, '#225030');
+  const bush = (x, y, r, c1 = tc.bush, c2 = tc.bushHi, sp = [tc.hi, tc.shade]) => {
+    disc(x, y, r, c1);
+    disc(x - r * 0.3, y - r * 0.3, r * 0.6, c2);
     for (let i = 0; i < r * 2; i++) {
       const a = rnd() * 6.28;
       const d = rnd() * r;
-      rect(x + Math.cos(a) * d, y + Math.sin(a) * d, 1, 1, rnd() < 0.5 ? '#2f6b3d' : '#122c1b');
+      rect(x + Math.cos(a) * d, y + Math.sin(a) * d, 1, 1, sp[rnd() < 0.5 ? 0 : 1]);
     }
   };
-  // A far-off town: dark blocks with a few lit windows, behind the trees.
-  for (let x = 4; x < LW; x += 12 + rnd() * 22) {
-    if (rnd() < 0.35) continue;
-    const bw = 8 + Math.round(rnd() * 12);
-    const bh = 34 + Math.round(rnd() * 26);
-    const top = 96 - bh;
-    rect(x, top, bw, bh, '#1d1a36');
-    rect(x, top, bw, 1, '#2c2850');
-    if (rnd() < 0.3) rect(x + Math.round(bw / 2), top - 4, 1, 4, '#1d1a36');
-    for (let wy = top + 3; wy < 80; wy += 4) {
-      for (let wx = x + 2; wx < x + bw - 2; wx += 3) {
-        if (rnd() < 0.22) rect(wx, wy, 1, 2, rnd() < 0.7 ? '#f6c86a' : '#d98f4a');
-      }
-    }
+  const side = (x) => Math.abs(x - mid) > Math.min(110, W * 0.3);
+  for (let x = 10; x < LW; x += 34) bush(x + rnd() * 10, 86 - rnd() * 6, 10 + rnd() * 5);
+  if (id === 'japan') {
+    for (let x = 6; x < LW; x += 26 + rnd() * 16) if (side(x)) blossomTree(x, 96, 18 + rnd() * 8, T.blossom, rnd);
+    for (let x = 8; x < LW; x += 40 + rnd() * 20) if (side(x) && rnd() < 0.5) cypress(x, 46 + rnd() * 20, 3 + rnd() * 2);
+  } else if (id === 'india') {
+    for (let x = 6; x < LW; x += 22 + rnd() * 18) if (side(x)) palm(x, 96, 40 + rnd() * 22, rnd() < 0.5 ? -1 : 1, tc);
+    for (let x = 12; x < LW; x += 36) if (side(x)) bush(x + rnd() * 8, 82, 9 + rnd() * 4);
+  } else if (id === 'london') {
+    for (let x = 4; x < LW; x += 24 + rnd() * 12) if (side(x)) { bush(x, 60 + rnd() * 10, 14 + rnd() * 6); bush(x + 8, 50 + rnd() * 10, 10 + rnd() * 5); }
+    for (let x = 8; x < LW; x += 30 + rnd() * 14) if (side(x) && rnd() < 0.6) cypress(x, 56 + rnd() * 24, 4 + rnd() * 2);
+  } else {
+    for (let x = 8, i = 0; x < LW; x += 18 + rnd() * 14, i++) if (side(x)) cypress(x, 48 + rnd() * 34 - (i % 3) * 6, 4 + rnd() * 3);
   }
-  for (let x = 10; x < LW; x += 34) bush(x + rnd() * 10, 84 - rnd() * 8, 12 + rnd() * 7);
-  for (let x = 8, i = 0; x < LW; x += 18 + rnd() * 14, i++) cypress(x, 48 + rnd() * 40 - (i % 3) * 6, 4 + rnd() * 3);
-  L.trees = trees.canvas;
+  out.trees = trees.canvas;
 
-  // Hedge, stone wall, lantern pillars and flowering planters.
+  // Hedge, wall, lantern pillars and flowering planters.
+  const wc = T.wall;
   const wall = makeLayer(LW, LAYER_H);
   setTarget(wall);
   const wy = LAYER_H - WALL_H;
@@ -153,32 +240,30 @@ export function buildLayers() {
     const top = wy - 24 + Math.round(Math.sin(x * 0.4) * 0.6 + rnd() * 1.4);
     rect(x, top, 1, wy - top + 2, '#1c4427');
   }
-  for (let i = 0; i < LW * 1.75; i++) {
-    rect(rnd() * LW, wy - 23 + rnd() * 24, 1, 1, rnd() < 0.55 ? '#2a5f35' : '#133120');
-  }
+  for (let i = 0; i < LW * 1.75; i++) rect(rnd() * LW, wy - 23 + rnd() * 24, 1, 1, rnd() < 0.55 ? '#2a5f35' : '#133120');
   for (let x = 0; x < LW; x += 2) if (rnd() < 0.5) rect(x, wy - 24, 1, 1, '#34743f');
-  rect(0, wy, LW, WALL_H, '#5c5852');
-  rect(0, wy, LW, 2, '#8c877c');
-  rect(0, wy + 2, LW, 1, '#716c64');
+  rect(0, wy, LW, WALL_H, wc.base);
+  rect(0, wy, LW, 2, wc.top);
+  rect(0, wy + 2, LW, 1, wc.top2);
   for (let r = 0; r < 3; r++) {
     const y = wy + 5 + r * 4;
-    rect(0, y, LW, 1, '#48443f');
-    for (let x = (r % 2) * 6; x < LW; x += 12) rect(x, y - 3, 1, 3, '#48443f');
+    rect(0, y, LW, 1, wc.line);
+    for (let x = (r % 2) * 6; x < LW; x += 12) rect(x, y - 3, 1, 3, wc.line);
   }
-  for (let i = 0; i < LW / 4; i++) rect(rnd() * LW, wy + 3 + rnd() * 10, 1, 1, rnd() < 0.5 ? '#6a655d' : '#524e48');
+  for (let i = 0; i < LW / 4; i++) rect(rnd() * LW, wy + 3 + rnd() * 10, 1, 1, wc.speck[rnd() < 0.5 ? 0 : 1]);
   rect(0, LAYER_H - 1, LW, 1, '#35322e');
   for (const lx of lanterns) {
-    rect(lx - 5, wy - 4, 11, WALL_H + 4, '#6f6a62');
-    rect(lx - 6, wy - 5, 13, 2, '#958f84');
+    rect(lx - 5, wy - 4, 11, WALL_H + 4, wc.pillar);
+    rect(lx - 6, wy - 5, 13, 2, wc.pillarTop);
     rect(lx - 5, LAYER_H - 1, 11, 1, '#35322e');
-    rect(lx + 4, wy - 3, 1, WALL_H + 2, '#57534d');
+    rect(lx + 4, wy - 3, 1, WALL_H + 2, wc.line);
     rect(lx - 3, wy - 15, 7, 10, '#231f1a');
-    rect(lx - 2, wy - 13, 5, 7, '#ffcf5a');
+    rect(lx - 2, wy - 13, 5, 7, T.lamp);
     rect(lx - 1, wy - 12, 3, 5, '#fff3b8');
     rect(lx - 4, wy - 16, 9, 1, '#231f1a');
     rect(lx - 1, wy - 18, 3, 2, '#231f1a');
   }
-  // Flowering bushes: at the outer edges, and along the wall on wide screens.
+  const flowers = T.blossom ? [T.blossom[2], T.blossom[3]] : ['#f1eedd', '#c9d3b6'];
   const beds = [M + 12, M + W - 12];
   for (let x = W / 2 - 150; x > 40; x -= 70) beds.push(M + x, M + W - x);
   for (const bx of beds) {
@@ -191,35 +276,37 @@ export function buildLayers() {
       for (let k = 0; k < 7; k++) {
         const a = rnd() * 6.28;
         const d = rnd() * r;
-        rect(x + Math.cos(a) * d, y + Math.sin(a) * d, rnd() < 0.3 ? 2 : 1, 1, rnd() < 0.7 ? '#f1eedd' : '#c9d3b6');
+        rect(x + Math.cos(a) * d, y + Math.sin(a) * d, rnd() < 0.3 ? 2 : 1, 1, rnd() < 0.7 ? flowers[0] : flowers[1]);
       }
     }
   }
-  L.wall = wall.canvas;
+  out.wall = wall.canvas;
 
-  // Foreground canopy framing the top corners.
+  // Foreground canopy framing the top corners (blossom in Japan).
   const fore = makeLayer(LW, 190);
   setTarget(fore);
+  const leaf = T.blossom ? ['#7a2f57', '#b8507f', T.blossom[2], '#5c2242'] : ['#102b1b', '#17402a', '#245a34', '#0b2014'];
   const canopy = (cx, cy, n, spread) => {
     for (let i = 0; i < n; i++) {
       const x = cx + (rnd() - 0.5) * spread;
       const y = cy + (rnd() - 0.5) * spread * 0.9;
       const r = 7 + rnd() * 9;
-      disc(x, y, r, '#102b1b');
-      disc(x - 2, y - 2, r * 0.55, '#17402a');
+      disc(x, y, r, leaf[0]);
+      disc(x - 2, y - 2, r * 0.55, leaf[1]);
       for (let k = 0; k < r; k++) {
         const a = rnd() * 6.28;
         const d = rnd() * r;
-        rect(x + Math.cos(a) * d, y + Math.sin(a) * d, 1, 1, rnd() < 0.5 ? '#245a34' : '#0b2014');
+        rect(x + Math.cos(a) * d, y + Math.sin(a) * d, 1, 1, rnd() < 0.5 ? leaf[2] : leaf[3]);
       }
     }
   };
   canopy(M - 4, 20, 22, 74);
   canopy(LW - M + 4, 26, 24, 80);
-  // Lower boughs hanging down the sides.
   const low = 60 + Math.round(H * 0.12);
   canopy(M - 14, low, 12, 34);
   canopy(LW - M + 14, low + 6, 12, 34);
+  out.fore = fore.canvas;
+
   // Bushes in the bottom corners, drawn over the grass during play.
   const bushes = makeLayer(80, 44);
   setTarget(bushes);
@@ -232,23 +319,229 @@ export function buildLayers() {
     for (let k = 0; k < r * 1.5; k++) {
       const a = rnd() * 6.28;
       const d = rnd() * r;
-      rect(x + Math.cos(a) * d, y + Math.sin(a) * d, 1, 1, rnd() < 0.5 ? '#2f6b3d' : '#0a1f12');
+      rect(x + Math.cos(a) * d, y + Math.sin(a) * d, 1, 1, T.blossom && rnd() < 0.3 ? T.blossom[1] : rnd() < 0.5 ? '#2f6b3d' : '#0a1f12');
     }
   }
-  L.bushes = bushes.canvas;
-  L.fore = fore.canvas;
+  out.bushes = bushes.canvas;
 
   setTarget(null);
+  return out;
+}
 
-  speckles = [];
-  const reach = W / 2 / 0.5; // world half-width visible at the far edge of the low view
-  for (let i = 0; i < Math.round(W * 1.3); i++) {
-    speckles.push({ x: WW / 2 + (rnd() - 0.5) * 2 * reach, y: -40 + rnd() * (WH + 60), light: rnd() < 0.5, wide: rnd() < 0.3 });
+// ---- landmark painters (all draw upward from a ground line y0) -------------
+
+function fuji(cx, y0, T) {
+  const h = 46;
+  for (let i = 0; i < h; i++) {
+    const half = 6 + Math.round(i * 2.1 + (i > h * 0.6 ? (i - h * 0.6) * 1.2 : 0));
+    const y = y0 - h - 6 + i;
+    rect(cx - half, y, half, 1, '#3d3a6a');
+    rect(cx, y, half, 1, '#4a4578');
+    if (i < 11 + ((cx + i) % 3)) {
+      rect(cx - half, y, half * 2, 1, i < 3 ? '#ffffff' : '#e6e1f0');
+    } else if (i < 15 && (i + Math.floor(half / 3)) % 2 === 0) {
+      rect(cx - half + 2, y, 3, 1, '#d8d2e8');
+      rect(cx + half - 5, y, 3, 1, '#d8d2e8');
+    }
   }
-  flies = [];
-  for (let i = 0; i < Math.round(W / 22); i++) flies.push({ x: rnd() * W, y: rnd(), p: rnd() * 6.28, f: 0.5 + rnd() });
-  petals = [];
-  for (let i = 0; i < Math.round(W / 26); i++) petals.push({ x: rnd() * W, y: rnd(), p: rnd() * 6.28, v: 5 + rnd() * 7 });
+  void T;
+}
+
+function pagoda(cx, y0) {
+  let y = y0 - 4;
+  for (let i = 0; i < 5; i++) {
+    const bw = 22 - i * 3;
+    const bh = i === 0 ? 9 : 6;
+    rect(cx - bw / 2, y - bh, bw, bh, '#6b2a2a');
+    rect(cx - bw / 2 + 2, y - bh + 2, bw - 4, 2, '#ffcf7a');
+    for (let k = cx - bw / 2 + 4; k < cx + bw / 2 - 3; k += 4) rect(k, y - bh + 2, 1, 2, '#6b2a2a');
+    y -= bh;
+    const rw = bw + 12;
+    rect(cx - rw / 2, y - 2, rw, 2, '#2b1a24');
+    rect(cx - rw / 2 + 2, y - 4, rw - 4, 2, '#3a2230');
+    rect(cx - rw / 2 - 1, y - 3, 2, 1, '#2b1a24');
+    rect(cx + rw / 2 - 1, y - 3, 2, 1, '#2b1a24');
+    y -= 4;
+  }
+  rect(cx - 1, y - 10, 2, 10, '#2b1a24');
+  for (let k = 0; k < 4; k++) rect(cx - 2, y - 3 - k * 2, 4, 1, '#3a2230');
+}
+
+function torii(cx, y0) {
+  const red = '#c8352e';
+  const dark = '#7c1f1c';
+  rect(cx - 15, y0 - 34, 3, 34, red);
+  rect(cx + 12, y0 - 34, 3, 34, red);
+  rect(cx - 15, y0 - 34, 1, 34, dark);
+  rect(cx + 12, y0 - 34, 1, 34, dark);
+  rect(cx - 19, y0 - 27, 38, 3, red);
+  rect(cx - 22, y0 - 37, 44, 3, red);
+  rect(cx - 24, y0 - 39, 48, 2, '#2b1a24');
+  rect(cx - 25, y0 - 40, 3, 1, '#2b1a24');
+  rect(cx + 22, y0 - 40, 3, 1, '#2b1a24');
+  rect(cx - 1, y0 - 34, 2, 7, red);
+}
+
+function skyline(LW, y0, rnd, mid) {
+  const body = '#141C2C';
+  const lit = (x, y, w, h) => {
+    for (let wy = y + 3; wy < y0 - 6; wy += 4) {
+      for (let wx = x + 2; wx < x + w - 2; wx += 3) if (rnd() < 0.28) rect(wx, wy, 1, 2, rnd() < 0.75 ? '#FFC76A' : '#ff9b4a');
+    }
+  };
+  // Bridge off to one side: two towers, cables, a deck.
+  const bx = mid + 74;
+  rect(bx - 40, y0 - 22, 80, 2, '#1d2638');
+  for (const tx of [bx - 26, bx + 22]) {
+    rect(tx, y0 - 48, 4, 48, '#1d2638');
+    rect(tx - 1, y0 - 48, 6, 2, '#2a3550');
+    rect(tx + 1, y0 - 42, 2, 6, '#0c1220');
+  }
+  for (let x = bx - 40; x <= bx + 40; x++) {
+    const d = Math.min(Math.abs(x - (bx - 24)), Math.abs(x - (bx + 24)));
+    const sag = x > bx - 24 && x < bx + 24 ? 26 - Math.round(((48 - Math.abs(x - bx) * 2) / 48) * 18) : 26 - Math.min(18, d);
+    rect(x, y0 - 22 - sag, 1, 1, '#3a4664');
+    if (x % 4 === 0) rect(x, y0 - 22 - sag, 1, sag, '#232d44');
+  }
+  // Towers across the rest of the view.
+  for (let x = 0; x < LW; ) {
+    const w = 8 + Math.round(rnd() * 12);
+    if (x > bx - 44 && x < bx + 44) {
+      x += w;
+      continue;
+    }
+    const near = Math.abs(x - (mid - 30)) < 60;
+    const h = 22 + Math.round(rnd() * (near ? 46 : 30));
+    rect(x, y0 - h, w, h, body);
+    rect(x, y0 - h, w, 1, '#222c42');
+    lit(x, y0 - h, w, h);
+    x += w + (rnd() < 0.3 ? 2 : 0);
+  }
+  // A stepped tower with a spire, and a statue on a plinth.
+  const ex = mid - 26;
+  rect(ex - 8, y0 - 62, 16, 62, body);
+  rect(ex - 5, y0 - 70, 10, 8, body);
+  rect(ex - 3, y0 - 76, 6, 6, body);
+  rect(ex - 1, y0 - 86, 2, 10, '#222c42');
+  lit(ex - 8, y0 - 62, 16, 62);
+  const sx = mid - 92;
+  rect(sx - 4, y0 - 14, 9, 14, '#24343a');
+  rect(sx - 2, y0 - 26, 5, 12, '#3f6b62');
+  rect(sx - 1, y0 - 30, 3, 4, '#3f6b62');
+  rect(sx + 2, y0 - 36, 1, 10, '#3f6b62');
+  rect(sx + 1, y0 - 38, 3, 2, '#ffc76a');
+}
+
+function westminster(mid, y0, rnd) {
+  const stone = '#34353A';
+  // Long hall with a row of small spires and lit windows.
+  const x0 = mid - 70;
+  const x1 = mid + 90;
+  rect(x0, y0 - 26, x1 - x0, 26, stone);
+  for (let x = x0; x < x1; x += 7) {
+    rect(x, y0 - 30, 2, 4, stone);
+    rect(x, y0 - 33, 1, 3, '#44454b');
+  }
+  for (let x = x0 + 3; x < x1 - 3; x += 5) if (rnd() < 0.55) rect(x, y0 - 20, 2, 3, '#ffc66b');
+  rect(mid + 52, y0 - 44, 14, 44, stone);
+  rect(mid + 54, y0 - 50, 10, 6, stone);
+  rect(mid + 58, y0 - 58, 2, 8, '#44454b');
+  // The clock tower.
+  const tx = mid - 34;
+  rect(tx - 7, y0 - 74, 14, 74, stone);
+  rect(tx - 7, y0 - 74, 2, 74, '#44454b');
+  rect(tx - 8, y0 - 76, 16, 3, '#44454b');
+  disc(tx, y0 - 66, 5, '#e8e4c9');
+  rect(tx, y0 - 69, 1, 3, '#2a2a2e');
+  rect(tx, y0 - 66, 3, 1, '#2a2a2e');
+  rect(tx - 5, y0 - 84, 10, 8, stone);
+  rect(tx - 3, y0 - 90, 6, 6, stone);
+  rect(tx - 1, y0 - 96 + 6, 2, 4, '#44454b');
+  for (let y = y0 - 56; y < y0 - 4; y += 7) rect(tx - 3, y, 2, 3, '#ffc66b');
+  // A bridge in front, low.
+  rect(mid - 110, y0 - 10, 220, 3, '#2c2d31');
+  for (let x = mid - 104; x < mid + 110; x += 22) rect(x, y0 - 7, 3, 7, '#2c2d31');
+}
+
+function palace(mid, y0, rnd) {
+  const sand = '#B97750';
+  const hi = '#E0AE78';
+  const arch = '#5a2f22';
+  const x0 = mid - 84;
+  const x1 = mid + 84;
+  rect(x0, y0 - 30, x1 - x0, 30, sand);
+  rect(x0, y0 - 31, x1 - x0, 2, hi);
+  for (let x = x0 + 2; x < x1; x += 4) rect(x, y0 - 33, 2, 2, hi);
+  // Two storeys of arches.
+  for (const [row, ay] of [[0, y0 - 26], [1, y0 - 14]]) {
+    for (let x = x0 + 4; x < x1 - 6; x += 9) {
+      rect(x, ay + 2, 5, 7, row && rnd() < 0.3 ? '#ffc96b' : arch);
+      rect(x + 1, ay + 1, 3, 1, arch);
+    }
+  }
+  // Central block and dome.
+  rect(mid - 22, y0 - 46, 44, 16, sand);
+  rect(mid - 22, y0 - 47, 44, 2, hi);
+  for (let x = mid - 18; x < mid + 18; x += 9) rect(x, y0 - 42, 5, 9, arch);
+  for (let i = 0; i < 16; i++) {
+    const half = Math.round(Math.sin((i / 16) * Math.PI * 0.95 + 0.15) * 15);
+    rect(mid - half, y0 - 47 - 16 + i, half * 2, 1, i < 4 ? hi : sand);
+  }
+  rect(mid - 1, y0 - 70, 2, 7, hi);
+  rect(mid - 2, y0 - 68, 4, 2, hi);
+  // Small domed pavilions on the corners.
+  for (const cx of [x0 + 10, x1 - 10, mid - 46, mid + 46]) {
+    rect(cx - 6, y0 - 40, 12, 9, sand);
+    rect(cx - 4, y0 - 37, 3, 6, arch);
+    rect(cx + 1, y0 - 37, 3, 6, arch);
+    for (let i = 0; i < 6; i++) {
+      const half = Math.round(Math.sin((i / 6) * Math.PI * 0.9 + 0.2) * 6);
+      rect(cx - half, y0 - 46 + i, half * 2, 1, i < 2 ? hi : sand);
+    }
+    rect(cx, y0 - 49, 1, 3, hi);
+  }
+}
+
+function hillFort(cx, y, T, rnd) {
+  rect(cx - 30, y, 60, 6, T.hills[0]);
+  for (let x = cx - 30; x < cx + 30; x += 4) rect(x, y - 2, 2, 2, T.hills[0]);
+  for (const tx of [cx - 30, cx + 26, cx - 4]) rect(tx, y - 7, 5, 7, T.hills[0]);
+  void rnd;
+}
+
+function blossomTree(x, y0, h, B, rnd) {
+  rect(x - 1, y0 - h, 3, h, '#3a2228');
+  rect(x + 1, y0 - h + 6, 4, 1, '#3a2228');
+  for (let i = 0; i < 7; i++) {
+    const bx = x + (rnd() - 0.5) * 22;
+    const by = y0 - h - 4 + (rnd() - 0.5) * 14;
+    const r = 5 + rnd() * 5;
+    disc(bx, by, r, B[0]);
+    disc(bx - 1, by - 1, r * 0.7, B[1]);
+    for (let k = 0; k < r * 1.5; k++) {
+      const a = rnd() * 6.28;
+      const d = rnd() * r;
+      rect(bx + Math.cos(a) * d, by + Math.sin(a) * d, 1, 1, rnd() < 0.5 ? B[2] : B[3]);
+    }
+  }
+}
+
+function palm(x, y0, h, lean, tc) {
+  let px = x;
+  for (let i = 0; i < h; i++) {
+    const t = i / h;
+    px = x + lean * Math.round(t * t * 8);
+    rect(px - 1, y0 - i, 2, 1, i % 3 ? '#4a3524' : '#3a2a1c');
+  }
+  const top = y0 - h;
+  for (let f = 0; f < 7; f++) {
+    const a = Math.PI * (0.1 + (0.8 * f) / 6);
+    for (let k = 1; k < 13; k++) {
+      const fx = px + Math.round(-Math.cos(a) * k);
+      const fy = top + Math.round(-Math.sin(a) * k * 0.5 + (k * k) / 26);
+      rect(fx, fy, 2, 1, k > 9 ? tc.hi : tc.dark);
+    }
+  }
 }
 
 const COURT_LINES = [
@@ -267,7 +560,7 @@ const wrap = (v, n) => ((v % n) + n) % n;
 // height the flock keeps clear of.
 function drawSky(time, skyY, ref) {
   ctx.drawImage(L.sky, 0, skyY);
-  for (const s of stars) {
+  for (const s of L.stars) {
     const tw = Math.sin(time * s.f + s.p);
     if (tw > -0.3) rect(s.x, s.y + skyY, 1, 1, tw > 0.75 ? '#ffffff' : '#cdbfe0');
     if (tw > 0.93) rect(s.x - 1, s.y + skyY, 3, 1, '#cdbfe0');
@@ -301,22 +594,27 @@ export function drawScene(time) {
   drawSky(time, Math.round(-cam * 12), wb);
 
   const wallTop = wb - WALL_H;
-  ctx.drawImage(L.hills, -M + hillS, Math.round(wallTop - 40 - 30 + cam * 16));
+  ctx.drawImage(L.hills, -M + hillS, Math.round(wallTop - HILL_H - 30 + cam * 16));
+  const landS = Math.round(P.shift * (P.sRef - sFar * 0.45));
+  ctx.drawImage(L.land, -M + landS, Math.round(wallTop - LAND_H - 22 + cam * 4));
   ctx.drawImage(L.trees, -M + treeS, Math.round(wallTop - 96 - 12 + cam * 9));
   ctx.drawImage(L.wall, -M + wallS, wb - LAYER_H);
 
   // Grass with mowing stripes.
+  const cp = theme.courtPalette;
   for (let y = wb; y < H; y++) {
     const wy = unprojY(y + 0.5);
     const stripe = Math.floor((wy + 2000) / 22) & 1;
-    ctx.fillStyle = stripe ? '#3f7a34' : '#376e2e';
+    ctx.fillStyle = stripe ? cp.alt : cp.court;
     ctx.fillRect(0, y, W, 1);
   }
-  rect(0, wb, W, 2, '#2a5526');
+  rect(0, wb, W, 2, shade(cp.court, -0.25));
+  const spLight = shade(cp.alt, 0.18);
+  const spDark = shade(cp.court, -0.18);
   for (const s of speckles) {
     const p = proj(s.x, s.y);
     if (p.y < wb + 2 || p.y >= H) continue;
-    rect(p.x, p.y, s.wide && p.s > 0.8 ? 2 : 1, 1, s.light ? '#4c8f3e' : '#2e5f29');
+    rect(p.x, p.y, s.wide && p.s > 0.8 ? 2 : 1, 1, s.light ? spLight : spDark);
   }
 
   // Court markings.
@@ -324,8 +622,8 @@ export function drawScene(time) {
   for (const [x0, y0, x1, y1] of COURT_LINES) {
     const a = proj(x0, y0);
     const b = proj(x1, y1);
-    if (y0 === y1) rect(a.x, a.y, b.x - a.x, a.s > 0.95 ? 2 : 1, '#e4ecd0');
-    else line(a.x, Math.max(a.y, wb + 2), b.x, b.y, '#e4ecd0', b.s > 0.95 ? 2 : 1);
+    if (y0 === y1) rect(a.x, a.y, b.x - a.x, a.s > 0.95 ? 2 : 1, theme.courtLineColor);
+    else line(a.x, Math.max(a.y, wb + 2), b.x, b.y, theme.courtLineColor, b.s > 0.95 ? 2 : 1);
   }
   ctx.globalAlpha = 1;
 
@@ -381,7 +679,7 @@ export function drawScene(time) {
     const lx = l - M + wallS;
     const ly = wb - WALL_H - 10;
     ctx.globalAlpha = 0.14;
-    disc(lx, ly, 9 + flick, '#ffcf5a');
+    disc(lx, ly, 9 + flick, theme.backgroundPalette.lamp);
     ctx.globalAlpha = 0.22;
     disc(lx, ly, 5, '#ffe08a');
     ctx.globalAlpha = 0.1;
@@ -403,11 +701,15 @@ export function drawScene(time) {
   }
 
   // Petals drifting across the whole view.
-  for (const q of petals) {
-    const y = wrap(q.y * H + time * q.v, H + 10) - 5;
-    const x = wrap(q.x + time * q.v * 0.7 + Math.sin(time * 1.3 + q.p) * 6, W + 10) - 5;
-    rect(x, y, 1, 1, '#f1eedd');
-    if (Math.sin(time * 3 + q.p) > 0) rect(x + 1, y, 1, 1, '#d9c9c0');
+  const amb = theme.ambientEffects;
+  if (amb.petals) {
+    for (const q of petals) {
+      if (q.k * 2 > amb.petalRate) continue; // denser in Japan, sparse elsewhere
+      const y = wrap(q.y * H + time * q.v, H + 10) - 5;
+      const x = wrap(q.x + time * q.v * 0.7 + Math.sin(time * 1.3 + q.p) * 6, W + 10) - 5;
+      rect(x, y, 1, 1, amb.petals);
+      if (Math.sin(time * 3 + q.p) > 0) rect(x + 1, y, 1, 1, amb.petalsHi);
+    }
   }
 
   if (cam > 0.45 && P.landing < 1) {
@@ -423,6 +725,30 @@ export function drawScene(time) {
 
   const sway = Math.round(Math.sin(time * 0.8) * 1.4);
   if (P.landing < 1) ctx.drawImage(L.fore, -M + sway - Math.round(P.shift * 0.5), Math.round(-cam * 34 - 4 - P.landing * 110));
+
+  // Theme change: fade the previous scene out over the new one. Otherwise
+  // keep a copy of this frame's scene for the next change.
+  if (fadeT < 1 && frozen) {
+    fadeT = Math.min(1, fadeT + (time - (lastT ?? time)) / FADE);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1 - fadeT;
+    ctx.drawImage(frozen.canvas, 0, 0);
+    ctx.restore();
+  } else {
+    if (!snap || snap.canvas.width !== W || snap.canvas.height !== H) snap = makeLayer(W, H);
+    snap.clearRect(0, 0, W, H);
+    snap.drawImage(ctx.canvas, 0, 0);
+  }
+  lastT = time;
+}
+let lastT = null;
+
+// Lighten (k > 0) or darken (k < 0) a #rrggbb colour.
+function shade(hex, k) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (c) => Math.round(k > 0 ? c + (255 - c) * k : c * (1 + k));
+  return '#' + [n >> 16, (n >> 8) & 255, n & 255].map((c) => f(c).toString(16).padStart(2, '0')).join('');
 }
 
 // Chain-link fences just outside the hedge borders, and lamp posts whose
@@ -469,12 +795,12 @@ function drawSides(time) {
       const hh = Math.max(3, Math.round(5 * t.s));
       const flick = Math.sin(time * 6 + ly + side) > 0.8 ? 1 : 0;
       ctx.globalAlpha = a0 * 0.16;
-      disc(t.x, t.y - hh / 2, Math.round(10 * t.s) + flick, '#ffcf5a');
+      disc(t.x, t.y - hh / 2, Math.round(10 * t.s) + flick, theme.backgroundPalette.lamp);
       ctx.globalAlpha = a0 * 0.28;
       disc(t.x, t.y - hh / 2, Math.round(5 * t.s), '#ffe08a');
       ctx.globalAlpha = a0;
       rect(t.x - hw - 1, t.y - hh - 1, hw * 2 + 3, hh + 2, '#231f1a');
-      rect(t.x - hw, t.y - hh, hw * 2 + 1, hh, '#ffcf5a');
+      rect(t.x - hw, t.y - hh, hw * 2 + 1, hh, theme.backgroundPalette.lamp);
       rect(t.x - hw + 1, t.y - hh + 1, hw * 2 - 1, hh - 2, '#fff3b8');
       rect(t.x - hw - 1, t.y - hh - 2, hw * 2 + 3, 1, '#231f1a');
     }
@@ -593,6 +919,8 @@ export function drawPaddle(cx, y, hw, glow = false) {
   ctx.globalAlpha = 0.32;
   rrect(cx - hw + 1, y - 2, hw * 2, 8, 4, '#07140a');
   ctx.globalAlpha = 1;
+  // On a Black Court the dark paddle gets a pale rim so it stays easy to see.
+  if (theme && theme.isBlackCourt) rrect(cx - hw - 1, y - 12, hw * 2 + 2, 16, 7, '#8d96a3');
   rrect(cx - hw, y - 11, hw * 2, 14, 6, '#0d0f12');
   rrect(cx - hw + 1, y - 11, hw * 2 - 2, 9, 5, '#22262d');
   rect(cx - hw + 5, y - 10, hw * 2 - 10, 1, '#4a505b');

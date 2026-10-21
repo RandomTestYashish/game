@@ -797,14 +797,17 @@ const SCREENS = {
     }
     const y = wb + 46 + Math.round(H * 0.04) + Math.round((1 - k) * 8);
     pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3, pulse: S.time });
-    // Credit line at the foot of the screen: small, but on a dark band so it reads on any court.
+    // Credit line, as small as the pixel font goes, on a faint strip so it
+    // still reads on any court: bottom right on wide screens, centred on phones.
     const credit = 'CRAFTED BY YASHISH';
-    const cw = textW(credit, 1, 2) + 14;
-    const cy = H - 18;
-    ctx.globalAlpha *= 0.85;
-    rrect(W / 2 - cw / 2, cy - 4, cw, 13, 5, PAL.ink);
-    ctx.globalAlpha /= 0.85;
-    text(credit, W / 2, cy, PAL.cream, { align: 'center', sp: 2 });
+    const cw = textW(credit, 1, 1) + 8;
+    const wide = W >= 400;
+    const cx = wide ? W - 8 - cw : Math.round(W / 2 - cw / 2);
+    const cy = H - 13;
+    ctx.globalAlpha *= 0.55;
+    rrect(cx, cy - 3, cw, 11, 4, PAL.ink);
+    ctx.globalAlpha /= 0.55;
+    text(credit, cx + 4, cy, PAL.dim, { sp: 1 });
     ctx.globalAlpha = 1;
     S.primary = play;
   },

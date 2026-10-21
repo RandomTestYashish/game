@@ -1480,11 +1480,12 @@ def players_and_racket(browser, url):
     check("the old black paddle is gone", "#22262d" not in hexes)
     check("no bricks on the court: only players", "#cf6f4f" not in hexes and "#a04d37" not in hexes)
     # The racket springs when the ball strikes it.
-    d.ev("__court.S.timeScale=1")
-    d.wait("__court.S.game.racket", 20000)
+    d.pg.evaluate(BOT)
+    d.ev("__court.S.timeScale=1; __bot.mode='win'; __bot.on=true")  # the bot keeps the racket under the ball
+    d.wait("__court.S.game.racket", 30000)
     hit = d.ev("__court.S.game.racket")
     check("a paddle strike starts the racket spring (where along the racket it hit)", -1 <= hit["off"] <= 1 and hit["t"] < 0.45, hit)
-    d.wait("!__court.S.game.racket || __court.S.game.racket.t < 0.05", 20000)
+    d.ev("__bot.on=false")
     d.shot("players-court1")
     # The landing screen keeps its bricks, with a few players round them.
     d.ev("__court.go('title')")

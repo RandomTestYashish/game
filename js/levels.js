@@ -175,8 +175,10 @@ for (let n = 0; n < COUNT; n++) {
     fit(cells, lv.blocks, lv.move || [], n);
     lv.rows = cells.map((r) => r.join(''));
   }
-  lv.speed = Math.round(168 + n * 1.15);
-  lv.paddle = Math.max(36, Math.round(52 - n * 0.14));
+  // Gentle growth: court 120 serves at 220 (was 305), which stays playable
+  // with up to 1000 small blocks; the racket narrows only a little.
+  lv.speed = Math.round(165 + n * 0.46);
+  lv.paddle = Math.max(42, Math.round(52 - n * 0.085));
   lv.drop = Math.max(0.09, 0.16 - n * 0.0006);
   lv.wave = 1.5 + hash(n, 8, 8) * 2;
   LEVELS.push(lv);

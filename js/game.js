@@ -29,7 +29,7 @@ export const LIFE_BONUS = 100; // per life left when a court is cleared
 export const COMBO_STEP = 0.25;
 export const COMBO_CAP = 8; // steps, so the multiplier tops out at 1 + 8 * 0.25 = x3
 export const SPEED_UP = 1.03; // per paddle hit
-export const SPEED_CAP = 1.55; // times the court's base speed
+export const SPEED_CAP = 1.35; // times the court's base speed
 
 // Score multiplier for the nth brick broken since a ball last touched the paddle.
 export const comboMult = (n) => 1 + Math.min(Math.max(n, 1) - 1, COMBO_CAP) * COMBO_STEP;
@@ -503,6 +503,7 @@ export class Game {
         size: this.rng() < 0.35 ? 3 : 2,
         type: b.type,
         shade: (this.rng() * 3) | 0,
+        brick: !!(b.look && b.look.brick), // set by the renderer: bricks break into brick bits
       });
     }
     if (this.parts.length > 260) this.parts.splice(0, this.parts.length - 260);

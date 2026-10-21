@@ -142,7 +142,7 @@ window.__bot = { mode: 'win', on: false };
 # Pure rules checks, run in the page against a fresh Game with a seeded RNG.
 RULES = """
 async () => {
-  const { Game, WW, WH, TOOL_TIME, BLOCKS, PADDLE_Y } = await import('/js/game.js');
+  const { Game, WW, WH, TOOL_TIME, BLOCKS, PADDLE_Y, SPEED_CAP } = await import('/js/game.js');
   const { LEVELS } = await import('/js/levels.js');
   const out = {};
   const rng = (seed) => () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
@@ -207,7 +207,9 @@ async () => {
   out.blocksShrink = LEVELS.every((l, i) => i === 0 || l.cell < LEVELS[i - 1].cell || (l.cell === 28 && LEVELS[i - 1].cell === 28)) && LEVELS[0].cols === 7 && LEVELS[119].cell < 6;
   out.moreBlocks = LEVELS.every((l, i) => count(i) === l.blocks && (i === 0 || count(i) > count(i - 1))) && count(0) === 24 && count(119) === 1000;
   out.blocksOnCourt = LEVELS.every(l => new Game(l).blocks.every(b => b.x - (b.amp || 0) >= 0 && b.x + b.w + (b.amp || 0) <= WW && b.y + b.d < PADDLE_Y - 30));
-  out.getsHarder = LEVELS[119].speed > LEVELS[0].speed * 1.6 && LEVELS[119].paddle < LEVELS[0].paddle - 10 && LEVELS[0].speed >= 160;
+  out.getsHarder = LEVELS[119].speed > LEVELS[0].speed * 1.25 && LEVELS[119].paddle < LEVELS[0].paddle - 8 && LEVELS[0].speed >= 160;
+  // ...but stays playable: the fastest a ball can ever go is well under the old court-1 top speed x 1.8.
+  out.staysPlayable = LEVELS.every(l => l.speed * SPEED_CAP <= 300) && LEVELS[119].paddle >= 42;
 
   // Tools
   g = fresh(); g.launch(); g.applyTool('shield'); b = g.balls[0];
@@ -1474,11 +1476,25 @@ def players_and_racket(browser, url):
     time.sleep(0.2)
     hexes = d.ev("""(()=>{const c=document.getElementById('court'), x=c.getContext('2d'), d=x.getImageData(0,0,c.width,c.height).data, s=new Set();
       for(let i=0;i<d.length;i+=4) s.add('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')); return [...s]})()""")
-    want = {"red jerseys": "#e0403a", "yellow jerseys": "#f2c230", "blue jerseys": "#3a72d8", "headbands": "#f4f4ee", "skin": "#f2c39a", "racket frame": "#e3b341", "racket grip": "#9a6a3a", "racket strings": "#8b939e"}
+    want = {"jerseys": "#e0403a", "headbands": "#f4f4ee", "skin": "#f2c39a", "racket frame": "#e3b341", "racket grip": "#9a6a3a", "racket strings": "#8b939e"}
     missing = [k for k, v in want.items() if v not in hexes]
     check("court 1 shows players (shirts, skin) and the racket (frame, strings, grip)", not missing, missing)
     check("the old black paddle is gone", "#22262d" not in hexes)
-    check("no bricks on the court: only players", "#cf6f4f" not in hexes and "#a04d37" not in hexes)
+    check("the court mixes groups of bricks with groups of players", "#cf6f4f" in hexes or "#ece3c8" in hexes)
+    looks = d.ev("__court.S.game.blocks.map(b=>b.look ? (b.look.brick ? 'brick' : 'player') : '?')")
+    check("...every block is one or the other, and both kinds are there", set(looks) == {"brick", "player"}, sorted(set(looks)))
+    sizes = set()
+    for i in (0, 4, 9, 19, 39):
+        d.ev(f"__court.beginRun({i})")
+        d.wait(f"__court.S.level==={i} && __court.S.game.ready && __court.S.game.blocks.every(b=>b.look)", 30000)
+        sizes |= set(d.ev("__court.S.game.blocks.filter(b=>!b.look.brick).map(b=>b.look.size)"))
+        grouped = d.ev("""(()=>{const g=__court.S.game, by={}; for (const b of g.blocks) { const k=b.r+':'+Math.min(b.c, g.level.rows[0].length-1-b.c); (by[k]=by[k]||[]).push(b.look.brick); } return Object.values(by).every(v=>v.every(x=>x===v[0])); })()""")
+        if not grouped:
+            break
+    check("players come in different sizes (small, medium, tall) by group", sizes == {0.8, 1, 1.25}, sorted(sizes))
+    check("groups are mirrored left and right", grouped)
+    d.ev("__court.beginRun(0)")
+    d.wait("__court.S.level===0 && __court.S.screen==='play' && __court.S.game.ready", 30000)
     # The racket springs when the ball strikes it.
     d.pg.evaluate(BOT)
     d.ev("__court.S.timeScale=1; __bot.mode='win'; __bot.on=true")  # the bot keeps the racket under the ball

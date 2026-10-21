@@ -836,31 +836,142 @@ function drawSides(time) {
     }
     line(t0.x, t0.y, t1.x, t1.y, '#2b3d31', 1);
   }
-  // Lamp posts, far to near so nearer ones overlap.
+  // Lamp posts, far to near so nearer ones overlap. Each country has its own
+  // famous street light; see LAMP_STYLES.
+  const style = LAMP_STYLES[theme.countryId] || LAMP_STYLES.london;
   for (const ly of LAMPS) {
     for (const side of [-1, 1]) {
       const lx = side < 0 ? -18 : WW + 18;
       const b = proj(lx, ly);
       const t = proj(lx, ly, 36);
       if (b.y < P.wb) continue;
-      const pw = Math.max(1, Math.round(1.6 * b.s));
-      rect(Math.round(b.x - pw / 2), t.y, pw, b.y - t.y, '#24221f');
-      rect(Math.round(b.x - pw / 2), t.y, 1, b.y - t.y, '#4a4640');
-      const hw = Math.max(2, Math.round(3 * t.s));
-      const hh = Math.max(3, Math.round(5 * t.s));
-      const flick = Math.sin(time * 6 + ly + side) > 0.8 ? 1 : 0;
-      ctx.globalAlpha = a0 * 0.16;
-      disc(t.x, t.y - hh / 2, Math.round(10 * t.s) + flick, theme.backgroundPalette.lamp);
-      ctx.globalAlpha = a0 * 0.28;
-      disc(t.x, t.y - hh / 2, Math.round(5 * t.s), '#ffe08a');
+      const s = t.s;
+      const u = (n) => Math.max(1, Math.round(n * s));
+      const flick = 0.85 + 0.15 * Math.sin(time * 7 + ly * 1.3 + side * 2) * Math.sin(time * 2.3 + ly);
+      // A warm pool of light on the grass under the lamp.
+      ctx.globalAlpha = a0 * 0.1 * flick;
+      ellipse(b.x + side * -u(4), b.y, u(16), u(4), style.glow);
       ctx.globalAlpha = a0;
-      rect(t.x - hw - 1, t.y - hh - 1, hw * 2 + 3, hh + 2, '#231f1a');
-      rect(t.x - hw, t.y - hh, hw * 2 + 1, hh, theme.backgroundPalette.lamp);
-      rect(t.x - hw + 1, t.y - hh + 1, hw * 2 - 1, hh - 2, '#fff3b8');
-      rect(t.x - hw - 1, t.y - hh - 2, hw * 2 + 3, 1, '#231f1a');
+      const light = style.draw(b, t, u, -side, a0);
+      // The glow: a wide soft halo and a bright core.
+      ctx.globalAlpha = a0 * 0.14 * flick;
+      disc(light.x, light.y, u(13), style.glow);
+      ctx.globalAlpha = a0 * 0.22 * flick;
+      disc(light.x, light.y, u(7), style.glow);
+      ctx.globalAlpha = a0 * 0.35 * flick;
+      disc(light.x, light.y, u(3), style.core);
+      ctx.globalAlpha = a0;
     }
   }
 }
+
+// Street lights by country. draw(base, top, u, inward, alpha) paints the post
+// and lantern (u scales a size to the lamp's distance; inward is +1 toward
+// the court) and returns the point the glow comes from.
+const LAMP_STYLES = {
+  // Japan: a red paper chochin lantern hanging from a wooden post.
+  japan: {
+    glow: '#ff6a3a',
+    core: '#ffd0a0',
+    draw(b, t, u, inward) {
+      const pw = u(1.6);
+      rect(b.x - pw / 2, t.y - u(2), pw, b.y - t.y + u(2), '#3b2618');
+      rect(b.x - pw / 2, t.y - u(2), 1, b.y - t.y + u(2), '#6a4a30');
+      // A little roof over the post top.
+      trap(t.y - u(4), b.x - u(1.5), b.x + u(1.5), t.y - u(2), b.x - u(3.5), b.x + u(3.5), '#22140c');
+      // Arm out toward the court, the lantern hanging from its end.
+      const ax = b.x + inward * u(5);
+      rect(Math.min(b.x, ax), t.y, Math.abs(ax - b.x) + 1, u(1), '#3b2618');
+      rect(ax, t.y, 1, u(2), '#22140c');
+      const cy = t.y + u(2) + u(4.5);
+      const rx = u(3.2);
+      const ry = u(4.2);
+      ellipse(ax, cy, rx + 1, ry, '#5e100c');
+      ellipse(ax, cy, rx, ry - 1, '#d8322a');
+      ellipse(ax, cy, Math.max(1, rx - u(1.2)), Math.max(1, ry - u(1.5)), '#ff7a4a');
+      for (let dy = -ry + u(1.5); dy < ry - 1; dy += Math.max(2, u(1.6))) rect(ax - rx + 1, cy + dy, rx * 2 - 1, 1, '#a8231c'); // ribs
+      rect(ax - u(2), cy - ry - u(1), u(4) + 1, u(1), '#1a1210'); // black caps
+      rect(ax - u(2), cy + ry, u(4) + 1, u(1), '#1a1210');
+      rect(ax, cy + ry + u(1), 1, u(2), '#f2c230'); // tassel
+      return { x: ax, y: cy };
+    },
+  },
+  // New York: a cast-iron "bishop's crook" lamp with a sodium glow.
+  newyork: {
+    glow: '#ffa640',
+    core: '#ffe2a8',
+    draw(b, t, u, inward) {
+      const pw = u(1.6);
+      rect(b.x - u(1.5), b.y - u(4), u(3) + 1, u(4), '#18221d'); // base
+      rect(b.x - pw / 2, t.y, pw, b.y - t.y, '#1d2a24');
+      rect(b.x - pw / 2, t.y, 1, b.y - t.y, '#3d5248');
+      for (const k of [0.35, 0.7]) rect(b.x - u(1.2), t.y + (b.y - t.y) * k, u(2.4) + 1, u(1), '#2c3d35'); // collars
+      // The crook: up, over toward the court, and down.
+      const ax = b.x + inward * u(5);
+      rect(b.x - pw / 2, t.y - u(3), pw, u(3), '#1d2a24');
+      rect(Math.min(b.x, ax), t.y - u(3), Math.abs(ax - b.x) + 1, u(1.2), '#1d2a24');
+      rect(ax - (inward < 0 ? 0 : u(1)), t.y - u(3), u(1.2), u(2.5), '#1d2a24');
+      // Acorn lantern.
+      const cy = t.y + u(1.5);
+      rect(ax - u(2.5), cy - u(2.2), u(5) + 1, u(1), '#18221d');
+      ellipse(ax, cy + u(0.8), u(2.4), u(2.8), '#3a2a14');
+      ellipse(ax, cy + u(0.8), u(1.8), u(2.2), '#ffcf7a');
+      rect(ax, cy + u(3.4), 1, u(1), '#18221d');
+      return { x: ax, y: cy + u(0.8) };
+    },
+  },
+  // London: a black Victorian gas lamp with a ladder bar and a four-pane lantern.
+  london: {
+    glow: '#ffe1a0',
+    core: '#fff6d8',
+    draw(b, t, u) {
+      const pw = u(1.6);
+      rect(b.x - u(2), b.y - u(5), u(4) + 1, u(5), '#121212'); // fluted base
+      rect(b.x - u(2) + 1, b.y - u(5), 1, u(5), '#3a3a3a');
+      rect(b.x - u(2.5), b.y - u(5) - u(1), u(5) + 1, u(1), '#121212');
+      rect(b.x - pw / 2, t.y, pw, b.y - t.y, '#151515');
+      rect(b.x - pw / 2, t.y, 1, b.y - t.y, '#444');
+      rect(b.x - u(3.5), t.y + u(2), u(7) + 1, u(1), '#151515'); // ladder bar
+      // Lantern: tapered glass box, pointed roof, finial.
+      const top = t.y - u(7);
+      const gw = u(2.6);
+      trap(top + u(1.5), b.x - gw - u(0.8), b.x + gw + u(0.8), t.y - u(0.5), b.x - gw + u(0.6), b.x + gw - u(0.6), '#111');
+      trap(top + u(2.2), b.x - gw, b.x + gw, t.y - u(1.2), b.x - gw + u(1.2), b.x + gw - u(1.2), '#ffe6a0');
+      rect(b.x, top + u(2.2), 1, t.y - top - u(3.4), '#2a2a2a'); // mullion
+      trap(top - u(1.5), b.x, b.x + 1, top + u(1.5), b.x - gw - u(1.2), b.x + gw + u(1.2), '#111'); // roof
+      rect(b.x, top - u(2.8), 1, u(1.4), '#111'); // finial
+      return { x: b.x, y: top + u(3.8) };
+    },
+  },
+  // India: an ornate brass Jaipur lantern, its pierced pattern glowing.
+  india: {
+    glow: '#ffa23a',
+    core: '#ffe3a0',
+    draw(b, t, u) {
+      const pw = u(1.8);
+      rect(b.x - pw / 2, t.y, pw, b.y - t.y, '#8a5a1e');
+      rect(b.x - pw / 2, t.y, 1, b.y - t.y, '#e0b45a');
+      for (const k of [0.25, 0.5, 0.75]) {
+        const y = t.y + (b.y - t.y) * k;
+        rect(b.x - u(1.4), y, u(2.8) + 1, u(1), '#c8923a'); // brass rings
+      }
+      rect(b.x - u(2.2), b.y - u(2), u(4.4) + 1, u(2), '#8a5a1e');
+      // Lantern body with a pierced (jaali) pattern, under an onion dome.
+      const bw = u(3);
+      const top = t.y - u(7);
+      rect(b.x - bw - 1, top + u(2), bw * 2 + 3, u(6), '#6a3a0e');
+      rect(b.x - bw, top + u(2) + 1, bw * 2 + 1, u(6) - 2, '#c8923a');
+      for (let y = top + u(2) + 2; y < top + u(8) - 2; y += 2) {
+        for (let x = b.x - bw + 1 + ((y >> 1) & 1); x <= b.x + bw - 1; x += 2) rect(x, y, 1, 1, '#ffd27a');
+      }
+      ellipse(b.x, top + u(1), bw + 1, u(2), '#a8742a'); // dome
+      ellipse(b.x, top + u(1), bw, u(1.4), '#e0b45a');
+      rect(b.x, top - u(2), 1, u(2), '#e0b45a'); // finial
+      rect(b.x - u(1), t.y, u(2) + 1, u(1), '#6a3a0e');
+      return { x: b.x, y: top + u(5) };
+    },
+  },
+};
 
 // ---------------------------------------------------------------- sprites
 
@@ -957,7 +1068,7 @@ export function drawBlock(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
   if (!KIT[type]) return;
   const w = xr - xl;
   if (w < 2) return;
-  const sw = Math.max(3, Math.round((w * PW) / (PW - 2)));
+  const sw = Math.max(3, Math.round(((w * PW) / (PW - 2)) * (o.size || 1)));
   const sh = Math.round((sw * PH) / PW);
   const x = Math.round((xl + xr) / 2 - sw / 2);
   const y = Math.round(yn) - sh + 1;
@@ -1072,34 +1183,39 @@ export function drawBall(cx, cy, r, hot = false) {
 // hit, right after the ball strikes: { k: 1 fading to 0, off: -1 left end ..
 // 1 right end }. The racket gives like a spring: it dips and bounces back, the
 // strings dent round the impact and ripple out, and the frame flashes.
-export function drawPaddle(cx, y, hw, glow = false, hit = null) {
+export function drawPaddle(cx, y, hw, glow = false, hit = null, top = null) {
   cx = Math.round(cx);
   y = Math.round(y);
   hw = Math.round(hw);
   const k = hit ? Math.max(0, Math.min(1, hit.k)) : 0;
   const wob = k * Math.sin((1 - k) * Math.PI * 5); // a damped spring, 2.5 bounces
   const shadowY = y;
-  y += Math.round(wob * 4);
-  // A tennis racket lying across the paddle's width: strung head on the
-  // left, throat, then the handle with its grip and a red band.
+  const dip = Math.round(wob * 4);
+  y += dip;
+  // A tennis racket lying on the court: the strung head spans the paddle's
+  // whole width (what the ball bounces off), and the throat and handle, with
+  // its grip and red band, stick out to the right beyond it.
   const left = cx - hw;
   const len = hw * 2;
-  const th = Math.max(7, Math.min(20, Math.round(len * 0.26))) | 1; // head height, odd for a centre line
-  const mid = y - 4;
-  const headW = Math.round(len * 0.44);
-  const hx = left + Math.floor(headW / 2);
-  const rx = Math.floor(headW / 2);
-  const ry = (th - 1) / 2;
+  const th = Math.max(9, Math.min(28, Math.round(len * 0.3))) | 1; // head height, odd for a centre line
+  // top: where the ball's underside meets the racket. The frame's top edge
+  // goes there, so a ball on the racket sits on the strings with no gap.
+  const ry0 = (th - 1) / 2;
+  const mid = top != null ? Math.round(top) + ry0 + 1 + dip : y - 4;
+  const headW = len;
+  const hx = cx;
+  const rx = hw;
+  const ry = ry0;
   ctx.globalAlpha = 0.32;
-  rrect(left + 1, shadowY - 2, len, 6, 3, '#07140a');
+  rrect(left + 1, shadowY - 2, Math.round(len * 1.5), 6, 3, '#07140a');
   ctx.globalAlpha = 1;
   const ix = cx + Math.round((hit ? hit.off : 0) * hw); // where the ball struck
   const onHead = k > 0 && Math.abs(ix - hx) < rx - 2;
   const frame = glow ? PAL.yellowHi : k > 0.75 ? '#fff2a8' : '#e3b341';
   // Handle and shaft first, so the head sits over the join.
-  const shaftL = left + headW - 2;
-  const handleL = left + Math.round(len * 0.6);
-  const right = left + len;
+  const shaftL = cx + hw - 2;
+  const handleL = cx + hw + Math.round(len * 0.12);
+  const right = handleL + Math.round(len * 0.4);
   rect(shaftL, mid - 2, handleL - shaftL, 5, '#1a1206');
   rect(shaftL, mid - 1, handleL - shaftL, 3, frame);
   rect(handleL, mid - 3, right - handleL, 7, '#1a1206');

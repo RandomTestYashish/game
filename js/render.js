@@ -1,8 +1,31 @@
 // Draws a Game into the projected court, plus the in-play HUD.
 
 import { W, ctx, PAL, rect, disc, ring, rrect, text, textW, serif, serifW, icon } from './gfx.js';
-import { proj, drawBlock, drawBall, drawPaddle, drawShadow, MAT } from './scene.js';
+import { proj, drawBlock, drawBrick, drawBall, drawPaddle, drawShadow, MAT } from './scene.js';
 import { WW, WH, TOOL_TIME, START_LIVES, RACKET_RING, comboMult } from './game.js';
+
+// The formation is a mix: it is split into a few groups (mirrored left and
+// right), alternating bricks and players, and each group of players has one
+// size: small, medium or tall. Visual only; every block plays the same.
+const SIZES = [0.8, 1, 1.25];
+const mix = (a, b, c) => {
+  let h = (a * 374761393 + b * 668265263 + c * 2147483647) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+function lookOf(g, b) {
+  if (b.look) return b.look;
+  const rows = g.level.rows;
+  const cols = rows[0].length;
+  const gw = Math.max(2, Math.round(cols / 4));
+  const gh = Math.max(2, Math.round(rows.length / 3));
+  const gx = Math.floor(Math.min(b.c, cols - 1 - b.c) / gw);
+  const gy = Math.floor(b.r / gh);
+  const seed = [...String(g.level.id)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
+  const brick = (gx + gy + (mix(seed, 1, 1) < 0.5 ? 0 : 1)) % 2 === 0;
+  b.look = { brick, size: SIZES[Math.floor(mix(seed, gx + 11, gy + 11) * SIZES.length)] };
+  return b.look;
+}
 
 export function drawGame(g, time) {
   const frozen = g.fx.freeze > 0;
@@ -44,15 +67,18 @@ export function drawGame(g, time) {
       const f = proj(b.x, b.y);
       const f2 = proj(b.x + b.w, b.y);
       const lift = (b.z + b.bob) * a.s;
-      drawBlock(a.x, a2.x, a.y - lift, f.x, f2.x, f.y - lift, b.hz * a.s, b.hz * f.s, b.type, b.seed, {
+      const look = lookOf(g, b);
+      (look.brick ? drawBrick : drawBlock)(a.x, a2.x, a.y - lift, f.x, f2.x, f.y - lift, b.hz * a.s, b.hz * f.s, b.type, b.seed, {
         damage: 1 - b.hp / b.max,
         frozen,
         flash: b.flash,
+        size: look.size,
       });
     } else if (it.q) {
       const q = it.q;
       const p = proj(q.x, q.y, q.z);
-      const c = q.type === 'dust' ? '#cfd8b0' : q.type === 'spark' ? PAL.yellow : MAT[q.type].bits[q.shade];
+      const m = MAT[q.type];
+      const c = q.type === 'dust' ? '#cfd8b0' : q.type === 'spark' ? PAL.yellow : q.brick ? [m.top, m.front, m.hi][q.shade] : m.bits[q.shade];
       ctx.globalAlpha = Math.min(1, q.life / 0.25);
       rect(p.x, p.y - q.size, q.size, q.size, c);
       ctx.globalAlpha = 1;
@@ -89,8 +115,11 @@ export function drawGame(g, time) {
       }
       drawBall(g0.x, g0.y - ball.z * g0.s - r, r, hot);
     } else if (it.paddle) {
-      const p = proj(it.paddle.x, it.paddle.y + it.paddle.d / 2);
-      drawPaddle(p.x, p.y, (it.paddle.w / 2) * p.s, g.fx.expand > 0, g.racket && { k: 1 - g.racket.t / RACKET_RING, off: g.racket.off });
+      const pd = it.paddle;
+      const p = proj(pd.x, pd.y + pd.d / 2);
+      // Where a ball resting on the racket has its underside (ball radius 4, resting 5 up).
+      const touch = proj(pd.x, pd.y - pd.d / 2 - 4, 5);
+      drawPaddle(p.x, p.y, (pd.w / 2) * p.s, g.fx.expand > 0, g.racket && { k: 1 - g.racket.t / RACKET_RING, off: g.racket.off }, touch.y);
     }
   }
 

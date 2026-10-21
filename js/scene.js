@@ -1068,11 +1068,13 @@ export function drawBlock(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
   if (!KIT[type]) return;
   const w = xr - xl;
   if (w < 2) return;
-  const sw = Math.max(3, Math.round(((w * PW) / (PW - 2)) * (o.size || 1)));
+  // Never smaller than 12 pixels across: on the crowded later courts the
+  // players then stand shoulder to shoulder, a crowd you can still read.
+  const sw = Math.max(12, Math.round(((w * PW) / (PW - 2)) * (o.size || 1)));
   const sh = Math.round((sw * PH) / PW);
   const x = Math.round((xl + xr) / 2 - sw / 2);
   const y = Math.round(yn) - sh + 1;
-  const flip = (seed >>> 3) % 2 === 1;
+  const flip = o.flip ?? (seed >>> 3) % 2 === 1;
   const v = o.frozen ? 'ice' : o.damage >= 0.6 ? 'hurt2' : o.damage > 0 ? 'hurt' : '';
   ctx.drawImage(playerSprite(type, v, flip), x, y, sw, sh);
   if (o.flash > 0) {

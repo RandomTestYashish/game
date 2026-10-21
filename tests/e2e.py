@@ -1484,6 +1484,7 @@ def players_and_racket(browser, url):
     looks = d.ev("__court.S.game.blocks.map(b=>b.look ? (b.look.brick ? 'brick' : 'player') : '?')")
     check("...every block is one or the other, and both kinds are there", set(looks) == {"brick", "player"}, sorted(set(looks)))
     sizes = set()
+    d.ev("__court.S.timeScale=1")  # the colour check above froze the clock
     for i in (0, 4, 9, 19, 39):
         d.ev(f"__court.beginRun({i})")
         d.wait(f"__court.S.level==={i} && __court.S.game.ready && __court.S.game.blocks.every(b=>b.look)", 30000)
@@ -1491,7 +1492,9 @@ def players_and_racket(browser, url):
         grouped = d.ev("""(()=>{const g=__court.S.game, by={}; for (const b of g.blocks) { const k=b.r+':'+Math.min(b.c, g.level.rows[0].length-1-b.c); (by[k]=by[k]||[]).push(b.look.brick); } return Object.values(by).every(v=>v.every(x=>x===v[0])); })()""")
         if not grouped:
             break
-    check("players come in different sizes (small, medium, tall) by group", sizes == {0.8, 1, 1.25}, sorted(sizes))
+    check("players come in different sizes (small, medium, big) by group", sizes == {0.85, 1, 1.5}, sorted(sizes))
+    tidy = d.ev("(()=>{const g=__court.S.game, n=g.level.rows[0].length; return g.blocks.every(b=>b.look.flip === (b.c > (n-1)/2))})()")
+    check("players face the middle: left half one way, right half the other", tidy)
     check("groups are mirrored left and right", grouped)
     d.ev("__court.beginRun(0)")
     d.wait("__court.S.level===0 && __court.S.screen==='play' && __court.S.game.ready", 30000)

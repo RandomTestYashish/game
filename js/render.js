@@ -5,9 +5,11 @@ import { proj, drawBlock, drawBrick, drawBall, drawPaddle, drawShadow, MAT } fro
 import { WW, WH, TOOL_TIME, START_LIVES, RACKET_RING, comboMult } from './game.js';
 
 // The formation is a mix: it is split into a few groups (mirrored left and
-// right), alternating bricks and players, and each group of players has one
-// size: small, medium or tall. Visual only; every block plays the same.
-const SIZES = [0.8, 1, 1.25];
+// right), alternating bricks and players. Each group of players has one size,
+// small, medium or big, and stands neatly: everyone on the left half faces
+// right, everyone on the right half faces left, rackets toward the middle.
+// Visual only; every block plays the same.
+const SIZES = [0.85, 1, 1.5];
 const mix = (a, b, c) => {
   let h = (a * 374761393 + b * 668265263 + c * 2147483647) >>> 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
@@ -23,7 +25,7 @@ function lookOf(g, b) {
   const gy = Math.floor(b.r / gh);
   const seed = [...String(g.level.id)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
   const brick = (gx + gy + (mix(seed, 1, 1) < 0.5 ? 0 : 1)) % 2 === 0;
-  b.look = { brick, size: SIZES[Math.floor(mix(seed, gx + 11, gy + 11) * SIZES.length)] };
+  b.look = { brick, size: SIZES[Math.floor(mix(seed, gx + 11, gy + 11) * SIZES.length)], flip: b.c > (cols - 1) / 2 };
   return b.look;
 }
 
@@ -73,6 +75,7 @@ export function drawGame(g, time) {
         frozen,
         flash: b.flash,
         size: look.size,
+        flip: look.flip,
       });
     } else if (it.q) {
       const q = it.q;

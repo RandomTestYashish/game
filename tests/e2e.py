@@ -1551,6 +1551,37 @@ def polish(browser, url):
     ctx.close()
 
 
+def signature(browser, url):
+    """'Crafted by Yashish': handwritten, animated, in place on desktop and phone, only on the landing screen."""
+    print("signature")
+    for name, vp in [("desktop", {"width": 1280, "height": 800}), ("phone", {"width": 390, "height": 844})]:
+        ctx = browser.new_context(viewport=vp)
+        ctx.add_init_script(RETURNING)
+        d = Driver(ctx.new_page())
+        looks = []
+        for _ in range(4):
+            d.pg.goto(url)
+            d.screen("title", 0.3)
+            looks.append(d.ev("__court.currentTheme().countryId"))
+        check(f"{name}: every load opens on a different theme than the last", all(looks[i] != looks[i - 1] for i in range(1, 4)), looks)
+        d.wait("getComputedStyle(document.getElementById('credit')).visibility==='visible'", 10000)
+        time.sleep(3.6)
+        info = d.ev("""(()=>{const e=document.getElementById('credit'), r=e.getBoundingClientRect(), c=document.getElementById('court').getBoundingClientRect();
+          const n=e.querySelector('.name'), cs=getComputedStyle(n);
+          return {text: e.querySelector('text').textContent.replace(/\s+/g,' ').trim(), play: e.classList.contains('play'), op: +getComputedStyle(e).opacity,
+            font: cs.fontFamily, inked: +cs.fillOpacity, left: r.left-c.left, right: c.right-r.right, bottom: c.bottom-r.bottom, w: r.width, h: r.height}})()""")
+        check(f"{name}: the signature reads 'Crafted by Yashish', in a handwriting font, written in by animation", info["text"] == "Crafted by Yashish" and "cursive" in info["font"] and info["play"] and info["op"] > 0.9 and info["inked"] > 0.9, info)
+        if name == "desktop":
+            check("desktop: bottom right, bigger than before (was about 12px tall text)", info["right"] < 30 and info["bottom"] < 30 and info["h"] > 40, info)
+        else:
+            check("phone: centred at the bottom, bigger than before", abs(info["left"] - info["right"]) < 6 and info["bottom"] < 30 and info["h"] > 36, info)
+        d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+        d.screen("countdown", 0.2)
+        check(f"{name}: the signature is only on the landing screen", d.ev("getComputedStyle(document.getElementById('credit')).visibility") == "hidden")
+        check(f"no console errors (signature, {name})", not d.errors, d.errors[:3])
+        ctx.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1571,6 +1602,7 @@ def main():
             analytics(browser, url)
             bricks_in_groups(browser, url)
             polish(browser, url)
+            signature(browser, url)
         finally:
             browser.close()
             srv.shutdown()

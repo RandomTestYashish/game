@@ -775,17 +775,7 @@ const SCREENS = {
     }
     const y = wb + 46 + Math.round(H * 0.04) + Math.round((1 - k) * 8);
     pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3, pulse: S.time });
-    // Credit line, as small as the pixel font goes, on a faint strip so it
-    // still reads on any court: bottom right on wide screens, centred on phones.
-    const credit = 'CRAFTED BY YASHISH';
-    const cw = textW(credit, 1, 1) + 8;
-    const wide = W >= 400;
-    const cx = wide ? W - 8 - cw : Math.round(W / 2 - cw / 2);
-    const cy = H - 13;
-    ctx.globalAlpha *= 0.55;
-    rrect(cx, cy - 3, cw, 11, 4, PAL.ink);
-    ctx.globalAlpha /= 0.55;
-    text(credit, cx + 4, cy, PAL.dim, { sp: 1 });
+    S.credit = k; // the signature (an overlay, see placeCredit) shows with this screen
     ctx.globalAlpha = 1;
     S.primary = play;
   },
@@ -1425,7 +1415,81 @@ function drawRulesOverlay(k) {
 
 let gameLayer = null;
 
+// ---- the signature -----------------------------------------------------------
+// "Crafted by Yashish" in handwriting, laid over the canvas on the landing
+// screen: bottom right on wide screens, centred on phones. It is an SVG, not
+// canvas pixels, so the cursive stays smooth; css/style.css animates it.
+const creditEl = document.getElementById('credit');
+let creditShown = false;
+let creditFit = '';
+
+function fitCredit() {
+  const svg = creditEl.querySelector('svg');
+  const txt = svg.querySelector('text');
+  const swash = svg.querySelector('.swash');
+  creditEl.classList.toggle('small', W < 400);
+  const box = txt.getBBox();
+  const byLen = txt.getSubStringLength(0, 'Crafted by'.length);
+  const nameX = box.x + byLen + 6;
+  const nameW = box.x + box.width - nameX;
+  const y = box.y + box.height - 2;
+  swash.setAttribute('d', `M ${nameX - 2} ${y + 2} C ${nameX + nameW * 0.35} ${y + 7}, ${nameX + nameW * 0.75} ${y + 6}, ${nameX + nameW + 6} ${y - 3}`);
+  swash.style.setProperty('--len', Math.ceil(swash.getTotalLength()));
+  // Sparkles round "Yashish"; the gold's light sweep spans the name.
+  const sparks = svg.querySelectorAll('.spark');
+  [[nameX + nameW + 4, box.y + 6], [nameX + nameW * 0.18, box.y - 2], [nameX + nameW * 0.62, box.y - 1]].forEach(([x, yy], i) => sparks[i].setAttribute('transform', `translate(${x} ${yy})`));
+  const gold = svg.querySelector('#credit-gold');
+  gold.setAttribute('x1', nameX);
+  gold.setAttribute('x2', nameX + nameW * 0.45);
+  const pad = 10;
+  const plate = svg.querySelector('.plate');
+  plate.setAttribute('x', box.x - pad);
+  plate.setAttribute('y', box.y - pad + 2);
+  plate.setAttribute('width', box.width + pad * 2);
+  plate.setAttribute('height', box.height + pad * 2 + 2);
+  svg.setAttribute('viewBox', `${box.x - pad - 6} ${box.y - pad - 6} ${box.width + pad * 2 + 12} ${box.height + pad * 2 + 14}`);
+  svg.setAttribute('width', box.width + pad * 2 + 12);
+  svg.setAttribute('height', box.height + pad * 2 + 14);
+}
+
+// Start the writing again (each visit to the landing screen, and every
+// CREDIT_AGAIN seconds while it stays up).
+const CREDIT_AGAIN = 12;
+let creditAt = 0;
+function rewriteCredit() {
+  creditEl.classList.remove('play');
+  void creditEl.offsetWidth;
+  creditEl.classList.add('play');
+  creditAt = S.time;
+}
+
+function placeCredit() {
+  if (!creditEl) return;
+  const k = (S.credit || 0) * (1 - (S.overlayT || 0));
+  const on = k > 0.01;
+  if (on !== creditShown) {
+    creditShown = on;
+    creditEl.style.visibility = on ? 'visible' : 'hidden';
+    if (on) rewriteCredit();
+  }
+  if (!on) return;
+  if (S.time - creditAt > CREDIT_AGAIN) rewriteCredit();
+  const fit = W + 'x' + H + (document.fonts && document.fonts.status);
+  if (fit !== creditFit) {
+    creditFit = fit;
+    fitCredit();
+  }
+  const r = canvas.getBoundingClientRect();
+  const scale = r.width / W;
+  const wide = W >= 400;
+  const x = r.left + (wide ? W - 6 : W / 2) * scale;
+  const y = r.top + (H - 4) * scale;
+  creditEl.style.opacity = k.toFixed(3);
+  creditEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(${wide ? '-100%' : '-50%'}, -100%)`;
+}
+
 function draw() {
+  S.credit = 0;
   // The camera never sits quite still: a slow pitch drift, plus a lean toward the ball.
   const g0 = S.game;
   const ball = g0 && S.screen === 'play' && g0.balls[0];
@@ -1490,6 +1554,7 @@ function draw() {
     else drawSoundOverlay(S.overlayT);
     ui.live = true;
   }
+  placeCredit();
 }
 
 // ---------------------------------------------------------------- input

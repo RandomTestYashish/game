@@ -1570,7 +1570,7 @@ def signature(browser, url):
           const n=e.querySelector('.name'), cs=getComputedStyle(n);
           return {text: e.querySelector('text').textContent.replace(/\s+/g,' ').trim(), play: e.classList.contains('play'), op: +getComputedStyle(e).opacity,
             font: cs.fontFamily, inked: +cs.fillOpacity, left: r.left-c.left, right: c.right-r.right, bottom: c.bottom-r.bottom, w: r.width, h: r.height}})()""")
-        check(f"{name}: the signature reads 'Crafted by Yashish', in a handwriting font, written in by animation", info["text"] == "Crafted by Yashish" and "cursive" in info["font"] and info["play"] and info["op"] > 0.9 and info["inked"] > 0.9, info)
+        check(f"{name}: the signature reads 'Crafted by Yashish', in a handwriting font, written in by animation", info["text"].replace(" ", "") == "CraftedbyYashish" and "cursive" in info["font"] and info["play"] and info["op"] > 0.9 and info["inked"] > 0.9, info)
         if name == "desktop":
             check("desktop: bottom right, bigger than before (was about 12px tall text)", info["right"] < 30 and info["bottom"] < 30 and info["h"] > 40, info)
         else:

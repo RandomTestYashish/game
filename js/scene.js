@@ -849,16 +849,18 @@ function drawSides(time) {
       const u = (n) => Math.max(1, Math.round(n * s));
       const flick = 0.85 + 0.15 * Math.sin(time * 7 + ly * 1.3 + side * 2) * Math.sin(time * 2.3 + ly);
       // A warm pool of light on the grass under the lamp.
-      ctx.globalAlpha = a0 * 0.1 * flick;
-      ellipse(b.x + side * -u(4), b.y, u(16), u(4), style.glow);
+      // At night (a Black Court) the lamps are the only light: brighter, wider.
+      const night = theme.isBlackCourt ? 1.6 : 1;
+      ctx.globalAlpha = a0 * Math.min(0.3, 0.1 * flick * night);
+      ellipse(b.x + side * -u(4), b.y, u(16 * night), u(4 * night), style.glow);
       ctx.globalAlpha = a0;
       const light = style.draw(b, t, u, -side, a0);
       // The glow: a wide soft halo and a bright core.
-      ctx.globalAlpha = a0 * 0.14 * flick;
-      disc(light.x, light.y, u(13), style.glow);
-      ctx.globalAlpha = a0 * 0.22 * flick;
+      ctx.globalAlpha = a0 * Math.min(0.4, 0.14 * flick * night);
+      disc(light.x, light.y, u(13 * Math.sqrt(night)), style.glow);
+      ctx.globalAlpha = a0 * Math.min(0.5, 0.22 * flick * night);
       disc(light.x, light.y, u(7), style.glow);
-      ctx.globalAlpha = a0 * 0.35 * flick;
+      ctx.globalAlpha = a0 * Math.min(0.7, 0.35 * flick * night);
       disc(light.x, light.y, u(3), style.core);
       ctx.globalAlpha = a0;
     }
@@ -975,6 +977,20 @@ const LAMP_STYLES = {
 
 // ---------------------------------------------------------------- sprites
 
+// One colour per power-up, used wherever it shows: the falling token, the
+// timer badge, its name as it is caught, the tools and How to Play screens.
+export const TOOL_COLOR = {
+  smash: '#ff5a3c', // flame red
+  freeze: '#8cc8ff', // ice blue
+  shield: '#3fe0c8', // teal
+  multiball: '#d8f04a', // lime, like the ball
+  expand: '#ff7ac8', // pink
+  lowgrav: '#b98cff', // violet
+};
+export const toolColor = (id) => TOOL_COLOR[id] || PAL.yellow;
+
+const NIGHT_SLATE = { top: '#7a828f', hi: '#a3abb7', front: '#505764', lo: '#2c3038' };
+
 // Block materials: the bricks on the landing screen use top/hi/front/lo;
 // `bits` are the pieces that fly off a hit player (jersey, its shade, skin).
 export const MAT = {
@@ -1088,7 +1104,10 @@ export function drawBlock(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
 // these).  (xl,xr,yn) is the near ground edge,
 // (xlf,xrf,yf) the far ground edge; h/hf are the wall heights at each edge.
 export function drawBrick(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
-  const m = MAT[type];
+  // On a Black Court the dark slate is lifted to a paler stone so it stands
+  // out from the near-black surface; every brick also gets a pale rim.
+  const night = !!(theme && theme.isBlackCourt);
+  const m = night && type === 'S' ? NIGHT_SLATE : MAT[type];
   xl = Math.round(xl);
   xr = Math.round(xr);
   yn = Math.round(yn);
@@ -1123,6 +1142,14 @@ export function drawBrick(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
     } else {
       rect(xl + 1 + u * (w - 3), topN + 1 + v * (h - 3), leafy || rnd() < 0.5 ? 1 : 2, 1, dark ? m.lo : m.top);
     }
+  }
+
+  if (night) {
+    ctx.globalAlpha = 0.55;
+    rect(xl, topN, 1, h, '#a8b2bf'); // pale rim down both front edges
+    rect(xr - 1, topN, 1, h, '#a8b2bf');
+    trap(topF - 1, xlf, xrf, topF, xlf, xrf, '#c9d2dc'); // and along the back top edge
+    ctx.globalAlpha = 1;
   }
 
   if (o.damage > 0) {

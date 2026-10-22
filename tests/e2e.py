@@ -1518,6 +1518,65 @@ def players_and_racket(browser, url):
     ctx.close()
 
 
+def polish(browser, url):
+    """Difficulty room, power-up colours, small-phone spacing, signature, night contrast."""
+    print("formation, colours, spacing, signature, night")
+    # Difficulty: room in front of the racket on every court, and a gentler toughness curve.
+    ctx = browser.new_context(viewport={"width": 320, "height": 568}, has_touch=True, is_mobile=True)
+    ctx.add_init_script(RETURNING)
+    d = Driver(ctx.new_page())
+    d.pg.goto(url + "&look=0")
+    d.screen("title", 1.0)
+    r = d.ev("""(async()=>{const {Game,PADDLE_Y}=await import('/js/game.js'); const {ROOM}=await import('/js/levels.js'); const L=__court.LEVELS;
+      const room = L.map(l=>{const g=new Game(l); return PADDLE_Y - Math.max(...g.blocks.map(b=>b.y+b.d)) - (l.drift||0)});
+      const hits = new Game(L[119]).blocks.reduce((s,b)=>s+b.hp,0);
+      return {min: Math.min(...room), ROOM, hits}})()""")
+    check("every court leaves room in front of the racket (at least ROOM units, even at full drift)", r["min"] >= r["ROOM"], r)
+    check("court 120 needs fewer hits (tough blocks grow more slowly)", r["hits"] < 1700, r["hits"])
+    # Power-up colours: one each, all different, used on the falling token.
+    cols = d.ev("(async()=>{const m=await import('/js/scene.js'); return m.TOOL_COLOR})()")
+    check("six power-ups, six different colours", len(cols) == 6 and len(set(cols.values())) == 6, cols)
+    d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+    d.wait("__court.S.screen==='play' && __court.S.game.ready", 20000)
+    seen = {}
+    for tool, col in cols.items():
+        d.ev(f"const g=__court.S.game; g.drops=[{{type:'{tool}', x:100, y:150, t:0}}]; __court.S.timeScale=0.00001")
+        time.sleep(0.12)
+        seen[tool] = d.ev(f"(()=>{{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; for(let i=0;i<d.length;i+=4) if('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')==='{col}') return true; return false}})()")
+        d.ev("__court.S.game.drops=[]; __court.S.timeScale=1")
+    check("each falling power-up shows in its own colour", all(seen.values()), seen)
+    # Small phone (canvas 240 wide): the top row and the place tag do not collide.
+    lay = d.ev("""(async()=>{const {textW}=await import('/js/gfx.js'); const {hudRows}=await import('/js/render.js'); const [W]=__court.size();
+      const label='COURT 120', lw=textW(label,1,2)+12, x=Math.round(Math.max(W/2-54, 5+lw+6)); return {W, gapLeft: x-(5+lw), gapRight: (W-23)-(x+108), tag: hudRows().tag}})()""")
+    check("small phone: the court label, LIVES/score box and pause button keep apart", lay["W"] == 240 and lay["gapLeft"] >= 4 and lay["gapRight"] >= 4, lay)
+    check("small phone: the place tag sits below the court-name row", lay["tag"] >= 44, lay)
+    # Signature.
+    check("the page names its author", d.ev("document.querySelector('meta[name=author]').content") == "Yashish")
+    check("no console errors (polish)", not d.errors, d.errors[:3])
+    ctx.close()
+    # Night: slate bricks are lifted on a Black Court.
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.add_init_script(RETURNING)
+    d = Driver(ctx.new_page())
+    d.pg.goto(url + "&look=0")
+    d.screen("title", 1.0)
+    i = d.ev("""(()=>{for(let i=2;i<120;i+=3){const l=__court.LEVELS[i]; if(l.rows.length>=5 && l.rows.join('').includes('S')) return i} return 5})()""")
+    found = False
+    for attempt in range(8):
+        d.ev(f"__court.beginRun({i})")
+        d.wait(f"__court.S.level==={i} && __court.S.game.ready && __court.S.game.blocks.every(b=>b.look)", 30000)
+        if d.ev("__court.S.game.blocks.some(b=>b.look.brick && b.type==='S')"):
+            d.ev("__court.S.timeScale=0.00001")
+            time.sleep(0.12)
+            found = d.ev("(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; for(let i=0;i<d.length;i+=4) if('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')==='#7a828f') return true; return false})()")
+            d.ev("__court.S.timeScale=1")
+            break
+        i += 3
+    check("Black Court: slate bricks are drawn in the paler night stone", d.ev("__court.currentTheme().isBlackCourt") and found, i + 1)
+    check("no console errors (night)", not d.errors, d.errors[:3])
+    ctx.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1537,6 +1596,7 @@ def main():
             visits_and_names(browser, url)
             analytics(browser, url)
             players_and_racket(browser, url)
+            polish(browser, url)
         finally:
             browser.close()
             srv.shutdown()

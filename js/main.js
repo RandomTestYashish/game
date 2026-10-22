@@ -1,12 +1,12 @@
 // Boot, screen flow, input and the frame loop.
 
 import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, ellipse, line, text, textW, wrap, blockTitle, sparkle, racket, cup, trophy, laurel, rays, globe, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
-import { P, setCam, buildLayers, drawScene, setTheme, currentTheme, drawThemePreview, proj, unprojX, drawBlock, drawBrick, drawBall, drawShadow } from './scene.js';
+import { P, setCam, buildLayers, drawScene, setTheme, currentTheme, drawThemePreview, proj, unprojX, drawBlock, drawBrick, drawBall, drawShadow, toolColor } from './scene.js';
 import { COUNTRIES, getCourtTheme } from './themes.js';
 import { Game, TOOLS, START_LIVES } from './game.js';
 import { sections } from './rules.js';
 import { LEVELS } from './levels.js';
-import { drawGame, drawHUD } from './render.js';
+import { drawGame, drawHUD, hudRows } from './render.js';
 import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, panel } from './ui.js';
 import { AudioSys } from './audio.js';
 import { Save, BOARD_SIZE, cleanName } from './save.js';
@@ -558,14 +558,15 @@ function drawPlace() {
   const label = n <= BOARD_SIZE ? ordinal(n) + ' PLACE' : p.rows[BOARD_SIZE - 1].score - g.score + 1 + ' TO TOP ' + BOARD_SIZE;
   const w = textW(label) + 12;
   const x = W - w - 5;
-  rrect(x - 1, 37, w + 2, 15, 5, PAL.ink);
-  rrect(x, 38, w, 13, 4, PAL.panel);
-  text(label, x + 6, 41, n <= 3 ? PAL.yellow : PAL.cream);
+  const rows = hudRows();
+  rrect(x - 1, rows.tag - 1, w + 2, 15, 5, PAL.ink);
+  rrect(x, rows.tag, w, 13, 4, PAL.panel);
+  text(label, x + 6, rows.tag + 3, n <= 3 ? PAL.yellow : PAL.cream);
   if (p.t > 0) {
     const msg = p.beat;
     const mw = textW(msg, 1, 1) + 18;
     const pop = p.t > 1.85 ? 2 : 0;
-    const y = 58 - pop;
+    const y = rows.toast - pop;
     ctx.globalAlpha = Math.min(1, p.t / 0.35);
     rrect(W / 2 - mw / 2 - 1, y - 1, mw + 2, 19, 6, PAL.ink);
     rrect(W / 2 - mw / 2, y, mw, 17, 5, PAL.yellow);
@@ -939,7 +940,7 @@ const SCREENS = {
         disc(cx, cy, 17, sel || ui.hover === id ? PAL.yellow : PAL.cream);
         disc(cx, cy, 16, PAL.panel);
         if (sel) disc(cx, cy, 14, PAL.panelHi);
-        icon(t.id, cx - 11, cy - 11, PAL.yellow, 2);
+        icon(t.id, cx - 11, cy - 11, toolColor(t.id), 2);
         text(t.name, cx, cy + 22, sel ? PAL.yellow : PAL.cream, { align: 'center', sp: t.name.length > 9 ? 0 : 1 });
         region(id, cx - 24, cy - 20, 48, 50, () => (S.tool = i));
       });
@@ -961,12 +962,14 @@ const SCREENS = {
     ctx.globalAlpha = k * (f > 0.85 ? 0.5 : 1);
     serif(String(n), W / 2, cy - Math.round(size * 0.35), size, PAL.cream, { align: 'center', shadow: PAL.ink });
     ctx.globalAlpha = k;
-    text(LEVELS[S.level].name, W / 2, 34, PAL.white, { align: 'center', sp: 3, shadow: PAL.ink });
+    // Long court names close up their letters on a narrow screen.
+    const nm = LEVELS[S.level].name;
+    text(nm, W / 2, 34, PAL.white, { align: 'center', sp: textW(nm, 1, 3) > W - 24 ? 1 : 3, shadow: PAL.ink });
     const c = S.cleared;
     if (c) {
       // How the court just won went: no button, it fades with the countdown.
       const w = 150;
-      const y = 56;
+      const y = hudRows().note;
       rrect(W / 2 - w / 2 - 1, y - 1, w + 2, 47, 6, PAL.ink);
       rrect(W / 2 - w / 2, y, w, 45, 5, PAL.panel);
       text('COURT ' + c.court + ' COMPLETE', W / 2, y + 6, PAL.cream, { align: 'center', sp: 1 });
@@ -1406,7 +1409,7 @@ function drawRulesOverlay(k) {
           const ry = ty + i * 19;
           disc(cx + 13, ry + 8, 8, '#2f6b47');
           disc(cx + 13, ry + 8, 7, PAL.panel);
-          icon(r.id, cx + 8, ry + 3, PAL.yellow);
+          icon(r.id, cx + 8, ry + 3, toolColor(r.id));
           text(r.name, cx + 26, ry + 1, PAL.cream, { sp: 1 });
           text(r.left, cx + 26, ry + 10, '#9fb7a2', { sp: 0 });
           const pw = textW(r.right, 1, 0) + 6;

@@ -1,7 +1,7 @@
 // Draws a Game into the projected court, plus the in-play HUD.
 
 import { W, ctx, PAL, rect, disc, ring, rrect, text, textW, serif, serifW, icon } from './gfx.js';
-import { proj, drawBlock, drawBrick, drawBall, drawPaddle, drawShadow, MAT } from './scene.js';
+import { proj, drawBlock, drawBrick, drawBall, drawPaddle, drawShadow, MAT, toolColor } from './scene.js';
 import { WW, WH, TOOL_TIME, START_LIVES, RACKET_RING, comboMult } from './game.js';
 
 // The formation is a mix: it is split into a few groups (mirrored left and
@@ -90,10 +90,14 @@ export function drawGame(g, time) {
       const g0 = proj(d.x, d.y);
       const p = proj(d.x, d.y, 7 + Math.sin(d.t * 6) * 2);
       drawShadow(g0.x, g0.y, 6, 2, 0.3);
+      const tc = toolColor(d.type);
       disc(p.x, p.y - 7, 8, PAL.ink);
       disc(p.x, p.y - 7, 7, PAL.panel);
-      ring(p.x, p.y - 7, 7, PAL.yellow);
-      icon(d.type, p.x - 5, p.y - 12, PAL.yellow);
+      ctx.globalAlpha = 0.28;
+      disc(p.x, p.y - 7, 6, tc); // tinted face
+      ctx.globalAlpha = 1;
+      ring(p.x, p.y - 7, 7, tc);
+      icon(d.type, p.x - 5, p.y - 12, tc);
     } else if (it.ball) {
       const ball = it.ball;
       const n = ball.trail.length;
@@ -129,7 +133,7 @@ export function drawGame(g, time) {
   for (const f of g.floaters) {
     const p = proj(f.x, f.y, f.z);
     ctx.globalAlpha = Math.min(1, f.life / 0.3);
-    text(f.text, p.x, p.y - 7, PAL.yellowHi, { align: 'center', shadow: PAL.ink });
+    text(f.text, p.x, p.y - 7, f.tool ? toolColor(f.tool) : PAL.yellowHi, { align: 'center', shadow: PAL.ink });
     ctx.globalAlpha = 1;
   }
 }
@@ -142,8 +146,14 @@ function frame(x, y, w, h) {
   rect(x + 4, y + 1, w - 8, 1, '#1d3a2a');
 }
 
+// Spacing for the narrow phone canvas (240 wide): the place tag, the
+// court-cleared note and the "you beat" note sit a row lower so they clear
+// the court name and the combo line.
+export const hudRows = () => (W < 300 ? { tag: 46, note: 64, toast: 66 } : { tag: 38, note: 56, toast: 58 });
+
 export function drawHUD(g, levelLabel) {
-  const x = W / 2 - 54;
+  // Centred, unless the court label on the left would touch it.
+  const x = Math.round(Math.max(W / 2 - 54, 5 + textW(levelLabel, 1, 2) + 12 + 6));
   frame(x, 5, 108, 24);
   text('LIVES', x + 9, 8, PAL.white, { sp: 2 });
   for (let i = 0; i < START_LIVES; i++) {
@@ -169,12 +179,14 @@ export function drawHUD(g, levelLabel) {
   // Active tools with their remaining time.
   let ty = 27;
   const badge = (id, frac) => {
+    const tc = toolColor(id);
     disc(13, ty + 7, 8, PAL.ink);
     disc(13, ty + 7, 7, PAL.panel);
-    icon(id, 8, ty + 2, PAL.yellow);
+    ring(13, ty + 7, 7, tc);
+    icon(id, 8, ty + 2, tc);
     if (frac != null) {
       rect(5, ty + 17, 17, 3, PAL.ink);
-      rect(6, ty + 18, Math.ceil(15 * frac), 1, PAL.yellow);
+      rect(6, ty + 18, Math.ceil(15 * frac), 1, tc);
     }
     ty += 23;
   };

@@ -9,6 +9,8 @@
 //   drift  how far the formation advances toward the player and back
 //   wave   height of the floating motion
 
+import { PADDLE_Y } from './game.js';
+
 export const COUNT = 120;
 
 const HAND = [
@@ -41,6 +43,11 @@ const SHAPES = [
 ];
 
 export const MAX_BLOCKS = 1000;
+// The formation's depth. Everything stays in the first FIELD units past the
+// far wall, plus any drift, so there is always room to see the ball coming:
+// at least ROOM units between the deepest block and the racket.
+const FIELD = 118;
+export const ROOM = 58;
 
 // Block count, block size and grid size for court n (0-based). The count
 // grows on every court, from 24 to MAX_BLOCKS on the last one, and the blocks
@@ -48,10 +55,10 @@ export const MAX_BLOCKS = 1000;
 // as there are blocks, inside a field 196 wide and 144 deep.
 export function grid(n) {
   const blocks = 24 + Math.round(((MAX_BLOCKS - 24) * n) / (COUNT - 1));
-  const cell = Math.min(28, Math.sqrt((196 * 144) / (0.72 * 1.5 * blocks)));
+  const cell = Math.min(28, Math.sqrt((196 * FIELD) / (0.72 * 1.5 * blocks)));
   const row = Math.min(20, cell * 0.72);
   const cols = Math.floor(196 / cell);
-  const most = Math.floor(144 / row); // rows that fit before the paddle's space
+  const most = Math.floor(FIELD / row); // rows that fit before the racket's space
   return { cell, row, cols, most, blocks };
 }
 
@@ -119,8 +126,10 @@ function generate(n) {
         }
         const band = [r, Math.round(d), Math.round(d) + r, Math.floor(hash(n, m + 40, r + 40) * 9)][scheme];
         const roll = hash(n, m + 70, r + 70);
-        const slate = 0.04 + hard * 0.3;
-        row.push(roll < slate ? 'S' : roll < slate + 0.2 + hard * 0.22 ? 'H' : band % 2 ? 'L' : 'T');
+        // Tougher blocks grow slowly: by court 120 about 1 in 6 takes three
+        // hits and 1 in 3 two (was 1 in 3 and 1 in 2).
+        const slate = 0.03 + hard * 0.14;
+        row.push(roll < slate ? 'S' : roll < slate + 0.18 + hard * 0.14 ? 'H' : band % 2 ? 'L' : 'T');
       }
       grid.push(row);
     }
@@ -181,5 +190,9 @@ for (let n = 0; n < COUNT; n++) {
   lv.paddle = Math.max(42, Math.round(52 - n * 0.085));
   lv.drop = Math.max(0.09, 0.16 - n * 0.0006);
   lv.wave = 1.5 + hash(n, 8, 8) * 2;
+  // The drift toward the player never eats into the ROOM in front of the racket.
+  const R = lv.rows.length;
+  const bottom = 30 + Math.max(0, 6 - R) * 6 + R * lv.row;
+  lv.drift = Math.max(0, Math.min(lv.drift || 0, Math.floor(PADDLE_Y - ROOM - bottom)));
   LEVELS.push(lv);
 }

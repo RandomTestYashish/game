@@ -449,7 +449,7 @@ export class Game {
     } else {
       this.fx[type] = TOOL_TIME[type];
     }
-    this.floaters.push({ x: this.paddle.x, y: this.paddle.y - 10, z: 10, text: tool.name, life: 1.1 });
+    this.floaters.push({ x: this.paddle.x, y: this.paddle.y - 10, z: 10, text: tool.name, tool: type, life: 1.1 });
     this.emit('power', type);
   }
 

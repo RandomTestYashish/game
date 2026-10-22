@@ -220,8 +220,10 @@ async () => {
   g = fresh(); g.launch(); g.applyTool('multiball');
   out.multiball = g.balls.length === 3 && g.balls.every(q => Math.abs(Math.hypot(q.vx, q.vy) - 1) < 1e-6);
 
-  g = fresh(); g.launch(); g.applyTool('smash'); b = g.balls[0];
-  blk = g.blocks.find(q => q.type === 'H' && q.c === 1);
+  // Smash: a hedge with blocks behind it and none in front, on the first court with hedges.
+  g = fresh(hl); g.launch(); g.applyTool('smash'); b = g.balls[0];
+  const sameCol = (o, q) => o !== q && Math.abs(o.x + o.w / 2 - (q.x + q.w / 2)) < 1;
+  blk = g.blocks.find(q => q.type === 'H' && g.blocks.some(o => sameCol(o, q) && o.y < q.y) && !g.blocks.some(o => sameCol(o, q) && o.y > q.y));
   const before = g.remaining;
   Object.assign(b, { x: blk.x + blk.w / 2, y: blk.y + blk.d + 10, vx: 0, vy: -1 }); run(g, 0.35);
   out.smash = !blk.alive && g.remaining <= before - 2 && b.y < blk.y;
@@ -302,7 +304,7 @@ async () => {
   g = fresh(0); g.launch(); ['smash', 'freeze', 'expand', 'lowgrav', 'shield'].forEach(id => g.applyTool(id)); g.balls = []; g.loseLife();
   out.rulesLifeLossClearsTools = Object.values(g.fx).every(v => v === 0) && !g.shield && g.drops.length === 0;
   // Smash and freeze kills still score normally.
-  g = fresh(0); g.launch(); g.dropRate = 0; g.sinceDrop = -99; g.applyTool('freeze'); blk = g.blocks.find(k => k.type === 'H');
+  g = fresh(hl); g.launch(); g.dropRate = 0; g.sinceDrop = -99; g.applyTool('freeze'); blk = g.blocks.find(k => k.type === 'H');
   for (const k of g.blocks) if (k !== blk && k.r >= blk.r) k.alive = false;
   out.freezeScoresFull = shoot(g, blk) === BLOCKS.H.pts && !blk.alive;
 
@@ -1539,17 +1541,12 @@ def polish(browser, url):
     d.pg.goto(url + "&look=0")
     d.screen("title", 1.0)
     i = d.ev("""(()=>{for(let i=2;i<120;i+=3){const l=__court.LEVELS[i]; if(l.rows.length>=5 && l.rows.join('').includes('S')) return i} return 5})()""")
-    found = False
-    for attempt in range(8):
-        d.ev(f"__court.beginRun({i})")
-        d.wait(f"__court.S.level==={i} && __court.S.game.ready && __court.S.game.blocks.every(b=>b.look)", 30000)
-        if d.ev("__court.S.game.blocks.some(b=>b.look.brick && b.type==='S')"):
-            d.ev("__court.S.timeScale=0.00001")
-            time.sleep(0.12)
-            found = d.ev("(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; for(let i=0;i<d.length;i+=4) if('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')==='#7a828f') return true; return false})()")
-            d.ev("__court.S.timeScale=1")
-            break
-        i += 3
+    d.ev(f"__court.beginRun({i})")
+    d.wait(f"__court.S.level==={i} && __court.S.screen==='play' && __court.S.game.ready", 30000)
+    d.ev("__court.S.timeScale=0.00001")
+    time.sleep(0.12)
+    found = d.ev("(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; for(let i=0;i<d.length;i+=4) if('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')==='#7a828f') return true; return false})()")
+    d.ev("__court.S.timeScale=1")
     check("Black Court: slate bricks are drawn in the paler night stone", d.ev("__court.currentTheme().isBlackCourt") and found, i + 1)
     check("no console errors (night)", not d.errors, d.errors[:3])
     ctx.close()

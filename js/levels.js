@@ -59,7 +59,8 @@ export function grid(n) {
   const room = 1.8 + 0.6 * Math.max(0, 1 - blocks / 200); // small courts lose more of their grid to lanes
   const cell = Math.min(28, Math.sqrt((196 * FIELD) / (0.72 * room * blocks)));
   const row = Math.min(20, cell * 0.72);
-  const cols = Math.floor(196 / cell);
+  let cols = Math.floor(196 / cell);
+  if (n < HAND.length && cols % 2 === 0) cols--; // the 7-wide hand-made designs stay centred
   const most = Math.floor(FIELD / row); // rows that fit before the paddle's space
   return { cell, row, cols, most, blocks };
 }

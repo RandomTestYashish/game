@@ -163,8 +163,9 @@ async () => {
   Object.assign(b, { x: 20, y: 200, vx: -0.9, vy: -0.436 }); run(g, 0.4);
   out.wallBounce = b.vx > 0 && b.x >= b.r;
 
-  // Block collision: damage, score and reflection
-  g = fresh(); g.launch(); b = g.balls[0];
+  // Block collision: damage, score and reflection (on the first court with both limestone and hedge)
+  const hl = LEVELS.findIndex(l => l.rows.join('').includes('H') && l.rows.join('').includes('L'));
+  g = fresh(hl); g.launch(); b = g.balls[0];
   let blk = g.blocks.filter(q => q.type === 'L').sort((p, q) => q.y - p.y)[0];
   Object.assign(b, { x: blk.x + blk.w / 2, y: blk.y + blk.d + 12, vx: 0, vy: -1 }); run(g, 0.2);
   out.blockBreak = !blk.alive && g.score === 15 && b.vy > 0 && g.remaining === g.total - 1;
@@ -1462,59 +1463,36 @@ def analytics(browser, url):
     MOCK["posted"].clear()
 
 
-def players_and_racket(browser, url):
-    """code-2 look: blocks are drawn as tennis players, the paddle as a racket."""
-    print("players and racket")
+def bricks_in_groups(browser, url):
+    """Classic bricks in groups (empty lanes between them), the black paddle, no characters."""
+    print("bricks in groups")
     ctx = browser.new_context(viewport={"width": 390, "height": 844})
     ctx.add_init_script(RETURNING)
     d = Driver(ctx.new_page())
     d.pg.goto(url + "&look=0")
-    d.screen("title", 0.5)
+    d.screen("title", 2.5)
+    pix = """(()=>{const c=document.getElementById('court'), x=c.getContext('2d'), d=x.getImageData(0,0,c.width,c.height).data, s=new Set();
+      for(let i=0;i<d.length;i+=4) s.add('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')); return [...s]})()"""
+    hexes = d.ev(pix)
+    check("landing: the brick pyramid, and no characters", "#cf6f4f" in hexes and "#f2c39a" not in hexes and "#e0403a" not in hexes)
     d.ev("__court.S.introSeen=true; __court.beginRun(0)")
     d.wait("__court.S.screen==='play' && __court.S.game.ready && __court.S.t>0.3", 20000)
     d.ev("__court.S.timeScale=0.0001")
     time.sleep(0.2)
-    hexes = d.ev("""(()=>{const c=document.getElementById('court'), x=c.getContext('2d'), d=x.getImageData(0,0,c.width,c.height).data, s=new Set();
-      for(let i=0;i<d.length;i+=4) s.add('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')); return [...s]})()""")
-    want = {"jerseys": "#e0403a", "headbands": "#f4f4ee", "skin": "#f2c39a", "racket frame": "#e3b341", "racket grip": "#9a6a3a", "racket strings": "#8b939e"}
-    missing = [k for k, v in want.items() if v not in hexes]
-    check("court 1 shows players (shirts, skin) and the racket (frame, strings, grip)", not missing, missing)
-    check("the old black paddle is gone", "#22262d" not in hexes)
-    check("the court mixes groups of bricks with groups of players", "#cf6f4f" in hexes or "#ece3c8" in hexes)
-    looks = d.ev("__court.S.game.blocks.map(b=>b.look ? (b.look.brick ? 'brick' : 'player') : '?')")
-    check("...every block is one or the other, and both kinds are there", set(looks) == {"brick", "player"}, sorted(set(looks)))
-    sizes = set()
-    d.ev("__court.S.timeScale=1")  # the colour check above froze the clock
-    for i in (0, 4, 9, 19, 39):
-        d.ev(f"__court.beginRun({i})")
-        d.wait(f"__court.S.level==={i} && __court.S.game.ready && __court.S.game.blocks.every(b=>b.look)", 30000)
-        sizes |= set(d.ev("__court.S.game.blocks.filter(b=>!b.look.brick).map(b=>b.look.size)"))
-        grouped = d.ev("""(()=>{const g=__court.S.game, by={}; for (const b of g.blocks) { const k=b.r+':'+Math.min(b.c, g.level.rows[0].length-1-b.c); (by[k]=by[k]||[]).push(b.look.brick); } return Object.values(by).every(v=>v.every(x=>x===v[0])); })()""")
-        if not grouped:
-            break
-    check("players come in different sizes (small, medium, big) by group", sizes == {0.85, 1, 1.5}, sorted(sizes))
-    tidy = d.ev("(()=>{const g=__court.S.game, n=g.level.rows[0].length; return g.blocks.every(b=>b.look.flip === (b.c > (n-1)/2))})()")
-    check("players face the middle: left half one way, right half the other", tidy)
-    check("groups are mirrored left and right", grouped)
-    d.ev("__court.beginRun(0)")
-    d.wait("__court.S.level===0 && __court.S.screen==='play' && __court.S.game.ready", 30000)
-    # The racket springs when the ball strikes it.
-    d.pg.evaluate(BOT)
-    d.ev("__court.S.timeScale=1; __bot.mode='win'; __bot.on=true")  # the bot keeps the racket under the ball
-    d.wait("__court.S.game.racket", 30000)
-    hit = d.ev("__court.S.game.racket")
-    check("a paddle strike starts the racket spring (where along the racket it hit)", -1 <= hit["off"] <= 1 and hit["t"] < 0.45, hit)
-    d.ev("__bot.on=false")
-    d.shot("players-court1")
-    # The landing screen keeps its bricks, with a few players round them.
-    d.ev("__court.go('title')")
-    d.screen("title", 2.5)
-    hexes = d.ev("""(()=>{const c=document.getElementById('court'), x=c.getContext('2d'), d=x.getImageData(0,0,c.width,c.height).data, s=new Set();
-      for(let i=0;i<d.length;i+=4) s.add('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')); return [...s]})()""")
-    check("landing screen: the brick pyramid is still bricks", all(h in hexes for h in ["#cf6f4f", "#ece3c8", "#3f7d38"]))
-    check("...with players gathered round it", all(h in hexes for h in ["#e0403a", "#3a72d8", "#f2c39a"]))
-    d.shot("players-landing")
-    check("no console errors (players)", not d.errors, d.errors[:3])
+    hexes = d.ev(pix)
+    check("court 1: bricks, the black paddle, no characters, no racket",
+          "#cf6f4f" in hexes and "#22262d" in hexes and "#f2c39a" not in hexes and "#e3b341" not in hexes)
+    d.ev("__court.S.timeScale=1")
+    # Every court is split into groups: some whole columns stay empty (mirrored
+    # left and right), there are at least two groups, and the count is exact.
+    g = d.ev("""(()=>{const L=__court.LEVELS; return L.map(l=>{const R=l.rows, C=R[0].length;
+      const empty=[...Array(C).keys()].filter(c=>R.every(r=>r[c]==='.'));
+      const inner=empty.filter(c=>c>0&&c<C-1);
+      const mirrored=empty.every(c=>empty.includes(C-1-c));
+      return {inner: inner.length, mirrored}})})()""")
+    bad = [i + 1 for i, x in enumerate(g) if x["inner"] < 1 or not x["mirrored"]]
+    check("every court is in groups: empty lanes between them, mirrored left and right", not bad, bad[:5])
+    check("no console errors (bricks)", not d.errors, d.errors[:3])
     ctx.close()
 
 
@@ -1595,7 +1573,7 @@ def main():
             live_place(browser, url)
             visits_and_names(browser, url)
             analytics(browser, url)
-            players_and_racket(browser, url)
+            bricks_in_groups(browser, url)
             polish(browser, url)
         finally:
             browser.close()

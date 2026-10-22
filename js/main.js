@@ -1,7 +1,7 @@
 // Boot, screen flow, input and the frame loop.
 
 import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, ellipse, line, text, textW, wrap, blockTitle, sparkle, racket, cup, trophy, laurel, rays, globe, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
-import { P, setCam, buildLayers, drawScene, setTheme, currentTheme, drawThemePreview, proj, unprojX, drawBlock, drawBrick, drawBall, drawShadow, toolColor } from './scene.js';
+import { P, setCam, buildLayers, drawScene, setTheme, currentTheme, drawThemePreview, proj, unprojX, drawBlock, drawBall, drawShadow, toolColor } from './scene.js';
 import { COUNTRIES, getCourtTheme } from './themes.js';
 import { Game, TOOLS, START_LIVES } from './game.js';
 import { sections } from './rules.js';
@@ -583,14 +583,6 @@ const PYRAMID = [
   ['T', 'L'],
 ];
 
-// [x from the middle, y from the base, jersey, faces left]
-const LANDING_PLAYERS = [
-  [-56, 1, 'T', false],
-  [56, 1, 'H', true],
-  [-40, -12, 'L', false],
-  [40, -12, 'S', true],
-];
-
 function drawPyramid(vis) {
   const base = P.wb + 46;
   drawShadow(W / 2, base + 1, 50, 4, 0.3 * vis);
@@ -607,24 +599,9 @@ function drawPyramid(vis) {
       const yn = base - r * 13 - lift;
       const xl = x0 + c * bw;
       ctx.globalAlpha = Math.min(1, k * 2);
-      drawBrick(xl, xl + bw - 1, yn, xl + 1, xl + bw - 2, yn - 5, h, h, type, 1000 + i * 7919);
+      drawBlock(xl, xl + bw - 1, yn, xl + 1, xl + bw - 2, yn - 5, h, h, type, 1000 + i * 7919);
       ctx.globalAlpha = 1;
     });
-  });
-
-  // A few of the players who wait on the courts, gathered round the bricks:
-  // they drop in after the bricks, hop now and then and look about.
-  LANDING_PLAYERS.forEach(([dx, dy, type, face], n) => {
-    const k = clamp(vis * 2 - 1.1 - n * 0.12, 0, 1);
-    if (k <= 0) return;
-    const lift = Math.round((1 - easeOut(k)) * 50);
-    const hop = Math.round(Math.max(0, Math.sin(S.time * 3.1 + n * 2.3) - 0.6) * 9);
-    const turn = Math.floor(S.time * 0.45 + n * 0.7) % 2 === 1;
-    const cx = W / 2 + dx;
-    const yn = base + dy - lift - hop;
-    ctx.globalAlpha = Math.min(1, k * 2);
-    drawBlock(cx - 6, cx + 6, yn, 0, 0, 0, 0, 0, type, face !== turn ? 8 : 0);
-    ctx.globalAlpha = 1;
   });
 
   // A tennis ball resting on top, glinting now and then.

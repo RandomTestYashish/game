@@ -991,119 +991,17 @@ export const toolColor = (id) => TOOL_COLOR[id] || PAL.yellow;
 
 const NIGHT_SLATE = { top: '#7a828f', hi: '#a3abb7', front: '#505764', lo: '#2c3038' };
 
-// Block materials: the bricks on the landing screen use top/hi/front/lo;
-// `bits` are the pieces that fly off a hit player (jersey, its shade, skin).
 export const MAT = {
-  T: { top: '#cf6f4f', hi: '#e79069', front: '#a04d37', lo: '#733324', bits: ['#e0403a', '#a82a26', '#f2c39a'] },
-  L: { top: '#ece3c8', hi: '#fbf6e2', front: '#c9bd9c', lo: '#9d906d', bits: ['#f2c230', '#c08f14', '#f2c39a'] },
-  H: { top: '#3f7d38', hi: '#68ab52', front: '#2b5b29', lo: '#193a1b', bits: ['#3a72d8', '#26509e', '#f2c39a'] },
-  S: { top: '#454a54', hi: '#69707c', front: '#272b32', lo: '#14171b', bits: ['#8a4fd0', '#5f2f9c', '#f2c39a'] },
+  T: { top: '#cf6f4f', hi: '#e79069', front: '#a04d37', lo: '#733324', bits: ['#cf6f4f', '#a04d37', '#e79069'] },
+  L: { top: '#ece3c8', hi: '#fbf6e2', front: '#c9bd9c', lo: '#9d906d', bits: ['#ece3c8', '#c9bd9c', '#fbf6e2'] },
+  H: { top: '#3f7d38', hi: '#68ab52', front: '#2b5b29', lo: '#193a1b', bits: ['#3f7d38', '#2b5b29', '#68ab52'] },
+  S: { top: '#454a54', hi: '#69707c', front: '#272b32', lo: '#14171b', bits: ['#454a54', '#272b32', '#69707c'] },
 };
-
-// ---------------------------------------------------------------- players
-// In play the blocks are little tennis players standing on their spot: one
-// 20x21 pixel sprite (plus a 1-pixel outline), scaled to the block's width.
-// Every player wears the same white headband; the jersey says how many hits
-// they take.
-
-const KIT = {
-  T: { c: '#e0403a', C: '#f26b5e', d: '#a82a26', L: '#ffffff' }, // red, 1 hit
-  L: { c: '#f2c230', C: '#ffe07a', d: '#c08f14', L: '#28324a' }, // yellow, 1 hit
-  H: { c: '#3a72d8', C: '#6b9cf0', d: '#26509e', L: '#ffffff' }, // blue, 2 hits
-  S: { c: '#8a4fd0', C: '#b07ef0', d: '#5f2f9c', L: '#f2c230' }, // purple with gold trim, 3 hits
-};
-const PLAYER = [
-  '.....oooooo.........',
-  '....oOOoooooo.......',
-  '...ooooooooooo..rrr.',
-  '...bbbbbbbbbbb.rtttr',
-  '...ossssssssso.rtttr',
-  '...ossesssesso.rtttr',
-  '...ossesssesso.rtttr',
-  '...ospssssspso.rtttr',
-  '...ossssmsssso.rtttr',
-  '....SsssssssS...rrr.',
-  '.......sss.......a..',
-  '....CccLLLccc....g..',
-  '...SCcccLcccdS...g..',
-  '...sLLLLLLLLLssssss.',
-  '...sCcccccccdS......',
-  '....ddddddddd.......',
-  '....wwwwwwwww.......',
-  '....wwww.wwww.......',
-  '.....kk...kk........',
-  '.....qq...qq........',
-  '....ffF..ffF........',
-];
-const SKIN = {
-  o: '#2a1a12', O: '#5a3a26', b: '#f4f4ee', s: '#f2c39a', S: '#d9a074', e: '#1d1410', p: '#f09a8a', m: '#a5523c',
-  w: '#f4f3ec', k: '#e5ac7c', q: '#ffffff', f: '#2e3138', F: '#6b7280', r: '#3b3f46', t: '#cfd5dc', a: '#9aa1ab', g: '#7a4a26',
-};
-const PW = PLAYER[0].length + 2; // with the outline
-const PH = PLAYER.length + 2;
-const sprites = new Map();
-
-// v: '' as new, 'hurt' after a hit (a drop of sweat), 'hurt2' after two
-// (headband gone too), 'ice' when frozen, 'flash' (white) for the hit flash.
-// flip mirrors it, racket on the left.
-function playerSprite(type, v, flip) {
-  const key = type + v + (flip ? '<' : '>');
-  let canvas = sprites.get(key);
-  if (canvas) return canvas;
-  const col = { ...SKIN, ...KIT[type] };
-  if (v === 'hurt2') col.b = SKIN.o;
-  const x = makeLayer(PW, PH);
-  const at = (i) => (flip ? PLAYER[0].length - 1 - i : i) + 1;
-  x.fillStyle = '#14201a'; // outline first, then the pixels over it
-  PLAYER.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && x.fillRect(at(i) - 1, j, 3, 3)));
-  PLAYER.forEach((row, j) =>
-    [...row].forEach((ch, i) => {
-      if (ch === '.') return;
-      x.fillStyle = col[ch];
-      x.fillRect(at(i), j + 1, 1, 1);
-    }),
-  );
-  if (v === 'hurt' || v === 'hurt2') {
-    x.fillStyle = '#9fdcff';
-    x.fillRect(at(2), 5, 1, 2);
-    if (v === 'hurt2') x.fillRect(at(1), 8, 1, 2);
-  }
-  if (v === 'ice' || v === 'flash') {
-    x.globalCompositeOperation = 'source-atop';
-    x.fillStyle = v === 'ice' ? 'rgba(191,232,255,0.6)' : '#ffffff';
-    x.fillRect(0, 0, PW, PH);
-  }
-  canvas = x.canvas;
-  sprites.set(key, canvas);
-  return canvas;
-}
-
-// Same arguments as a brick: (xl,xr,yn) is the near ground edge, (xlf,xrf,yf)
-// the far one. The player stands on the near edge, as wide as the block.
-export function drawBlock(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
-  if (!KIT[type]) return;
-  const w = xr - xl;
-  if (w < 2) return;
-  // Never smaller than 12 pixels across: on the crowded later courts the
-  // players then stand shoulder to shoulder, a crowd you can still read.
-  const sw = Math.max(12, Math.round(((w * PW) / (PW - 2)) * (o.size || 1)));
-  const sh = Math.round((sw * PH) / PW);
-  const x = Math.round((xl + xr) / 2 - sw / 2);
-  const y = Math.round(yn) - sh + 1;
-  const flip = o.flip ?? (seed >>> 3) % 2 === 1;
-  const v = o.frozen ? 'ice' : o.damage >= 0.6 ? 'hurt2' : o.damage > 0 ? 'hurt' : '';
-  ctx.drawImage(playerSprite(type, v, flip), x, y, sw, sh);
-  if (o.flash > 0) {
-    ctx.globalAlpha = Math.min(0.8, o.flash * 6);
-    ctx.drawImage(playerSprite(type, 'flash', flip), x, y, sw, sh);
-    ctx.globalAlpha = 1;
-  }
-}
 
 // A brick: a cuboid seen from the front and above (the landing screen keeps
 // these).  (xl,xr,yn) is the near ground edge,
 // (xlf,xrf,yf) the far ground edge; h/hf are the wall heights at each edge.
-export function drawBrick(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
+export function drawBlock(xl, xr, yn, xlf, xrf, yf, h, hf, type, seed, o = {}) {
   // On a Black Court the dark slate is lifted to a paler stone so it stands
   // out from the near-black surface; every brick also gets a pale rim.
   const night = !!(theme && theme.isBlackCourt);
@@ -1209,96 +1107,18 @@ export function drawBall(cx, cy, r, hot = false) {
   }
 }
 
-// hit, right after the ball strikes: { k: 1 fading to 0, off: -1 left end ..
-// 1 right end }. The racket gives like a spring: it dips and bounces back, the
-// strings dent round the impact and ripple out, and the frame flashes.
-export function drawPaddle(cx, y, hw, glow = false, hit = null, top = null) {
+export function drawPaddle(cx, y, hw, glow = false) {
   cx = Math.round(cx);
   y = Math.round(y);
   hw = Math.round(hw);
-  const k = hit ? Math.max(0, Math.min(1, hit.k)) : 0;
-  const wob = k * Math.sin((1 - k) * Math.PI * 5); // a damped spring, 2.5 bounces
-  const shadowY = y;
-  const dip = Math.round(wob * 4);
-  y += dip;
-  // A tennis racket lying on the court: the strung head spans the paddle's
-  // whole width (what the ball bounces off), and the throat and handle, with
-  // its grip and red band, stick out to the right beyond it.
-  const left = cx - hw;
-  const len = hw * 2;
-  const th = Math.max(9, Math.min(28, Math.round(len * 0.3))) | 1; // head height, odd for a centre line
-  // top: where the ball's underside meets the racket. The frame's top edge
-  // goes there, so a ball on the racket sits on the strings with no gap.
-  const ry0 = (th - 1) / 2;
-  const mid = top != null ? Math.round(top) + ry0 + 1 + dip : y - 4;
-  const headW = len;
-  const hx = cx;
-  const rx = hw;
-  const ry = ry0;
   ctx.globalAlpha = 0.32;
-  rrect(left + 1, shadowY - 2, Math.round(len * 1.5), 6, 3, '#07140a');
+  rrect(cx - hw + 1, y - 2, hw * 2, 8, 4, '#07140a');
   ctx.globalAlpha = 1;
-  const ix = cx + Math.round((hit ? hit.off : 0) * hw); // where the ball struck
-  const onHead = k > 0 && Math.abs(ix - hx) < rx - 2;
-  const frame = glow ? PAL.yellowHi : k > 0.75 ? '#fff2a8' : '#e3b341';
-  // Handle and shaft first, so the head sits over the join.
-  const shaftL = cx + hw - 2;
-  const handleL = cx + hw + Math.round(len * 0.12);
-  const right = handleL + Math.round(len * 0.4);
-  rect(shaftL, mid - 2, handleL - shaftL, 5, '#1a1206');
-  rect(shaftL, mid - 1, handleL - shaftL, 3, frame);
-  rect(handleL, mid - 3, right - handleL, 7, '#1a1206');
-  rect(handleL + 1, mid - 2, right - handleL - 2, 5, '#9a6a3a');
-  for (let gx = handleL + 5; gx < right - 3; gx += 3) rect(gx, mid - 2, 1, 5, '#6e4724'); // grip wrap
-  rect(handleL + 1, mid - 2, 2, 5, '#c8352e'); // red band
-  rect(right - 3, mid - 2, 2, 5, '#e3b341'); // butt cap
-  rect(handleL + 1, mid - 2, right - handleL - 2, 1, 'rgba(255,255,255,0.18)');
-  // Head: dark rim, gold frame, strung face.
-  ellipse(hx, mid, rx + 1, ry + 1, '#1a1206');
-  ellipse(hx, mid, rx, ry, frame);
-  ellipse(hx, mid, rx - 2, ry - 2, '#262b31');
-  // Strings. Struck, they dent round the impact (most at the point, less
-  // further off) and spring back with the racket, lit up where the ball hit.
-  const spread = Math.max(4, rx * 0.45);
-  const dent = (x) => (onHead ? wob * Math.max(3, ry * 0.6) * Math.exp(-((x - ix) * (x - ix)) / (spread * spread)) : 0);
-  const lit = (x) => onHead && k > 0.3 && Math.abs(x - ix) < spread * 0.8;
-  for (let dx = -rx + 3; dx <= rx - 3; dx += 2) {
-    const half = Math.floor((ry - 2) * Math.sqrt(Math.max(0, 1 - (dx * dx) / ((rx - 2) * (rx - 2)))));
-    if (half <= 0) continue;
-    const x = hx + dx;
-    const sag = Math.round(dent(x));
-    ctx.fillStyle = lit(x) ? '#eef3f8' : '#8b939e';
-    ctx.fillRect(x, mid - half + Math.max(0, sag), 1, half * 2 + 1 - Math.abs(sag));
-  }
-  for (let dy = -ry + 3; dy <= ry - 3; dy += 2) {
-    const half = Math.floor((rx - 2) * Math.sqrt(Math.max(0, 1 - (dy * dy) / ((ry - 2) * (ry - 2)))));
-    if (half <= 0) continue;
-    if (!onHead) {
-      ctx.fillStyle = '#8b939e';
-      ctx.fillRect(hx - half, mid + dy, half * 2 + 1, 1);
-      continue;
-    }
-    // Pixel by pixel, so the string can bow.
-    const edge = 1 - Math.abs(dy) / ry; // the middle strings give the most
-    for (let x = hx - half; x <= hx + half; x++) {
-      ctx.fillStyle = lit(x) ? '#eef3f8' : '#8b939e';
-      ctx.fillRect(x, mid + dy + Math.round(dent(x) * edge), 1, 1);
-    }
-  }
-  if (k > 0) {
-    // A ring rippling out from the strike, and a few lines of force under it.
-    const r = 2 + (1 - k) * (onHead ? rx * 0.9 : 8);
-    ctx.globalAlpha = k * 0.9;
-    ctx.fillStyle = '#fff6c8';
-    for (let a = 0; a < 16; a++) {
-      const t = (a / 16) * Math.PI * 2;
-      ctx.fillRect(Math.round(ix + Math.cos(t) * r), Math.round(mid + Math.sin(t) * r * 0.55), 1, 1);
-    }
-    if (k > 0.45) {
-      ctx.fillStyle = '#ffffff';
-      for (const d of [-4, 0, 4]) ctx.fillRect(ix + d, mid + ry + 3 + Math.round((1 - k) * 4), 1, 3);
-    }
-    ctx.globalAlpha = 1;
-  }
-  rect(hx - Math.round(rx * 0.5), mid - ry, Math.round(rx), 1, glow ? '#fff6c8' : '#f6d77a'); // shine on the frame
+  // On a Black Court the dark paddle gets a pale rim so it stays easy to see.
+  if (theme && theme.isBlackCourt) rrect(cx - hw - 1, y - 12, hw * 2 + 2, 16, 7, '#8d96a3');
+  rrect(cx - hw, y - 11, hw * 2, 14, 6, '#0d0f12');
+  rrect(cx - hw + 1, y - 11, hw * 2 - 2, 9, 5, '#22262d');
+  rect(cx - hw + 5, y - 10, hw * 2 - 10, 1, '#4a505b');
+  rect(cx - hw + 3, y - 3, hw * 2 - 6, 1, glow ? PAL.yellowHi : PAL.yellow);
+  if (glow) rect(cx - hw + 3, y - 4, hw * 2 - 6, 1, PAL.yellowLo);
 }

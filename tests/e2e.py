@@ -1552,8 +1552,10 @@ def polish(browser, url):
 
 
 def signature(browser, url):
-    """'Crafted by Yashish': handwritten, animated, in place on desktop and phone, only on the landing screen."""
+    """'CRAFTED BY / YASHISH' in pixel art: builds, slides up, YASHISH rises, shimmers; landing screen only."""
     print("signature")
+    lit = """((x0,y0,x1,y1,col)=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let n=0, mx=1e9, Mx=-1;
+      for(let y=y0;y<y1;y++) for(let x=x0;x<x1;x++){const i=(y*c.width+x)*4; if('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')===col){n++; mx=Math.min(mx,x); Mx=Math.max(Mx,x);}} return {n,mx,Mx}})"""
     for name, vp in [("desktop", {"width": 1280, "height": 800}), ("phone", {"width": 390, "height": 844})]:
         ctx = browser.new_context(viewport=vp)
         ctx.add_init_script(RETURNING)
@@ -1564,20 +1566,27 @@ def signature(browser, url):
             d.screen("title", 0.3)
             looks.append(d.ev("__court.currentTheme().countryId"))
         check(f"{name}: every load opens on a different theme than the last", all(looks[i] != looks[i - 1] for i in range(1, 4)), looks)
-        d.wait("getComputedStyle(document.getElementById('credit')).visibility==='visible'", 10000)
-        time.sleep(3.6)
-        info = d.ev("""(()=>{const e=document.getElementById('credit'), r=e.getBoundingClientRect(), c=document.getElementById('court').getBoundingClientRect();
-          const n=e.querySelector('.name'), cs=getComputedStyle(n);
-          return {text: e.querySelector('text').textContent.replace(/\s+/g,' ').trim(), play: e.classList.contains('play'), op: +getComputedStyle(e).opacity,
-            font: cs.fontFamily, inked: +cs.fillOpacity, left: r.left-c.left, right: c.right-r.right, bottom: c.bottom-r.bottom, w: r.width, h: r.height}})()""")
-        check(f"{name}: the signature reads 'Crafted by Yashish', in a handwriting font, written in by animation", info["text"].replace(" ", "") == "CraftedbyYashish" and "cursive" in info["font"] and info["play"] and info["op"] > 0.9 and info["inked"] > 0.9, info)
+        W, H = d.ev("__court.size()")
+        area = f"{int(W * 0.68) if name == 'desktop' else 0},{H - 60},{W},{H}"  # on desktop, clear of the PLAY button
+        d.ev("__court.S.timeScale=0.00001")
+        steps = {}
+        for t in (0.4, 1.2, 3.4):
+            d.ev(f"__court.S.sigT={t}")
+            time.sleep(0.1)
+            steps[t] = {"cream": d.ev(f"{lit}({area},'#efe6c8')")["n"], "gold": d.ev(f"{lit}({area},'#f5e663')"), "white": d.ev(f"{lit}({area},'#ffffff')")["n"]}
+        check(f"{name}: CRAFTED BY builds pixel by pixel (part-built, then whole), before YASHISH appears",
+              0 < steps[0.4]["cream"] + steps[0.4]["white"] < steps[1.2]["cream"] and steps[0.4]["gold"]["n"] < 20, steps)
+        check(f"{name}: YASHISH has risen in gold, with the shimmer lighting some of its pixels", steps[3.4]["gold"]["n"] > 100 and steps[3.4]["white"] > 0, steps[3.4])
+        g = steps[3.4]["gold"]
         if name == "desktop":
-            check("desktop: bottom right, bigger than before (was about 12px tall text)", info["right"] < 30 and info["bottom"] < 30 and info["h"] > 40, info)
+            check("desktop: the signature sits bottom right", g["mx"] > W * 0.6 and g["Mx"] < W - 4, g)
         else:
-            check("phone: centred at the bottom, bigger than before", abs(info["left"] - info["right"]) < 6 and info["bottom"] < 30 and info["h"] > 36, info)
-        d.ev("__court.S.introSeen=true; __court.beginRun(0)")
-        d.screen("countdown", 0.2)
-        check(f"{name}: the signature is only on the landing screen", d.ev("getComputedStyle(document.getElementById('credit')).visibility") == "hidden")
+            check("phone: the signature is centred at the bottom", abs((g["mx"] + g["Mx"]) / 2 - W / 2) < 8, g)
+        d.ev("__court.S.timeScale=1; __court.S.introSeen=true; __court.beginRun(0)")
+        d.screen("countdown", 0.4)
+        d.ev("__court.S.timeScale=0.00001")
+        time.sleep(0.1)
+        check(f"{name}: the signature is only on the landing screen", d.ev(f"{lit}({area},'#f5e663')")["n"] < 60)
         check(f"no console errors (signature, {name})", not d.errors, d.errors[:3])
         ctx.close()
 

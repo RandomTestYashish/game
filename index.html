@@ -14,33 +14,6 @@
     <main>
       <canvas id="court" role="img" aria-label="The Court - block-breaking game. Arrow keys move the paddle, Space serves, P pauses, M mutes."></canvas>
     </main>
-    <!-- The creator's signature on the landing screen. The game places it over
-         the canvas each frame (js/main.js placeCredit) and the CSS writes it in. -->
-    <div id="credit" aria-hidden="true">
-      <svg xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <!-- Gold with a band of light that sweeps across it. -->
-          <linearGradient id="credit-gold" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="60" y2="0" spreadMethod="pad">
-            <stop offset="0" stop-color="#f5e663" />
-            <stop offset="0.42" stop-color="#f5e663" />
-            <stop offset="0.5" stop-color="#ffffff" />
-            <stop offset="0.58" stop-color="#f5e663" />
-            <stop offset="1" stop-color="#f5e663" />
-            <animateTransform attributeName="gradientTransform" type="translate" values="-80 0; 260 0; 260 0" keyTimes="0; 0.45; 1" dur="3.2s" begin="3s" repeatCount="indefinite" />
-          </linearGradient>
-        </defs>
-        <rect class="plate" rx="12" ry="12" />
-        <g class="float">
-          <text y="0"><tspan class="by">Crafted by</tspan><tspan class="name" dx="6">Yashish</tspan></text>
-          <path class="swash" d="" />
-          <g class="sparks">
-            <path class="spark s1" d="M0 -5 L1.2 -1.2 L5 0 L1.2 1.2 L0 5 L-1.2 1.2 L-5 0 L-1.2 -1.2 Z" />
-            <path class="spark s2" d="M0 -4 L1 -1 L4 0 L1 1 L0 4 L-1 1 L-4 0 L-1 -1 Z" />
-            <path class="spark s3" d="M0 -3.5 L0.9 -0.9 L3.5 0 L0.9 0.9 L0 3.5 L-0.9 0.9 L-3.5 0 L-0.9 -0.9 Z" />
-          </g>
-        </g>
-      </svg>
-    </div>
     <noscript>The Court needs JavaScript to run.</noscript>
     <p id="fallback" hidden>
       The Court could not start. Browsers block game scripts on pages opened straight from a file, so serve this folder

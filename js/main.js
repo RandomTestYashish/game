@@ -98,6 +98,7 @@ function aimCam(to) {
 function enter(name) {
   S.screen = name;
   S.t = 0;
+  if (name === 'title') S.sigT = 0; // the signature builds itself again
   if (name === 'countdown') {
     S.count = BEAT * 3;
     S.beat = 4;
@@ -430,6 +431,7 @@ function toggleMute() {
 
 function update(dt) {
   S.time += dt;
+  if (S.screen === 'title') S.sigT = ((S.sigT || 0) + dt) % SIG.again; // replays like an arcade attract screen
   S.t += dt;
 
   if (S.leaving) {
@@ -775,7 +777,7 @@ const SCREENS = {
     }
     const y = wb + 46 + Math.round(H * 0.04) + Math.round((1 - k) * 8);
     pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3, pulse: S.time });
-    S.credit = k; // the signature (an overlay, see placeCredit) shows with this screen
+    drawSignature(k);
     ctx.globalAlpha = 1;
     S.primary = play;
   },
@@ -1416,80 +1418,110 @@ function drawRulesOverlay(k) {
 let gameLayer = null;
 
 // ---- the signature -----------------------------------------------------------
-// "Crafted by Yashish" in handwriting, laid over the canvas on the landing
-// screen: bottom right on wide screens, centred on phones. It is an SVG, not
-// canvas pixels, so the cursive stays smooth; css/style.css animates it.
-const creditEl = document.getElementById('credit');
-let creditShown = false;
-let creditFit = '';
+// "CRAFTED BY / YASHISH" in the game's own pixel font, run like a little
+// arcade intro on the landing screen: CRAFTED BY assembles pixel by pixel,
+// slides up a line, YASHISH rises in gold from below, then a shimmer runs
+// across it pixel by pixel while sparkles twinkle. Bottom right on wide
+// screens, centred on phones.
 
-function fitCredit() {
-  const svg = creditEl.querySelector('svg');
-  const txt = svg.querySelector('text');
-  const swash = svg.querySelector('.swash');
-  creditEl.classList.toggle('small', W < 400);
-  const box = txt.getBBox();
-  const byLen = txt.getSubStringLength(0, 'Crafted by'.length);
-  const nameX = box.x + byLen + 6;
-  const nameW = box.x + box.width - nameX;
-  const y = box.y + box.height - 2;
-  swash.setAttribute('d', `M ${nameX - 2} ${y + 2} C ${nameX + nameW * 0.35} ${y + 7}, ${nameX + nameW * 0.75} ${y + 6}, ${nameX + nameW + 6} ${y - 3}`);
-  swash.style.setProperty('--len', Math.ceil(swash.getTotalLength()));
-  // Sparkles round "Yashish"; the gold's light sweep spans the name.
-  const sparks = svg.querySelectorAll('.spark');
-  [[nameX + nameW + 4, box.y + 6], [nameX + nameW * 0.18, box.y - 2], [nameX + nameW * 0.62, box.y - 1]].forEach(([x, yy], i) => sparks[i].setAttribute('transform', `translate(${x} ${yy})`));
-  const gold = svg.querySelector('#credit-gold');
-  gold.setAttribute('x1', nameX);
-  gold.setAttribute('x2', nameX + nameW * 0.45);
-  const pad = 10;
-  const plate = svg.querySelector('.plate');
-  plate.setAttribute('x', box.x - pad);
-  plate.setAttribute('y', box.y - pad + 2);
-  plate.setAttribute('width', box.width + pad * 2);
-  plate.setAttribute('height', box.height + pad * 2 + 2);
-  svg.setAttribute('viewBox', `${box.x - pad - 6} ${box.y - pad - 6} ${box.width + pad * 2 + 12} ${box.height + pad * 2 + 14}`);
-  svg.setAttribute('width', box.width + pad * 2 + 12);
-  svg.setAttribute('height', box.height + pad * 2 + 14);
+const SIG = { by: 'CRAFTED BY', name: 'YASHISH', zoom: 2, again: 14 };
+let sigMasks = null;
+
+// The lit pixels of a line of pixel text, each with a fixed random order.
+function sigMask(str, sp) {
+  const w = textW(str, 1, sp) + 2;
+  const h = 10;
+  const layer = makeLayer(w, h);
+  const was = ctx;
+  setTarget(layer);
+  text(str, 0, 0, '#ffffff', { sp });
+  setTarget(was);
+  const d = layer.getImageData(0, 0, w, h).data;
+  const px = [];
+  let mw = 0;
+  let mh = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (d[(y * w + x) * 4 + 3] < 128) continue;
+      const r = (((x * 73856093) ^ (y * 19349663)) >>> 0) % 1000 / 1000;
+      px.push({ x, y, r });
+      mw = Math.max(mw, x + 1);
+      mh = Math.max(mh, y + 1);
+    }
+  }
+  return { px, w: mw, h: mh };
 }
 
-// Start the writing again (each visit to the landing screen, and every
-// CREDIT_AGAIN seconds while it stays up).
-const CREDIT_AGAIN = 12;
-let creditAt = 0;
-function rewriteCredit() {
-  creditEl.classList.remove('play');
-  void creditEl.offsetWidth;
-  creditEl.classList.add('play');
-  creditAt = S.time;
-}
+function drawSignature(k) {
+  if (!sigMasks) sigMasks = { by: sigMask(SIG.by, 2), name: sigMask(SIG.name, 1) };
+  const { by, name } = sigMasks;
+  const z = SIG.zoom;
+  const t = S.sigT || 0;
+  const bw = Math.max(by.w, name.w * z) + 14;
+  const bh = by.h + 4 + name.h * z + 10;
+  const x0 = W >= 400 ? W - 8 - bw : Math.round(W / 2 - bw / 2);
+  const y0 = H - 6 - bh;
+  const floor = y0 + bh - 3; // YASHISH rises from behind this line
+  const a0 = ctx.globalAlpha;
+  const shimmerOn = t > 2.7;
+  const sweep = shimmerOn ? ((t - 2.7) % 2.6) / 2.6 : -1; // 0..1 across, then a rest
 
-function placeCredit() {
-  if (!creditEl) return;
-  const k = (S.credit || 0) * (1 - (S.overlayT || 0));
-  const on = k > 0.01;
-  if (on !== creditShown) {
-    creditShown = on;
-    creditEl.style.visibility = on ? 'visible' : 'hidden';
-    if (on) rewriteCredit();
+  // The plate: a dark tile with a gold edge that lights as the shimmer passes.
+  ctx.globalAlpha = a0 * 0.6;
+  rrect(x0, y0, bw, bh, 4, PAL.ink);
+  ctx.globalAlpha = a0 * (0.35 + (sweep >= 0 && sweep < 0.6 ? 0.5 * Math.sin((sweep / 0.6) * Math.PI) : 0));
+  rect(x0 + 4, y0, bw - 8, 1, PAL.yellow);
+  rect(x0 + 4, y0 + bh - 1, bw - 8, 1, PAL.yellow);
+  rect(x0, y0 + 4, 1, bh - 8, PAL.yellow);
+  rect(x0 + bw - 1, y0 + 4, 1, bh - 8, PAL.yellow);
+  ctx.globalAlpha = a0;
+
+  // CRAFTED BY: pixels pop in white, settle to cream, then the line slides up.
+  const build = clamp(t / 0.9, 0, 1);
+  const up = easeInOut(clamp((t - 1.4) / 0.45, 0, 1));
+  const byX = Math.round(x0 + bw / 2 - by.w / 2);
+  const byY = Math.round(lerp(y0 + 5 + by.h + 4 + 2, y0 + 5, up));
+  for (const p of by.px) {
+    if (build < p.r) continue;
+    const fresh = build - p.r < 0.12 && build < 1;
+    rect(byX + p.x + 1, byY + p.y + 1, 1, 1, PAL.ink);
+    rect(byX + p.x, byY + p.y, 1, 1, fresh ? '#ffffff' : PAL.cream);
   }
-  if (!on) return;
-  if (S.time - creditAt > CREDIT_AGAIN) rewriteCredit();
-  const fit = W + 'x' + H + (document.fonts && document.fonts.status);
-  if (fit !== creditFit) {
-    creditFit = fit;
-    fitCredit();
+
+  // YASHISH: rises from below the floor with a little overshoot, in gold.
+  const rise = clamp((t - 1.85) / 0.55, 0, 1);
+  if (rise > 0) {
+    const nx = Math.round(x0 + bw / 2 - (name.w * z) / 2);
+    const ny = Math.round(y0 + 5 + by.h + 4 + (1 - easeBack(rise)) * (name.h * z + 6));
+    for (const p of name.px) {
+      const px = nx + p.x * z;
+      const py = ny + p.y * z;
+      if (py + z > floor) continue; // still below the floor
+      // The shimmer: a slanted band of light crossing the letters pixel by pixel.
+      let c = PAL.yellow;
+      if (sweep >= 0) {
+        const band = sweep * (name.w + name.h + 8) - 4 - (p.x + (name.h - p.y));
+        if (Math.abs(band) < 1.4) c = '#ffffff';
+        else if (Math.abs(band) < 3.2) c = PAL.yellowHi;
+      }
+      rect(px + 1, py + 1, z, z, PAL.ink);
+      rect(px, py, z, z, c);
+    }
+    // Sparkles: little pixel stars that twinkle round the name.
+    if (shimmerOn) {
+      [[nx - 4, ny + 1], [nx + name.w * z + 3, ny + 2], [nx + name.w * z * 0.55, ny - 3]].forEach(([sx, sy], i) => {
+        const tw = Math.sin(t * 3.3 + i * 2.1);
+        if (tw < 0.35) return;
+        const arm = tw > 0.85 ? 2 : 1;
+        const col = tw > 0.85 ? '#ffffff' : PAL.yellowHi;
+        rect(Math.round(sx) - arm, Math.round(sy), arm * 2 + 1, 1, col);
+        rect(Math.round(sx), Math.round(sy) - arm, 1, arm * 2 + 1, col);
+      });
+    }
   }
-  const r = canvas.getBoundingClientRect();
-  const scale = r.width / W;
-  const wide = W >= 400;
-  const x = r.left + (wide ? W - 6 : W / 2) * scale;
-  const y = r.top + (H - 4) * scale;
-  creditEl.style.opacity = k.toFixed(3);
-  creditEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(${wide ? '-100%' : '-50%'}, -100%)`;
 }
 
 function draw() {
-  S.credit = 0;
   // The camera never sits quite still: a slow pitch drift, plus a lean toward the ball.
   const g0 = S.game;
   const ball = g0 && S.screen === 'play' && g0.balls[0];
@@ -1554,7 +1586,6 @@ function draw() {
     else drawSoundOverlay(S.overlayT);
     ui.live = true;
   }
-  placeCredit();
 }
 
 // ---------------------------------------------------------------- input

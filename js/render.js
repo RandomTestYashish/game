@@ -1,7 +1,7 @@
 // Draws a Game into the projected court, plus the in-play HUD.
 
 import { W, ctx, PAL, rect, disc, ring, rrect, text, textW, serif, serifW, icon } from './gfx.js';
-import { proj, drawBlock, drawBall, drawPaddle, drawShadow, MAT, toolColor } from './scene.js';
+import { proj, drawBlock, drawBall, drawPaddle, drawShadow, MAT } from './scene.js';
 import { WW, WH, TOOL_TIME, START_LIVES, comboMult } from './game.js';
 
 export function drawGame(g, time) {
@@ -61,14 +61,10 @@ export function drawGame(g, time) {
       const g0 = proj(d.x, d.y);
       const p = proj(d.x, d.y, 7 + Math.sin(d.t * 6) * 2);
       drawShadow(g0.x, g0.y, 6, 2, 0.3);
-      const tc = toolColor(d.type);
       disc(p.x, p.y - 7, 8, PAL.ink);
       disc(p.x, p.y - 7, 7, PAL.panel);
-      ctx.globalAlpha = 0.28;
-      disc(p.x, p.y - 7, 6, tc); // tinted face
-      ctx.globalAlpha = 1;
-      ring(p.x, p.y - 7, 7, tc);
-      icon(d.type, p.x - 5, p.y - 12, tc);
+      ring(p.x, p.y - 7, 7, PAL.yellow);
+      icon(d.type, p.x - 5, p.y - 12, PAL.yellow);
     } else if (it.ball) {
       const ball = it.ball;
       const n = ball.trail.length;
@@ -101,7 +97,7 @@ export function drawGame(g, time) {
   for (const f of g.floaters) {
     const p = proj(f.x, f.y, f.z);
     ctx.globalAlpha = Math.min(1, f.life / 0.3);
-    text(f.text, p.x, p.y - 7, f.tool ? toolColor(f.tool) : PAL.yellowHi, { align: 'center', shadow: PAL.ink });
+    text(f.text, p.x, p.y - 7, PAL.yellowHi, { align: 'center', shadow: PAL.ink });
     ctx.globalAlpha = 1;
   }
 }
@@ -147,14 +143,12 @@ export function drawHUD(g, levelLabel) {
   // Active tools with their remaining time.
   let ty = 27;
   const badge = (id, frac) => {
-    const tc = toolColor(id);
     disc(13, ty + 7, 8, PAL.ink);
     disc(13, ty + 7, 7, PAL.panel);
-    ring(13, ty + 7, 7, tc);
-    icon(id, 8, ty + 2, tc);
+    icon(id, 8, ty + 2, PAL.yellow);
     if (frac != null) {
       rect(5, ty + 17, 17, 3, PAL.ink);
-      rect(6, ty + 18, Math.ceil(15 * frac), 1, tc);
+      rect(6, ty + 18, Math.ceil(15 * frac), 1, PAL.yellow);
     }
     ty += 23;
   };

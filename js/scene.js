@@ -977,18 +977,6 @@ const LAMP_STYLES = {
 
 // ---------------------------------------------------------------- sprites
 
-// One colour per power-up, used wherever it shows: the falling token, the
-// timer badge, its name as it is caught, the tools and How to Play screens.
-export const TOOL_COLOR = {
-  smash: '#ff5a3c', // flame red
-  freeze: '#8cc8ff', // ice blue
-  shield: '#3fe0c8', // teal
-  multiball: '#d8f04a', // lime, like the ball
-  expand: '#ff7ac8', // pink
-  lowgrav: '#b98cff', // violet
-};
-export const toolColor = (id) => TOOL_COLOR[id] || PAL.yellow;
-
 const NIGHT_SLATE = { top: '#7a828f', hi: '#a3abb7', front: '#505764', lo: '#2c3038' };
 
 export const MAT = {

@@ -1,7 +1,7 @@
 // Boot, screen flow, input and the frame loop.
 
 import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, ellipse, line, text, textW, wrap, blockTitle, sparkle, racket, cup, trophy, laurel, rays, globe, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
-import { P, setCam, buildLayers, drawScene, setTheme, currentTheme, drawThemePreview, proj, unprojX, drawBlock, drawBall, drawShadow, toolColor } from './scene.js';
+import { P, setCam, buildLayers, drawScene, setTheme, currentTheme, drawThemePreview, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
 import { COUNTRIES, getCourtTheme } from './themes.js';
 import { Game, TOOLS, START_LIVES } from './game.js';
 import { sections } from './rules.js';
@@ -917,7 +917,7 @@ const SCREENS = {
         disc(cx, cy, 17, sel || ui.hover === id ? PAL.yellow : PAL.cream);
         disc(cx, cy, 16, PAL.panel);
         if (sel) disc(cx, cy, 14, PAL.panelHi);
-        icon(t.id, cx - 11, cy - 11, toolColor(t.id), 2);
+        icon(t.id, cx - 11, cy - 11, PAL.yellow, 2);
         text(t.name, cx, cy + 22, sel ? PAL.yellow : PAL.cream, { align: 'center', sp: t.name.length > 9 ? 0 : 1 });
         region(id, cx - 24, cy - 20, 48, 50, () => (S.tool = i));
       });
@@ -1386,7 +1386,7 @@ function drawRulesOverlay(k) {
           const ry = ty + i * 19;
           disc(cx + 13, ry + 8, 8, '#2f6b47');
           disc(cx + 13, ry + 8, 7, PAL.panel);
-          icon(r.id, cx + 8, ry + 3, toolColor(r.id));
+          icon(r.id, cx + 8, ry + 3, PAL.yellow);
           text(r.name, cx + 26, ry + 1, PAL.cream, { sp: 1 });
           text(r.left, cx + 26, ry + 10, '#9fb7a2', { sp: 0 });
           const pw = textW(r.right, 1, 0) + 6;

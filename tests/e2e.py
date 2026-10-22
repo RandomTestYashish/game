@@ -1513,18 +1513,17 @@ def polish(browser, url):
       return {min: Math.min(...room), ROOM, hits}})()""")
     check("every court leaves room in front of the racket (at least ROOM units, even at full drift)", r["min"] >= r["ROOM"], r)
     check("court 120 needs fewer hits (tough blocks grow more slowly)", r["hits"] < 1700, r["hits"])
-    # Power-up colours: one each, all different, used on the falling token.
-    cols = d.ev("(async()=>{const m=await import('/js/scene.js'); return m.TOOL_COLOR})()")
-    check("six power-ups, six different colours", len(cols) == 6 and len(set(cols.values())) == 6, cols)
+    # Power-ups are all drawn in the game's yellow.
     d.ev("__court.S.introSeen=true; __court.beginRun(0)")
     d.wait("__court.S.screen==='play' && __court.S.game.ready", 20000)
+    yellow = d.ev("(async()=>{const m=await import('/js/gfx.js'); return m.PAL.yellow})()")
     seen = {}
-    for tool, col in cols.items():
+    for tool in ["smash", "freeze", "shield", "multiball", "expand", "lowgrav"]:
         d.ev(f"const g=__court.S.game; g.drops=[{{type:'{tool}', x:100, y:150, t:0}}]; __court.S.timeScale=0.00001")
         time.sleep(0.12)
-        seen[tool] = d.ev(f"(()=>{{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; for(let i=0;i<d.length;i+=4) if('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')==='{col}') return true; return false}})()")
+        seen[tool] = d.ev(f"(()=>{{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; for(let i=0;i<d.length;i+=4) if('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')==='{yellow}') return true; return false}})()")
         d.ev("__court.S.game.drops=[]; __court.S.timeScale=1")
-    check("each falling power-up shows in its own colour", all(seen.values()), seen)
+    check("every power-up token is drawn in yellow", all(seen.values()), seen)
     # Small phone (canvas 240 wide): the top row and the place tag do not collide.
     lay = d.ev("""(async()=>{const {textW}=await import('/js/gfx.js'); const {hudRows}=await import('/js/render.js'); const [W]=__court.size();
       const label='COURT 120', lw=textW(label,1,2)+12, x=Math.round(Math.max(W/2-54, 5+lw+6)); return {W, gapLeft: x-(5+lw), gapRight: (W-23)-(x+108), tag: hudRows().tag}})()""")

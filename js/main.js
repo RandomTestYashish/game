@@ -118,6 +118,7 @@ function enter(name) {
     S.boardTab = onlineEnabled() ? 'online' : 'local';
     if (S.boardTab === 'online') loadOnline(S.board.fromRun);
     S.share = { seen: false, busy: false, note: '', noteT: 0 };
+    S.list = { cur: null, to: null, max: 0, rowH: 16, scrolled: false, min: 0 }; // the table's scroll, in rows
     track('leaderboard_viewed', { source: S.board.fromRun ? 'run' : 'menu' });
   }
 }
@@ -331,6 +332,22 @@ async function postScore() {
   } else {
     Object.assign(p, { state: 'error', error: res.error });
   }
+}
+
+// Scroll the leaderboard table by some rows (wheel, keys). Dragging sets the
+// position directly; see the 'boardlist' region in SCREENS.scores.
+let dragFresh = false;
+function scrollBoard(rows) {
+  const L = S.list;
+  if (!L || S.screen !== 'scores' || S.leaving || L.max <= 0) return;
+  if (L.to === null) L.to = L.cur;
+  L.to = clamp(L.to + rows, 0, L.max);
+  markScrolled();
+}
+function markScrolled() {
+  if (S.list.scrolled) return;
+  S.list.scrolled = true;
+  track('leaderboard_scrolled', { rows: S.list.max });
 }
 
 // Share the run just played: a score card, through the share sheet where
@@ -667,54 +684,49 @@ function drawIntroBall(t) {
 // the left), each under a cup on a plaque with the name and score. The
 // winner's block is the tallest, its gold cup lit by rays and laurels.
 function podium(x, y, w, board, mineAt, loading, compact) {
-  const colW = Math.floor((w - 20) / 3);
+  const colW = Math.floor((w - 16) / 3);
   const metals = [METAL.gold, METAL.silver, METAL.bronze];
   const tw = Math.floor(S.time * 2) % 2;
-  const base = y + (compact ? 40 : 98); // the floor all three blocks stand on
+  const base = y + (compact ? 42 : 106); // the floor all three blocks stand on
   [1, 0, 2].forEach((rank, col) => {
     const e = board[rank];
     if (!e && !loading) return;
     const m = metals[rank];
-    const cx = Math.round(x + 10 + colW * col + colW / 2);
-    const bw = colW - 6;
-    const bh = compact ? (rank === 0 ? 12 : 8) : rank === 0 ? 22 : 15;
+    const cx = Math.round(x + 8 + colW * col + colW / 2);
+    const bw = colW - 4;
+    const bh = compact ? (rank === 0 ? 12 : 8) : rank === 0 ? 28 : 21;
     const by = base - bh;
-    const py = by - 21;
+    const ph = compact ? 19 : 22;
+    const py = by - ph - 1;
     if (!compact) {
-      // The cup, the winner's twice the size, lit by rays and laurels.
-      const cs = rank === 0 ? 2 : 1;
-      const cupY = py - 17 * cs - 2;
-      if (rank === 0) {
-        rays(cx, cupY + 6 * cs, 9 * cs, 17 * cs, S.time);
-        laurel(cx - 1, cupY + 9 * cs, 14 * cs, -1, 5);
-        laurel(cx, cupY + 9 * cs, 14 * cs, 1, 5);
-        sparkle(cx - 27, cupY + 2, 1 + tw);
-        sparkle(cx + 26, cupY + 6, 2 - tw);
-        sparkle(cx + 2, cupY - 6, 2 - tw, '#fff3c4');
-      } else {
-        laurel(cx - 1, cupY + 9, 13, -1, 3, rank === 1 ? '#5c7d9c' : '#9c5a2e', rank === 1 ? '#a8c4dc' : '#d08a4e');
-        laurel(cx, cupY + 9, 13, 1, 3, rank === 1 ? '#5c7d9c' : '#9c5a2e', rank === 1 ? '#a8c4dc' : '#d08a4e');
-        sparkle(cx + (rank === 1 ? -14 : 14), cupY, 1 + tw, '#f4f8fa');
-      }
-      cup(cx, cupY, cs, m);
+      // Cups for all three, lit from behind for the winner, laurels around.
+      const cupY = py - 36;
+      const leaf = rank === 0 ? ['#c98a1c', '#f2b632'] : rank === 1 ? ['#5c7d9c', '#a8c4dc'] : ['#9c5a2e', '#d08a4e'];
+      if (rank === 0) rays(cx, cupY + 12, 18, 28, S.time);
+      laurel(cx - 1, cupY + 18, rank === 0 ? 27 : 23, -1, 5, leaf[0], leaf[1]);
+      laurel(cx, cupY + 18, rank === 0 ? 27 : 23, 1, 5, leaf[0], leaf[1]);
+      cup(cx, cupY, 2, m);
+      sparkle(cx + (col === 0 ? -22 : 22), cupY - 2, 1 + tw, rank === 0 ? PAL.yellowHi : '#f4f8fa');
+      if (rank === 0) sparkle(cx + 1, cupY - 9, 2 - tw, '#fff3c4');
     }
     // Plaque: name and score, outlined in gold if it is the player's.
     const mine = rank === mineAt;
-    rrect(cx - bw / 2 - 1, py - 1, bw + 2, 21, 3, mine ? PAL.yellow : m.o);
-    rrect(cx - bw / 2, py, bw, 19, 2, m.l);
-    text(e ? e.name : '...', cx, py + 2, PAL.ink, { align: 'center', sp: 0 });
-    text(e ? String(e.score) : '', cx, py + 11, PAL.ink, { align: 'center', sp: 0 });
-    // Block with its number.
+    rrect(cx - bw / 2 - 1, py - 1, bw + 2, ph + 2, 3, mine ? PAL.yellow : m.o);
+    rrect(cx - bw / 2, py, bw, ph, 2, m.l);
+    text(e ? e.name : '...', cx, py + (compact ? 2 : 3), PAL.ink, { align: 'center', sp: e && e.name.length > 6 ? 0 : 1 });
+    text(e ? String(e.score) : '', cx, py + (compact ? 11 : 13), PAL.ink, { align: 'center', sp: 1 });
+    // Block with its number on a raised plate.
     rrect(cx - bw / 2 - 2, by - 1, bw + 4, bh + 2, 3, m.o);
     rrect(cx - bw / 2 - 1, by, bw + 2, bh, 2, m.d);
     rect(cx - bw / 2 + 1, by, bw - 2, 1, m.l);
-    const sc = rank === 0 && !compact ? 2 : 1;
-    const plate = !compact; // a raised number plate on the full-size blocks
+    rect(cx - bw / 2 + 1, by + bh - 2, bw - 2, 1, m.o);
+    const plate = !compact;
+    const sc = plate ? 2 : 1;
     if (plate) {
-      rrect(cx - 7, by + 3, 14, bh - 5, 3, m.o);
-      rrect(cx - 6, by + 4, 12, bh - 7, 2, m.g);
+      rrect(cx - 9, by + 3, 18, bh - 6, 4, m.o);
+      rrect(cx - 8, by + 4, 16, bh - 8, 3, m.g);
     }
-    text(String(rank + 1), cx + 1, by + (plate ? 2 : 0) + Math.round((bh - (plate ? 2 : 0) - 7 * sc) / 2), PAL.ink, { align: 'center', scale: sc });
+    text(String(rank + 1), cx + 1, by + Math.round((bh - 7 * sc) / 2), PAL.ink, { align: 'center', scale: sc });
   });
 }
 
@@ -764,24 +776,35 @@ function emptyBoard(mid, online, sc) {
 }
 
 // The purple strip above the buttons: what this board is, or how sending went.
-function infoBox(x, y, w, online, tabs) {
+function infoBox(x, y, w, online, tabs, min = 0) {
   const post = S.board.fromRun && tabs ? S.post.state : 'idle';
-  const [title, ...lines] = {
+  const [title, line2] = {
     sending: ['SENDING YOUR SCORE', 'TO THE ONLINE BOARD...'],
-    sent: ['SAVED ONLINE TOO', 'YOUR SCORE IS ON THE', 'ONLINE BOARD'],
-    error: ['NOT SENT ONLINE', 'TAP HERE TO RETRY', 'CHECK YOUR CONNECTION'],
-  }[post] || (online ? ['ONLINE LEADERBOARD', 'TOP PLAYERS FROM', 'AROUND THE WORLD'] : ['THIS DEVICE', 'YOUR BEST RUNS, SAVED', 'IN THIS BROWSER']);
+    sent: ['SAVED ONLINE TOO', 'YOUR SCORE IS ON THE BOARD'],
+    error: ['NOT SENT ONLINE', 'TAP HERE TO RETRY'],
+  }[post] || (online ? ['ONLINE LEADERBOARD', 'TOP PLAYERS WORLDWIDE'] : ['THIS DEVICE', 'YOUR BEST RUNS, KEPT HERE']);
   const hot = post === 'error' && (ui.hover === 'retrypost' || ui.pressed === 'retrypost');
-  rrect(x, y, w, 40, 4, hot ? PAL.yellow : '#5b4bb0');
-  rrect(x + 1, y + 1, w - 2, 38, 3, '#1d1838');
-  if (online || post !== 'idle') globe(x + 6, y + 13);
-  else trophy(x + 7, y + 14);
-  text(title, x + 26, y + 6, PAL.yellow, { sp: 1 });
-  lines.forEach((l, i) => text(l, x + 26, y + 18 + i * 10, '#b9a8ff'));
-  const tw = Math.floor(S.time * 2) % 2;
-  sparkle(x + w - 10, y + 9, 1 + tw, '#ff6fa8');
-  sparkle(x + w - 15, y + 27, 2 - tw);
-  if (post === 'error') region('retrypost', x, y, w, 40, postScore);
+  // min 0..1: full (two lines, globe) shrinking to one slim line once the list is scrolled.
+  const h = Math.round(lerp(34, 16, min));
+  rrect(x, y, w, h, 5, hot ? PAL.yellow : '#2f5a40');
+  rrect(x + 1, y + 1, w - 2, h - 2, 4, '#0b1d14');
+  const a0 = ctx.globalAlpha;
+  if (min < 0.5) {
+    ctx.globalAlpha = a0 * (1 - min * 2);
+    if (online || post !== 'idle') globe(x + 8, y + 11);
+    else trophy(x + 9, y + 12);
+    text(title, x + 28, y + 8, PAL.yellow, { sp: 1 });
+    text(line2, x + 28, y + 20, PAL.cream);
+    const tw = Math.floor(S.time * 2) % 2;
+    sparkle(x + w - 10, y + 9, 1 + tw);
+    sparkle(x + w - 14, y + 24, 2 - tw);
+  } else {
+    ctx.globalAlpha = a0 * (min - 0.5) * 2;
+    rect(x + 8, y + h / 2 - 1, 3, 3, online || post !== 'idle' ? '#2f6fd6' : PAL.yellow);
+    text(title, x + 16, y + Math.round(h / 2) - 3, PAL.yellow, { sp: 1 });
+  }
+  ctx.globalAlpha = a0;
+  if (post === 'error') region('retrypost', x, y, w, h, postScore);
 }
 
 // One of these shows under the loading bar, a different one each visit.
@@ -1183,7 +1206,7 @@ const SCREENS = {
   scores(k) {
     const online = onlineEnabled();
     const w = clamp(W - 16, 206, 236);
-    const h = Math.min(H - 12, Math.max(300, Math.min(420, H - 40))); // taller screens get a taller board
+    const h = Math.min(H - 10, Math.max(300, H - 24)); // the board takes the height it can get
     const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
     const board = online ? S.online.rows : save.data.leaderboard;
@@ -1192,6 +1215,7 @@ const SCREENS = {
     const again = () => beginRun(S.level);
     const home = () => go('title');
     const tw = Math.floor(S.time * 2) % 2;
+    const s = S.share;
     panel(k, x, y, w, h, 'dark', () => {
       // Heading: arcade title between two trophies.
       const titleW = blockTitle('LEADERBOARD', W / 2, y + 11, 2);
@@ -1201,21 +1225,39 @@ const SCREENS = {
         sparkle(tx + 5 + d * 10, y + 7, 1 + tw);
         sparkle(tx + 5 - d * 9, y + 23, 2 - tw, '#9fd0a8');
       }
-      const boxY = y + h - 74;
+      // Tabs: GLOBAL is this board; FRIENDS is not built yet, and says so.
+      const tabW = Math.floor((w - 30) / 2);
+      const tabY = y + 33;
+      rrect(W / 2 - 3 - tabW - 1, tabY - 1, tabW + 2, 17, 5, PAL.ink);
+      rrect(W / 2 - 3 - tabW, tabY + 1, tabW, 15, 4, PAL.yellowLo);
+      rrect(W / 2 - 3 - tabW, tabY, tabW, 14, 4, PAL.yellow);
+      globe(W / 2 - 3 - tabW + 8, tabY + 1);
+      text(online ? 'GLOBAL' : 'THIS DEVICE', W / 2 - 3 - tabW / 2 + 7, tabY + 4, PAL.ink, { align: 'center', sp: 1 });
+      ghost('friends', 'FRIENDS', W / 2 + 3 + tabW / 2, tabY, tabW, 14, () => {
+        s.note = 'FRIENDS BOARD COMING SOON';
+        s.noteT = S.time;
+        track('friends_tab_clicked');
+      }, { color: PAL.dim, line: '#4d6b55', sp: 1 });
       const refreshing = online && S.online.state === 'loading' && S.online.rows.length > 0;
       const loading = online && S.online.state === 'loading' && !refreshing;
       const failed = online && S.online.state === 'error';
       const ready = !loading && !failed && board.length > 0;
       const MEDAL = ['#f2b632', '#c9d3d6', '#d08a4e'];
+      // Bottom up: the buttons, the info box, then the table fills the middle.
+      const btnY = y + h - 30;
+      const L = S.list;
+      L.min += ((L.scrolled ? 1 : 0) - L.min) * 0.25; // the info box eases down to one line
+      const infoH = Math.round(lerp(34, 16, L.min));
+      const infoY = btnY - 6 - infoH;
       // The podium: the top three on numbered blocks, the winner in the middle.
-      // Short screens (wide desktops) get a compact podium, keeping room for rows.
-      const compact = H < 360;
-      const podH = ready || loading ? (compact ? 42 : 100) : 0;
-      const podTop = y + 34;
+      // Short screens (wide desktops) get a compact one, keeping room for rows.
+      const compact = H < 400;
+      const podH = ready || loading ? (compact ? 44 : 108) : 0;
+      const podTop = tabY + 18;
       if (podH) podium(x, podTop, w, board, mineAt, loading, compact);
       // The table: a framed box with a header row, ranked rows and a scrollbar.
-      const tTop = podTop + podH + (podH ? 4 : 2);
-      const tBot = boxY - 4;
+      const tTop = podTop + podH + 3;
+      const tBot = infoY - 5;
       rrect(x + 7, tTop - 1, w - 14, tBot - tTop + 2, 4, '#2f5a40');
       rrect(x + 8, tTop, w - 16, tBot - tTop, 3, '#0b1d14');
       // '#' drawn in pixels (the font has none).
@@ -1223,7 +1265,7 @@ const SCREENS = {
       text('PLAYER', x + 34, tTop + 4, PAL.dim);
       text('COURT', x + w - 92, tTop + 4, PAL.dim);
       text('SCORE', x + w - 18, tTop + 4, PAL.dim, { align: 'right' });
-      const rowsTop = tTop + 14;
+      const rowsTop = tTop + 15;
       const rowH = clamp(Math.floor((tBot - 3 - rowsTop) / 10), 15, 22);
       const n = Math.max(1, Math.min(10, Math.floor((tBot - 3 - rowsTop) / rowH)));
       const mid = Math.round((rowsTop + tBot) / 2);
@@ -1246,27 +1288,49 @@ const SCREENS = {
       } else if (!board.length) {
         emptyBoard(Math.round((tTop + tBot) / 2), online, tBot - tTop > 200 ? 3 : 2);
       }
-      // The rows; if the new score ranks lower, slide the window down to it.
-      const first = clamp(mineAt - (n - 1), 0, Math.max(0, board.length - n));
-      const shown = ready ? board.slice(first, first + n) : [];
+      // The rows scroll: by drag, wheel or keys, all of the top 20. Until the
+      // player scrolls, the window sits on their new score.
+      L.max = ready ? Math.max(0, board.length - n) : 0;
+      L.rowH = rowH;
+      if (L.cur === null || L.to === null) L.cur = clamp(mineAt - (n - 1), 0, L.max);
+      if (L.to !== null) L.cur += (clamp(L.to, 0, L.max) - L.cur) * 0.35;
+      L.cur = clamp(L.cur, 0, L.max);
+      const first = Math.floor(L.cur);
+      const off = Math.round((L.cur - first) * rowH);
+      const shown = ready ? board.slice(first, first + n + 1) : [];
+      if (ready && L.max > 0) {
+        region('boardlist', x + 8, rowsTop, w - 16, n * rowH, null, (px, py) => {
+          if (dragFresh) {
+            dragFresh = false;
+            L.dragY = py;
+            L.dragFrom = L.cur;
+            return;
+          }
+          L.to = L.cur = clamp(L.dragFrom - (py - L.dragY) / rowH, 0, L.max);
+          if (Math.abs(py - L.dragY) > 3) markScrolled();
+        });
+      }
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x + 8, rowsTop - 1, w - 16, n * rowH + 1);
+      ctx.clip();
       shown.forEach((e, i) => {
-        const r0 = rowsTop + i * rowH;
-        const ry = r0 + Math.floor((rowH - 9) / 2);
+        const r0 = rowsTop + i * rowH - off;
+        const ry = r0 + Math.floor((rowH - 8) / 2);
         const rank = first + i;
         const mine = rank === mineAt;
-        rect(x + 11, r0, w - 26, rowH - 1, mine ? '#24402c' : i % 2 ? '#0d2117' : '#132d20');
         if (mine) {
-          // The player's own row: a full gold outline.
-          rect(x + 10, r0 - 1, w - 24, 1, PAL.yellow);
-          rect(x + 10, r0 + rowH - 1, w - 24, 1, PAL.yellow);
-          rect(x + 10, r0 - 1, 1, rowH + 1, PAL.yellow);
-          rect(x + w - 15, r0 - 1, 1, rowH + 1, PAL.yellow);
+          // The player's own row: a rounded gold frame.
+          rrect(x + 10, r0 - 1, w - 24, rowH + 1, 4, PAL.yellow);
+          rrect(x + 11, r0, w - 26, rowH - 1, 3, '#24402c');
+        } else {
+          rect(x + 11, r0, w - 26, rowH - 1, i % 2 ? '#0d2117' : '#132d20');
         }
         const c = mine ? PAL.yellow : PAL.cream;
         if (rank < 3) {
-          disc(x + 18, ry + 3, 5, '#06120c');
-          disc(x + 18, ry + 3, 4, MEDAL[rank]);
-          text(String(rank + 1), x + 19, ry, PAL.ink, { align: 'center' });
+          disc(x + 19, ry + 3, 5, '#06120c');
+          disc(x + 19, ry + 3, 4, MEDAL[rank]);
+          text(String(rank + 1), x + 20, ry, PAL.ink, { align: 'center' });
         } else {
           text(String(rank + 1), x + 15, ry, mine ? PAL.yellow : PAL.dim);
         }
@@ -1274,44 +1338,44 @@ const SCREENS = {
         text('C' + e.court, x + w - 92, ry, mine ? PAL.yellow : PAL.dim);
         text(String(e.score), x + w - 18, ry, c, { align: 'right' });
       });
+      ctx.restore();
       // Scrollbar: where this window sits in the whole board.
-      if (ready && board.length > n) {
+      if (ready && L.max > 0) {
         const tH = n * rowH - 2;
         const th = Math.max(8, Math.round((tH * n) / board.length));
-        const ty = rowsTop + Math.round(((tH - th) * first) / (board.length - n));
+        const ty = rowsTop + Math.round(((tH - th) * L.cur) / L.max);
         rect(x + w - 12, rowsTop, 2, tH, '#1d3a2a');
         rect(x + w - 12, ty, 2, th, PAL.yellow);
       }
-      infoBox(x + 10, boxY, w - 20, online, online);
+      infoBox(x + 8, infoY, w - 16, online, online, L.min);
+      // The buttons: HOME, SHARE (outlined in gold, a call to action), PLAY AGAIN.
       const canShare = S.board.fromRun && S.run && S.run.score > 0;
-      if (canShare) {
-        // HOME, SHARE (outlined in gold so it reads as a call to action), PLAY AGAIN.
-        const by = y + h - 32;
-        const hw = 40;
-        const sw = 58;
-        const aw = w - 20 - hw - sw - 8;
-        const sx = x + 10 + hw + 4;
-        ghost('home', 'HOME', x + 10 + hw / 2, by + 1, hw, 17, home, { sp: 0 });
-        const s = S.share;
-        if (!s.seen) {
-          s.seen = true;
-          track('share_cta_viewed', { court: S.level + 1 });
+      if (S.board.fromRun) {
+        const hw = 48;
+        const sw = canShare ? 60 : 0;
+        const gap = 5;
+        const aw = w - 16 - hw - sw - gap * (canShare ? 2 : 1);
+        const bx = x + 8;
+        ghost('home', 'HOME', bx + hw / 2, btnY + 1, hw, 19, home, { sp: 1 });
+        if (canShare) {
+          if (!s.seen) {
+            s.seen = true;
+            track('share_cta_viewed', { court: S.level + 1 });
+          }
+          ghost('share', s.busy ? '...' : 'SHARE', bx + hw + gap + sw / 2, btnY + 1, sw, 19, shareRun, { line: PAL.yellow, color: PAL.yellow, icon: s.busy ? null : 'fwd', sp: 1 });
         }
-        ghost('share', s.busy ? '...' : 'SHARE', sx + sw / 2, by + 1, sw, 17, shareRun, { line: PAL.yellow, color: PAL.yellow, icon: s.busy ? null : 'fwd', sp: 1 });
-        pill('again', 'PLAY AGAIN', sx + sw + 4 + aw / 2, by, aw, 18, again, { sp: aw < 90 ? 1 : 2 });
-        if (s.note && S.time - s.noteT < 3) {
-          const nw = textW(s.note) + 14;
-          ctx.globalAlpha = Math.min(1, (3 - (S.time - s.noteT)) * 2);
-          rrect(W / 2 - nw / 2 - 1, by - 21, nw + 2, 15, 5, PAL.ink);
-          rrect(W / 2 - nw / 2, by - 20, nw, 13, 4, PAL.yellow);
-          text(s.note, W / 2, by - 17, PAL.ink, { align: 'center' });
-          ctx.globalAlpha = 1;
-        }
-      } else if (S.board.fromRun) {
-        ghost('home', 'HOME', x + 38, y + h - 31, 50, 17, home);
-        pill('again', 'PLAY AGAIN', W / 2 + 28, y + h - 32, Math.min(118, w - 88), 18, again);
+        pill('again', 'PLAY AGAIN', x + w - 8 - aw / 2, btnY, aw, 20, again, { sp: aw < 90 ? 1 : 2 });
       } else {
-        pill('back', 'BACK', W / 2, y + h - 32, 120, 18, home);
+        pill('back', 'BACK', W / 2, btnY, 120, 20, home);
+      }
+      // A short note (shared, saved, coming soon) over the buttons.
+      if (s.note && S.time - s.noteT < 3) {
+        const nw = textW(s.note) + 14;
+        ctx.globalAlpha = Math.min(1, (3 - (S.time - s.noteT)) * 2);
+        rrect(W / 2 - nw / 2 - 1, btnY - 21, nw + 2, 15, 5, PAL.ink);
+        rrect(W / 2 - nw / 2, btnY - 20, nw, 13, 4, PAL.yellow);
+        text(s.note, W / 2, btnY - 17, PAL.ink, { align: 'center' });
+        ctx.globalAlpha = 1;
       }
     });
     S.primary = S.board.fromRun ? again : home;
@@ -1756,6 +1820,7 @@ canvas.addEventListener('pointerdown', (e) => {
   ptr = { id: e.pointerId, x: p.x, moved: 0, t: S.time, region: r ? r.id : null };
   if (r) {
     ui.pressed = r.id;
+    dragFresh = true;
     if (r.drag) r.drag(p.x, p.y);
   } else if (steering() && !S.touch) {
     S.game.movePaddleTo(unprojX(p.x, S.game.paddle.y));
@@ -1766,6 +1831,16 @@ canvas.addEventListener('pointerdown', (e) => {
     /* synthetic events have no active pointer to capture */
   }
 });
+
+canvas.addEventListener(
+  'wheel',
+  (e) => {
+    if (S.screen !== 'scores') return;
+    e.preventDefault();
+    scrollBoard(Math.sign(e.deltaY) * Math.max(1, Math.round(Math.abs(e.deltaY) / 60)));
+  },
+  { passive: false },
+);
 
 canvas.addEventListener('pointermove', (e) => {
   const p = toLogical(e);
@@ -1833,6 +1908,11 @@ window.addEventListener('keydown', (e) => {
     else if (k === 'escape') S.back && S.back();
     else if (k.length === 1 && KEYS.includes(k.toUpperCase())) typeKey(k.toUpperCase());
     else return;
+    e.preventDefault();
+    return;
+  }
+  if (S.screen === 'scores' && !S.overlay && ['arrowup', 'arrowdown', 'pageup', 'pagedown'].includes(k)) {
+    scrollBoard({ arrowup: -1, arrowdown: 1, pageup: -5, pagedown: 5 }[k]);
     e.preventDefault();
     return;
   }

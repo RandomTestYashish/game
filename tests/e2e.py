@@ -824,7 +824,8 @@ def online_board(browser, url):
     d.click("scores")
     d.screen("scores", 0.8)
     ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
-    check("online off (empty config): leaderboard is the device board, no tabs, no network calls", ids == "back" and d.ev("__court.onlineEnabled()") is False and not MOCK["requests"], ids)
+    check("online off (empty config): leaderboard is the device board, no device/online switch, no network calls",
+          "back" in ids and "tablocal" not in ids and "tabonline" not in ids and d.ev("__court.onlineEnabled()") is False and not MOCK["requests"], ids)
     ctx.close()
 
     def open_board(vp, touch=False, mode="ok", key=None):
@@ -848,7 +849,7 @@ def online_board(browser, url):
     req = MOCK["requests"][0]
     check("online on: the board is the online one and sends the anon key", d.ev("__court.S.boardTab") == "online" and req["apikey"] == MOCK["key"] and req["auth"] == "Bearer " + MOCK["key"], req)
     ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
-    check("online only: no This Device / Online switch on the board", "tablocal" not in ids and "tabonline" not in ids and ids == "back", ids)
+    check("online only: no This Device / Online switch on the board", "tablocal" not in ids and "tabonline" not in ids and "back" in ids, ids)
     check("request asks for the top 20, best first", "order=score.desc" in req["path"] and "limit=20" in req["path"] and "select=name,score,court" in req["path"], req["path"])
     names = [r["name"] for r in rows[:4]]
     check("rows shown in score order with unsafe names cleaned", names == ["AANYA", "SCRIPTX", "PLAYER", "AVERYVER"] and rows[3]["court"] == 5 and [r["score"] for r in rows] == sorted([r["score"] for r in rows], reverse=True), names)
@@ -1638,6 +1639,29 @@ def board_and_share(browser, url):
     pix = d.ev("""(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data, s=new Set();
       for(let i=0;i<d.length;i+=4) s.add('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')); return s.has('#f2b632')+','+s.has('#c9d3d6')+','+s.has('#d08a4e')})()""")
     check("the podium shows gold, silver and bronze for the top three", pix == "true,true,true", pix)
+    d.ev("__court.S.timeScale=1")
+    d.click("friends")
+    time.sleep(0.2)
+    check("FRIENDS says it is coming soon and stays on the global board", d.ev("__court.S.share.note") == "FRIENDS BOARD COMING SOON" and d.ev("__court.S.screen") == "scores" and "friends_tab_clicked" in names(d))
+    # Scrolling: all of the top 20 can be reached; the info box shrinks once scrolled.
+    rows = d.ev("__court.S.online.rows.length")
+    check("before scrolling the info box is full size", d.ev("__court.S.list.min") < 0.05 and not d.ev("__court.S.list.scrolled"))
+    bx, by = d.point("boardlist")
+    d.pg.mouse.move(bx, by)
+    d.pg.mouse.wheel(0, 120)
+    time.sleep(0.4)
+    after_wheel = d.ev("__court.S.list.cur")
+    for _ in range(6):
+        d.pg.keyboard.press("PageDown")
+    time.sleep(0.8)
+    L = d.ev("(()=>{const L=__court.S.list; return {cur:L.cur, max:L.max, min:L.min, rowH:L.rowH}})()")
+    check("the wheel scrolls the list", after_wheel > 0.5, after_wheel)
+    check("Page Down reaches the bottom: the 20th score is in view", rows == 20 and abs(L["cur"] - L["max"]) < 0.05 and L["max"] > 0, L)
+    check("once scrolled, the info box shrinks to one line", L["min"] > 0.95 and names(d).count("leaderboard_scrolled") == 1, L)
+    for _ in range(6):
+        d.pg.keyboard.press("PageUp")
+    time.sleep(0.8)
+    check("Page Up returns to the top", d.ev("__court.S.list.cur") < 0.05)
     d.ev("__court.S.timeScale=1")
     check("leaderboard_viewed and share_cta_viewed fire once each, however many frames are drawn",
           names(d).count("leaderboard_viewed") == 1 and names(d).count("share_cta_viewed") == 1 and d.ev("__ph.find(e=>e[0]==='leaderboard_viewed')[1].source") == "run", names(d))

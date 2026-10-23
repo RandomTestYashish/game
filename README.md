@@ -189,6 +189,8 @@ Leaderboard and sharing events:
 | Event | When | Properties |
 |---|---|---|
 | `leaderboard_viewed` | the leaderboard opens (once per visit) | `source` (`run` or `menu`) |
+| `leaderboard_scrolled` | the player first scrolls the table on a visit | `rows` (how far it can scroll) |
+| `friends_tab_clicked` | FRIENDS pressed (it says the friends board is coming soon) | |
 | `share_cta_viewed` | the SHARE button is first shown on a visit | `court` |
 | `share_cta_clicked` | SHARE is pressed | `court`, `ranked` |
 | `share_sheet_opened` | the device share sheet is opened | `kind` (`image` or `link`), `court`, `ranked` |

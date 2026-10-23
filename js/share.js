@@ -55,16 +55,16 @@ export function drawCard({ name, score, court, rank, theme }) {
   if (rank >= 0) text(ordinal(rank + 1) + ' ON THE LEADERBOARD', CW / 2, by + bh - 20, PAL.yellow, { align: 'center', sp: 1 });
   sparkle(bx + 10, by + 30, 2);
   sparkle(bx + bw - 12, by + 40, 1, '#ff6fa8');
-  // The call to play, then where.
-  const py = CH - 66;
+  // Where to play: the address, on two lines if it is too long for one.
+  const full = (location.host + location.pathname).replace(/\/$/, '').toUpperCase();
+  const lines = textW(full, 1, 1) <= CW - 24 ? [full] : [location.host.toUpperCase(), location.pathname.replace(/\/$/, '').toUpperCase()];
+  // The call to play sits above the address.
+  const py = CH - 66 - (lines.length - 1) * 10;
   rrect(CW / 2 - 71, py - 1, 142, 24, 7, PAL.ink);
   rrect(CW / 2 - 70, py + 2, 140, 20, 6, PAL.yellowLo);
   rrect(CW / 2 - 70, py, 140, 20, 6, PAL.yellow);
   rect(CW / 2 - 65, py + 1, 130, 1, PAL.yellowHi);
   text('CAN YOU BEAT ME?', CW / 2, py + 7, PAL.ink, { align: 'center', sp: 2 });
-  // Where to play: the address, on two lines if it is too long for one.
-  const full = (location.host + location.pathname).replace(/\/$/, '').toUpperCase();
-  const lines = textW(full, 1, 1) <= CW - 24 ? [full] : [location.host.toUpperCase(), location.pathname.replace(/\/$/, '').toUpperCase()];
   const lw = Math.max(...lines.map((l) => textW(l, 1, 1)));
   const ly = CH - 26 - lines.length * 10;
   rrect(CW / 2 - lw / 2 - 6, ly - 3, lw + 12, lines.length * 10 + 3, 4, 'rgba(6,18,12,0.75)');

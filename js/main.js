@@ -1267,7 +1267,7 @@ const SCREENS = {
       text('SCORE', x + w - 18, tTop + 4, PAL.dim, { align: 'right' });
       const rowsTop = tTop + 15;
       const rowH = clamp(Math.floor((tBot - 3 - rowsTop) / 10), 15, 22);
-      const n = Math.max(1, Math.min(10, Math.floor((tBot - 3 - rowsTop) / rowH)));
+      const n = Math.max(1, Math.floor((tBot - 3 - rowsTop) / rowH)); // as many rows as fit
       const mid = Math.round((rowsTop + tBot) / 2);
       if (loading) {
         // Placeholder rows with a light sweeping down them while the board loads.
@@ -1293,7 +1293,10 @@ const SCREENS = {
       L.max = ready ? Math.max(0, board.length - n) : 0;
       L.rowH = rowH;
       if (L.cur === null || L.to === null) L.cur = clamp(mineAt - (n - 1), 0, L.max);
+      // Let go of a drag and the list settles on a whole row.
+      if (L.to !== null && ui.pressed !== 'boardlist') L.to = Math.round(clamp(L.to, 0, L.max));
       if (L.to !== null) L.cur += (clamp(L.to, 0, L.max) - L.cur) * 0.35;
+      if (L.to !== null && Math.abs(L.to - L.cur) < 0.01) L.cur = L.to;
       L.cur = clamp(L.cur, 0, L.max);
       const first = Math.floor(L.cur);
       const off = Math.round((L.cur - first) * rowH);

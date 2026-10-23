@@ -55,6 +55,9 @@ export function pill(id, label, cx, y, w, h, fn, o = {}) {
 export function ghost(id, label, cx, y, w, h, fn, o = {}) {
   const x = Math.round(cx - w / 2);
   const on = hot(id) || down(id);
+  // A one-pixel shadow under it; pressed, the button sinks onto it.
+  rrect(x - 1, y + 1, w + 2, h + 2, 5, '#06120c');
+  y += down(id) ? 1 : 0;
   rrect(x - 1, y - 1, w + 2, h + 2, 5, on ? PAL.yellow : o.line || PAL.cream);
   rrect(x, y, w, h, 4, down(id) ? PAL.panelHi : o.fill || PAL.panel);
   const ink = on && !o.fill ? PAL.yellow : o.color || PAL.cream;

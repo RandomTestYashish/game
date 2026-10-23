@@ -39,6 +39,22 @@ function start() {
     disable_session_recording: true,
     disable_surveys: true,
   });
+  // Every event says which site sent it, so test and preview activity can be
+  // filtered out of production numbers in PostHog (property "deployment").
+  if (window.posthog.register) window.posthog.register({ deployment: deployment() });
+}
+
+// production = the main GitHub Pages game; preview / test = the branch
+// previews; vercel = the Vercel project; local = this computer.
+export function deployment() {
+  const h = location.hostname;
+  const p = location.pathname;
+  if (local) return 'local';
+  if (h.endsWith('.vercel.app')) return 'vercel';
+  if (p.startsWith('/game-code-2/')) return 'test';
+  if (p.startsWith('/game-preview/')) return 'preview';
+  if (p.startsWith('/game/')) return 'production';
+  return 'other';
 }
 
 // Load PostHog (and send the page view) once, at boot.

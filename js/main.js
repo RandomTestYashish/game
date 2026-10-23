@@ -13,6 +13,7 @@ import { Save, BOARD_SIZE, cleanName } from './save.js';
 import { onlineEnabled } from './config.js';
 import { fetchTopScores, submitScore, nameTaken } from './remote.js';
 import { initAnalytics, track } from './analytics.js';
+import { shareScore, ordinal } from './share.js';
 
 const canvas = document.getElementById('court');
 // Screen readers get the canvas label; the theme screen describes its choice there.
@@ -74,6 +75,7 @@ const S = {
   boardTab: 'local', // 'local' | 'online' (online only when js/config.js is filled in)
   online: { state: 'idle', rows: [], error: '', at: -99 },
   look: 0, // this visit's turn of the automatic theme rotation (set at boot)
+  tip: Math.floor(Math.random() * 5), // which loading tip to show
   nameCheck: { name: '', state: 'idle', at: 0 }, // is the typed name free on the online board?
   post: { state: 'idle', error: '', entry: null }, // sending the last saved run to the online board
   coach: null, // first-time guided rally: { step, t, moved, lastX, toolSeen }
@@ -115,6 +117,8 @@ function enter(name) {
     // configured project (a local copy of the game) the device board stands in.
     S.boardTab = onlineEnabled() ? 'online' : 'local';
     if (S.boardTab === 'online') loadOnline(S.board.fromRun);
+    S.share = { seen: false, busy: false, note: '', noteT: 0 };
+    track('leaderboard_viewed', { source: S.board.fromRun ? 'run' : 'menu' });
   }
 }
 
@@ -327,6 +331,24 @@ async function postScore() {
   } else {
     Object.assign(p, { state: 'error', error: res.error });
   }
+}
+
+// Share the run just played: a score card, through the share sheet where
+// there is one, else downloaded with the link copied. One at a time.
+async function shareRun() {
+  const s = S.share;
+  if (!s || s.busy || !S.run) return;
+  s.busy = true;
+  const board = onlineEnabled() ? S.online.rows : save.data.leaderboard;
+  const sent = S.post && S.post.state === 'sent' && S.post.entry;
+  const rank = onlineEnabled() ? (sent ? board.findIndex((e) => e.name === sent.name && e.score === sent.score) : -1) : S.board.rank;
+  const run = { name: save.data.lastName, score: S.run.score, court: S.level + 1, rank, theme: courtTheme() };
+  const base = { court: run.court, ranked: rank >= 0 };
+  track('share_cta_clicked', base);
+  const outcome = await shareScore(run, (event, props) => track(event, { ...base, ...props }));
+  s.busy = false;
+  s.note = { shared: 'SHARED!', saved: 'CARD SAVED, LINK COPIED', downloaded: 'CARD SAVED', cancelled: '', failed: 'COULD NOT SHARE. TRY AGAIN' }[outcome] || '';
+  s.noteT = S.time;
 }
 
 // Read the shared leaderboard. Results are reused for 30 seconds.
@@ -550,7 +572,6 @@ function trackPlace(dt) {
   if (p.t > 0) p.t = Math.max(0, p.t - dt);
 }
 
-const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? 'TH' : ['TH', 'ST', 'ND', 'RD'][n % 10] || 'TH');
 
 function drawPlace() {
   const p = S.place;
@@ -708,19 +729,34 @@ function infoBox(x, y, w, online, tabs) {
   if (post === 'error') region('retrypost', x, y, w, 40, postScore);
 }
 
+// One of these shows under the loading bar, a different one each visit.
+const LOADING_TIPS = [
+  'TIP: WHERE THE BALL HITS THE PADDLE SETS ITS ANGLE.',
+  'TIP: BREAK BLOCKS IN A ROW FOR A COMBO, UP TO X3.',
+  'TIP: EVERY BALL LEFT WHEN A COURT IS CLEARED IS WORTH 100.',
+  'TIP: SLATE TAKES THREE HITS. SMASH GOES STRAIGHT THROUGH IT.',
+  'TIP: LIVES CARRY OVER BETWEEN COURTS.',
+];
+
 const SCREENS = {
   loading(k) {
-    const cy = P.wb + (H - P.wb) * 0.42;
+    // A pixel bar that fills while the game gets ready (it only reaches the
+    // end once the save is read and the court is built), and a tip to read.
+    const cy = Math.round(P.wb + (H - P.wb) * 0.36);
     ctx.globalAlpha = k;
-    const lead = Math.floor(S.time * 10) % 12;
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
-      const age = (lead - i + 12) % 12;
-      const c = age < 4 ? PAL.yellow : age < 8 ? PAL.yellowLo : '#5a6b2e';
-      rect(W / 2 + Math.cos(a) * 13 - 1, cy + Math.sin(a) * 13 - 1, 2, 2, c);
-    }
-    text('PREPARING', W / 2 + 2, cy + 26, PAL.white, { align: 'center', sp: 5, shadow: PAL.ink });
-    rect(W / 2 - 11, cy + 40, 22, 1, PAL.white);
+    text('PREPARING THE COURT', W / 2 + 2, cy, PAL.white, { align: 'center', sp: 2, shadow: PAL.ink });
+    const bw = Math.min(150, W - 60);
+    const bx = Math.round(W / 2 - bw / 2);
+    const p = S.ready ? clamp(S.t / 1.2, 0, 1) : clamp(S.t / 1.2, 0, 0.85);
+    rrect(bx - 2, cy + 14, bw + 4, 11, 4, PAL.ink);
+    rrect(bx - 1, cy + 15, bw + 2, 9, 3, '#5f7a64');
+    rect(bx, cy + 16, bw, 7, '#0d1f16');
+    const fill = Math.round(bw * p);
+    rect(bx, cy + 16, fill, 7, PAL.yellow);
+    rect(bx, cy + 16, fill, 1, PAL.yellowHi);
+    for (let gx = bx + 4; gx < bx + fill; gx += 6) rect(gx, cy + 17, 2, 5, PAL.yellowLo); // segments
+    const tip = LOADING_TIPS[S.tip % LOADING_TIPS.length];
+    wrap(tip, Math.min(200, W - 24)).forEach((l, i) => text(l, W / 2, cy + 36 + i * 10, PAL.cream, { align: 'center', shadow: PAL.ink }));
     ctx.globalAlpha = 1;
   },
 
@@ -1123,7 +1159,18 @@ const SCREENS = {
       const mid = Math.round((top0 + boxY) / 2);
       const refreshing = online && S.online.state === 'loading' && S.online.rows.length > 0;
       if (online && S.online.state === 'loading' && !refreshing) {
-        text('LOADING' + '.'.repeat(1 + (Math.floor(S.time * 3) % 3)), W / 2 - 24, mid - 4, PAL.cream, { sp: 2 });
+        // Placeholder rows with a light sweeping down them while the board loads.
+        const rh = clamp(Math.floor((boxY - 6 - top0) / 10), 16, 24);
+        const sweep = (S.time * 1.4) % 1.6;
+        for (let i = 0; i < 10; i++) {
+          const r0 = top0 + i * rh;
+          const lit = Math.abs(sweep - i / 10) < 0.12;
+          rect(x + 10, r0, w - 20, rh - 1, i % 2 ? '#0d2117' : '#132d20');
+          rect(x + 18, r0 + rh / 2 - 2, 10, 4, lit ? '#2f5a40' : '#1d3a2a');
+          rect(x + 34, r0 + rh / 2 - 2, 50 + ((i * 37) % 30), 4, lit ? '#2f5a40' : '#1d3a2a');
+          rect(x + w - 46, r0 + rh / 2 - 2, 30, 4, lit ? '#2f5a40' : '#1d3a2a');
+        }
+        text('LOADING SCORES', W / 2, boxY - 12, PAL.dim, { align: 'center', sp: 1 });
       } else if (online && S.online.state === 'error') {
         text('COULD NOT LOAD ONLINE SCORES', W / 2, mid - 14, PAL.cream, { align: 'center' });
         text('TRY AGAIN IN A MOMENT', W / 2, mid - 2, PAL.dim, { align: 'center' });
@@ -1141,6 +1188,7 @@ const SCREENS = {
         const rank = first + i;
         const mine = rank === mineAt;
         rect(x + 10, ry - 1 - Math.floor((rowH - 16) / 2), w - 20, rowH - 1, mine ? PAL.panelHi : i % 2 ? '#0d2117' : '#132d20');
+        if (rank < 3 && !mine) rect(x + 10, ry - 1 - Math.floor((rowH - 16) / 2), 2, rowH - 1, MEDAL[rank]); // podium edge
         if (mine) {
           const r0 = ry - 1 - Math.floor((rowH - 16) / 2);
           rect(x + 10, r0, w - 20, 1, PAL.yellow);
@@ -1159,7 +1207,31 @@ const SCREENS = {
         text(String(e.score), x + w - 16, ry + 3, c, { align: 'right' });
       });
       infoBox(x + 10, boxY, w - 20, online, online);
-      if (S.board.fromRun) {
+      const canShare = S.board.fromRun && S.run && S.run.score > 0;
+      if (canShare) {
+        // HOME, SHARE (outlined in gold so it reads as a call to action), PLAY AGAIN.
+        const by = y + h - 32;
+        const hw = 40;
+        const sw = 58;
+        const aw = w - 20 - hw - sw - 8;
+        const sx = x + 10 + hw + 4;
+        ghost('home', 'HOME', x + 10 + hw / 2, by + 1, hw, 17, home, { sp: 0 });
+        const s = S.share;
+        if (!s.seen) {
+          s.seen = true;
+          track('share_cta_viewed', { court: S.level + 1 });
+        }
+        ghost('share', s.busy ? '...' : 'SHARE', sx + sw / 2, by + 1, sw, 17, shareRun, { line: PAL.yellow, color: PAL.yellow, icon: s.busy ? null : 'fwd', sp: 1 });
+        pill('again', 'PLAY AGAIN', sx + sw + 4 + aw / 2, by, aw, 18, again, { sp: aw < 90 ? 1 : 2 });
+        if (s.note && S.time - s.noteT < 3) {
+          const nw = textW(s.note) + 14;
+          ctx.globalAlpha = Math.min(1, (3 - (S.time - s.noteT)) * 2);
+          rrect(W / 2 - nw / 2 - 1, by - 21, nw + 2, 15, 5, PAL.ink);
+          rrect(W / 2 - nw / 2, by - 20, nw, 13, 4, PAL.yellow);
+          text(s.note, W / 2, by - 17, PAL.ink, { align: 'center' });
+          ctx.globalAlpha = 1;
+        }
+      } else if (S.board.fromRun) {
         ghost('home', 'HOME', x + 38, y + h - 31, 50, 17, home);
         pill('again', 'PLAY AGAIN', W / 2 + 28, y + h - 32, Math.min(118, w - 88), 18, again);
       } else {
@@ -1623,6 +1695,7 @@ canvas.addEventListener('pointermove', (e) => {
   const p = toLogical(e);
   const r = hitTest(p.x, p.y);
   ui.hover = e.pointerType === 'mouse' && r ? r.id : null;
+  canvas.style.cursor = ui.hover ? 'pointer' : '';
   canvas.style.cursor = ui.hover ? 'pointer' : 'default';
   if (ptr && ptr.region) {
     const held = ui.regions.find((q) => q.id === ptr.region);

@@ -182,6 +182,28 @@ It sends a page view plus these events, with numbers only (no player names). Aut
 
 If PostHog is blocked or down, the game is unaffected: every call is wrapped.
 
+Every event carries a `deployment` property (`production` for the main GitHub Pages game, `preview`, `test` for the code-2 test link, `vercel`, `local`), so preview and test activity can be filtered out of production numbers.
+
+Leaderboard and sharing events:
+
+| Event | When | Properties |
+|---|---|---|
+| `leaderboard_viewed` | the leaderboard opens (once per visit) | `source` (`run` or `menu`) |
+| `share_cta_viewed` | the SHARE button is first shown on a visit | `court` |
+| `share_cta_clicked` | SHARE is pressed | `court`, `ranked` |
+| `share_sheet_opened` | the device share sheet is opened | `kind` (`image` or `link`), `court`, `ranked` |
+| `share_completed` | the share sheet reports the share was sent on (not just opened) | `kind`, `court`, `ranked` |
+| `share_cancelled` | the player closed the share sheet | `kind`, `court`, `ranked` |
+| `share_failed` | the share sheet failed (the card is then saved instead) | `kind`, `reason`, `court`, `ranked` |
+| `share_card_saved` | no share sheet: the card was downloaded | `link_copied`, `court`, `ranked` |
+| `share_card_failed` | the card image could not be made | `reason`, `court`, `ranked` |
+
+No player names are sent.
+
+## Score sharing
+
+After a run, the leaderboard shows HOME, SHARE and PLAY AGAIN. SHARE makes a 1080x1350 score card in the browser (`js/share.js`): the current court theme's scenery, THE COURT, the player's name and score, the court, the leaderboard place, CAN YOU BEAT ME?, the game's address and the signature, drawn small in the game's pixel art and scaled up. Phones get the system share sheet with the image; where there is no share sheet (most desktops) the card downloads and the message and link are copied. The link is the site the card was made on, tagged `utm_source=score_share&utm_medium=social&utm_campaign=score_card` so PostHog can count new players who arrive from shares. No server or database change is needed.
+
 ## Database upgrade path
 
 The game never touches `localStorage` directly. `Save` talks to a store with three async methods, and `LocalStore` is the only implementation today:

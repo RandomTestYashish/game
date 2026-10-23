@@ -1591,6 +1591,102 @@ def signature(browser, url):
         ctx.close()
 
 
+def board_and_share(browser, url):
+    """Leaderboard UX (loading rows, CTA row) and score sharing: card, share sheet, fallback, events."""
+    print("leaderboard UX and score sharing")
+    origin = url.split("/?")[0]
+    stub = ("; window.__ph=[]; window.posthog={__SV:1, init(){}, register(o){window.__phReg=o}, capture(e,p){window.__ph.push([e,p])}}"
+            f"; window.COURT_CONFIG={{supabaseUrl:'{origin}', supabaseAnonKey:'{MOCK['key']}', posthogKey:'phc_test', posthogLocal:true}}")
+    after_run = ("__court.S.run={lives:0,score:6100,saved:true}; __court.S.level=4; __court.S.board={rank:-1,fromRun:true};"
+                 "__court.S.post={state:'sent',error:'',entry:{name:'ME',score:6100,court:5}}; __court.S.online.at=-99; __court.go('scores')")
+    names = lambda d: d.ev("__ph.map(e=>e[0])")
+
+    def open_board(native=None):
+        c = browser.new_context(viewport={"width": 1280, "height": 800}, accept_downloads=True)
+        init = RETURNING + stub
+        if native == "ok":
+            init += "; window.__shared=[]; navigator.canShare=()=>true; navigator.share=(d)=>{window.__shared.push(d); return new Promise(r=>setTimeout(r,300))}"
+        elif native == "cancel":
+            init += "; navigator.canShare=()=>true; navigator.share=()=>Promise.reject(new DOMException('cancelled','AbortError'))"
+        else:
+            init += "; navigator.canShare=undefined; navigator.share=undefined; window.__copied=null; Object.defineProperty(navigator,'clipboard',{value:{writeText:(t)=>{window.__copied=t; return Promise.resolve()}}})"
+        c.add_init_script(init)
+        d = Driver(c.new_page())
+        d.pg.goto(url)
+        d.screen("title", 0.5)
+        return c, d
+
+    # Loading rows while the board loads, then the board with HOME / SHARE / PLAY AGAIN.
+    MOCK["posted"][:] = [{"name": "ME", "score": 6100, "court": 5}]  # the run is on the board, so it has a rank
+    MOCK["mode"] = "slow"
+    c, d = open_board()
+    check("every event says which site sent it (deployment)", d.ev("window.__phReg && window.__phReg.deployment") == "local")
+    d.ev(after_run)
+    d.wait("__court.S.screen==='scores' && !__court.S.leaving && __court.S.online.state==='loading'", 10000)
+    time.sleep(0.2)
+    d.ev("__court.S.timeScale=0.00001")
+    loading = d.ev("""(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let n=0; for(let i=0;i<d.length;i+=4) if(d[i]===0x1d&&d[i+1]===0x3a&&d[i+2]===0x2a) n++; return n})()""")
+    check("while the board loads it shows placeholder rows", loading > 200, loading)
+    d.ev("__court.S.timeScale=1")
+    MOCK["mode"] = "ok"
+    d.wait("__court.S.online.state==='ok'", 10000)
+    time.sleep(0.4)
+    ids = d.ev("__court.ui.regions.map(r=>r.id)")
+    check("after a run: HOME, SHARE and PLAY AGAIN", all(i in ids for i in ["home", "share", "again"]), ids)
+    check("leaderboard_viewed and share_cta_viewed fire once each, however many frames are drawn",
+          names(d).count("leaderboard_viewed") == 1 and names(d).count("share_cta_viewed") == 1 and d.ev("__ph.find(e=>e[0]==='leaderboard_viewed')[1].source") == "run", names(d))
+    x, y = d.point("share")
+    d.pg.mouse.move(x, y)
+    time.sleep(0.1)
+    check("desktop: the pointer turns into a hand over a button", d.ev("document.getElementById('court').style.cursor") == "pointer")
+    # No share sheet (desktop): the card downloads and the link is copied.
+    with d.pg.expect_download() as dl:
+        d.click("share")
+    f = dl.value
+    path = f.path()
+    head = open(path, "rb").read(24)
+    w_, h_ = int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+    check("SHARE without a share sheet downloads a 1080x1350 PNG score card", f.suggested_filename == "the-court-6100.png" and head[:8] == b"\x89PNG\r\n\x1a\n" and (w_, h_) == (1080, 1350), (f.suggested_filename, w_, h_))
+    d.wait("window.__copied", 5000)
+    copied = d.ev("window.__copied")
+    check("...and copies a message with the score, court, its rank and a tagged link to this site",
+          "6100" in copied and "Court 5" in copied and "on the leaderboard" in copied and origin in copied and "utm_source=score_share" in copied, copied)
+    ev = d.ev("__ph")
+    by = {e[0]: e[1] for e in ev}
+    check("events: share_cta_clicked, then share_card_saved (link copied); no share_completed",
+          "share_cta_clicked" in by and by.get("share_card_saved", {}).get("link_copied") is True and "share_completed" not in by and by["share_cta_clicked"]["ranked"] is True, [e[0] for e in ev])
+    check("no player names in the share events", "ME" not in json.dumps([e for e in ev if e[0].startswith("share")]))
+    check("a note says what happened", d.ev("__court.S.share.note") == "CARD SAVED, LINK COPIED")
+    check("no console errors (share fallback)", not d.errors, d.errors[:3])
+    c.close()
+
+    # A share sheet that completes: one click, opened then completed, with the image.
+    c, d = open_board("ok")
+    d.ev(after_run)
+    d.wait("__court.S.screen==='scores' && !__court.S.leaving && __court.S.online.state==='ok'", 10000)
+    time.sleep(0.4)
+    d.click("share")
+    d.click("share")  # a second tap while the first is still sharing
+    d.wait("__court.S.share.note==='SHARED!'", 5000)
+    n = names(d)
+    shared = d.ev("window.__shared.map(x=>[x.files[0].type, x.files[0].name, x.text])")
+    check("share sheet: opened with the card image, then completed", n.index("share_sheet_opened") < n.index("share_completed") and shared[0][0] == "image/png", n)
+    check("a second tap while sharing does not share twice", n.count("share_cta_clicked") == 1 and len(shared) == 1, n)
+    c.close()
+
+    # A share sheet the player closes: cancelled, not completed, nothing downloaded.
+    c, d = open_board("cancel")
+    d.ev(after_run)
+    d.wait("__court.S.screen==='scores' && !__court.S.leaving && __court.S.online.state==='ok'", 10000)
+    time.sleep(0.4)
+    d.click("share")
+    d.wait("!__court.S.share.busy", 5000)
+    n = names(d)
+    check("closing the share sheet counts as cancelled, not as a share", "share_cancelled" in n and "share_completed" not in n and "share_card_saved" not in n, n)
+    c.close()
+    MOCK["posted"].clear()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1612,6 +1708,7 @@ def main():
             bricks_in_groups(browser, url)
             polish(browser, url)
             signature(browser, url)
+            board_and_share(browser, url)
         finally:
             browser.close()
             srv.shutdown()

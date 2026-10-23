@@ -1,6 +1,6 @@
 // Boot, screen flow, input and the frame loop.
 
-import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, ellipse, line, text, textW, wrap, blockTitle, sparkle, racket, cup, trophy, laurel, rays, globe, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
+import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, ellipse, line, text, textW, wrap, blockTitle, sparkle, racket, cup, METAL, trophy, laurel, rays, globe, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
 import { P, setCam, buildLayers, drawScene, setTheme, currentTheme, drawThemePreview, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
 import { COUNTRIES, getCourtTheme } from './themes.js';
 import { Game, TOOLS, START_LIVES } from './game.js';
@@ -663,6 +663,61 @@ function drawIntroBall(t) {
 }
 
 // Leaderboard with nothing on it: a cup in a burst of light, laurels and rackets.
+// The leaderboard's podium: the top three on numbered blocks (2, 1, 3 from
+// the left), each under a cup on a plaque with the name and score. The
+// winner's block is the tallest, its gold cup lit by rays and laurels.
+function podium(x, y, w, board, mineAt, loading, compact) {
+  const colW = Math.floor((w - 20) / 3);
+  const metals = [METAL.gold, METAL.silver, METAL.bronze];
+  const tw = Math.floor(S.time * 2) % 2;
+  const base = y + (compact ? 40 : 98); // the floor all three blocks stand on
+  [1, 0, 2].forEach((rank, col) => {
+    const e = board[rank];
+    if (!e && !loading) return;
+    const m = metals[rank];
+    const cx = Math.round(x + 10 + colW * col + colW / 2);
+    const bw = colW - 6;
+    const bh = compact ? (rank === 0 ? 12 : 8) : rank === 0 ? 22 : 15;
+    const by = base - bh;
+    const py = by - 21;
+    if (!compact) {
+      // The cup, the winner's twice the size, lit by rays and laurels.
+      const cs = rank === 0 ? 2 : 1;
+      const cupY = py - 17 * cs - 2;
+      if (rank === 0) {
+        rays(cx, cupY + 6 * cs, 9 * cs, 17 * cs, S.time);
+        laurel(cx - 1, cupY + 9 * cs, 14 * cs, -1, 5);
+        laurel(cx, cupY + 9 * cs, 14 * cs, 1, 5);
+        sparkle(cx - 27, cupY + 2, 1 + tw);
+        sparkle(cx + 26, cupY + 6, 2 - tw);
+        sparkle(cx + 2, cupY - 6, 2 - tw, '#fff3c4');
+      } else {
+        laurel(cx - 1, cupY + 9, 13, -1, 3, rank === 1 ? '#5c7d9c' : '#9c5a2e', rank === 1 ? '#a8c4dc' : '#d08a4e');
+        laurel(cx, cupY + 9, 13, 1, 3, rank === 1 ? '#5c7d9c' : '#9c5a2e', rank === 1 ? '#a8c4dc' : '#d08a4e');
+        sparkle(cx + (rank === 1 ? -14 : 14), cupY, 1 + tw, '#f4f8fa');
+      }
+      cup(cx, cupY, cs, m);
+    }
+    // Plaque: name and score, outlined in gold if it is the player's.
+    const mine = rank === mineAt;
+    rrect(cx - bw / 2 - 1, py - 1, bw + 2, 21, 3, mine ? PAL.yellow : m.o);
+    rrect(cx - bw / 2, py, bw, 19, 2, m.l);
+    text(e ? e.name : '...', cx, py + 2, PAL.ink, { align: 'center', sp: 0 });
+    text(e ? String(e.score) : '', cx, py + 11, PAL.ink, { align: 'center', sp: 0 });
+    // Block with its number.
+    rrect(cx - bw / 2 - 2, by - 1, bw + 4, bh + 2, 3, m.o);
+    rrect(cx - bw / 2 - 1, by, bw + 2, bh, 2, m.d);
+    rect(cx - bw / 2 + 1, by, bw - 2, 1, m.l);
+    const sc = rank === 0 && !compact ? 2 : 1;
+    const plate = !compact; // a raised number plate on the full-size blocks
+    if (plate) {
+      rrect(cx - 7, by + 3, 14, bh - 5, 3, m.o);
+      rrect(cx - 6, by + 4, 12, bh - 7, 2, m.g);
+    }
+    text(String(rank + 1), cx + 1, by + (plate ? 2 : 0) + Math.round((bh - (plate ? 2 : 0) - 7 * sc) / 2), PAL.ink, { align: 'center', scale: sc });
+  });
+}
+
 function emptyBoard(mid, online, sc) {
   const cx = Math.round(W / 2);
   const cy = mid - Math.round((17 * sc + 75) / 2);
@@ -1126,7 +1181,6 @@ const SCREENS = {
   },
 
   scores(k) {
-    const tabs = false; // one board only: the online one (or the device one when none is set up)
     const online = onlineEnabled();
     const w = clamp(W - 16, 206, 236);
     const h = Math.min(H - 12, Math.max(300, Math.min(420, H - 40))); // taller screens get a taller board
@@ -1147,65 +1201,87 @@ const SCREENS = {
         sparkle(tx + 5 + d * 10, y + 7, 1 + tw);
         sparkle(tx + 5 - d * 9, y + 23, 2 - tw, '#9fd0a8');
       }
-      const top0 = y + (tabs ? 56 : 38);
-      if (tabs) {
-        const on = { fill: PAL.yellow, color: PAL.ink, line: PAL.yellow };
-        const off = { line: '#4d6b55', color: '#8fa48c' };
-        const tw2 = Math.round((w - 30) / 2);
-        ghost('tablocal', 'THIS DEVICE', W / 2 - tw2 / 2 - 3, y + 34, tw2, 14, () => showBoard('local'), online ? off : on);
-        ghost('tabonline', 'ONLINE', W / 2 + tw2 / 2 + 3, y + 34, tw2, 14, () => showBoard('online'), online ? on : off);
-      }
       const boxY = y + h - 74;
-      const mid = Math.round((top0 + boxY) / 2);
       const refreshing = online && S.online.state === 'loading' && S.online.rows.length > 0;
-      if (online && S.online.state === 'loading' && !refreshing) {
+      const loading = online && S.online.state === 'loading' && !refreshing;
+      const failed = online && S.online.state === 'error';
+      const ready = !loading && !failed && board.length > 0;
+      const MEDAL = ['#f2b632', '#c9d3d6', '#d08a4e'];
+      // The podium: the top three on numbered blocks, the winner in the middle.
+      // Short screens (wide desktops) get a compact podium, keeping room for rows.
+      const compact = H < 360;
+      const podH = ready || loading ? (compact ? 42 : 100) : 0;
+      const podTop = y + 34;
+      if (podH) podium(x, podTop, w, board, mineAt, loading, compact);
+      // The table: a framed box with a header row, ranked rows and a scrollbar.
+      const tTop = podTop + podH + (podH ? 4 : 2);
+      const tBot = boxY - 4;
+      rrect(x + 7, tTop - 1, w - 14, tBot - tTop + 2, 4, '#2f5a40');
+      rrect(x + 8, tTop, w - 16, tBot - tTop, 3, '#0b1d14');
+      // '#' drawn in pixels (the font has none).
+      for (const [hx, hy, hw2, hh2] of [[1, 0, 1, 5], [3, 0, 1, 5], [0, 1, 5, 1], [0, 3, 5, 1]]) rect(x + 15 + hx, tTop + 5 + hy, hw2, hh2, PAL.dim);
+      text('PLAYER', x + 34, tTop + 4, PAL.dim);
+      text('COURT', x + w - 92, tTop + 4, PAL.dim);
+      text('SCORE', x + w - 18, tTop + 4, PAL.dim, { align: 'right' });
+      const rowsTop = tTop + 14;
+      const rowH = clamp(Math.floor((tBot - 3 - rowsTop) / 10), 15, 22);
+      const n = Math.max(1, Math.min(10, Math.floor((tBot - 3 - rowsTop) / rowH)));
+      const mid = Math.round((rowsTop + tBot) / 2);
+      if (loading) {
         // Placeholder rows with a light sweeping down them while the board loads.
-        const rh = clamp(Math.floor((boxY - 6 - top0) / 10), 16, 24);
         const sweep = (S.time * 1.4) % 1.6;
-        for (let i = 0; i < 10; i++) {
-          const r0 = top0 + i * rh;
-          const lit = Math.abs(sweep - i / 10) < 0.12;
-          rect(x + 10, r0, w - 20, rh - 1, i % 2 ? '#0d2117' : '#132d20');
-          rect(x + 18, r0 + rh / 2 - 2, 10, 4, lit ? '#2f5a40' : '#1d3a2a');
-          rect(x + 34, r0 + rh / 2 - 2, 50 + ((i * 37) % 30), 4, lit ? '#2f5a40' : '#1d3a2a');
-          rect(x + w - 46, r0 + rh / 2 - 2, 30, 4, lit ? '#2f5a40' : '#1d3a2a');
+        for (let i = 0; i < n; i++) {
+          const r0 = rowsTop + i * rowH;
+          const lit = Math.abs(sweep - i / n) < 0.12;
+          const c = lit ? '#2f5a40' : '#1d3a2a';
+          rect(x + 11, r0, w - 26, rowH - 1, i % 2 ? '#0d2117' : '#132d20');
+          rect(x + 15, r0 + rowH / 2 - 2, 8, 4, c);
+          rect(x + 34, r0 + rowH / 2 - 2, 46 + ((i * 37) % 28), 4, c);
+          rect(x + w - 46, r0 + rowH / 2 - 2, 26, 4, c);
         }
-        text('LOADING SCORES', W / 2, boxY - 12, PAL.dim, { align: 'center', sp: 1 });
-      } else if (online && S.online.state === 'error') {
+      } else if (failed) {
         text('COULD NOT LOAD ONLINE SCORES', W / 2, mid - 14, PAL.cream, { align: 'center' });
         text('TRY AGAIN IN A MOMENT', W / 2, mid - 2, PAL.dim, { align: 'center' });
         ghost('retryonline', 'TRY AGAIN', W / 2, mid + 14, 80, 15, () => loadOnline(true));
       } else if (!board.length) {
-        emptyBoard(mid, online, boxY - top0 > 200 ? 3 : 2);
+        emptyBoard(Math.round((tTop + tBot) / 2), online, tBot - tTop > 200 ? 3 : 2);
       }
-      // Ten rows; if the new score ranks lower, slide the window down to it.
-      const rowH = clamp(Math.floor((boxY - 6 - top0) / 10), 16, 24);
-      const first = clamp(mineAt - 9, 0, Math.max(0, board.length - 10));
-      const shown = online && S.online.state !== 'ok' && !refreshing ? [] : board.slice(first, first + 10);
-      const MEDAL = ['#f2b632', '#c9d3d6', '#d08a4e'];
+      // The rows; if the new score ranks lower, slide the window down to it.
+      const first = clamp(mineAt - (n - 1), 0, Math.max(0, board.length - n));
+      const shown = ready ? board.slice(first, first + n) : [];
       shown.forEach((e, i) => {
-        const ry = top0 + i * rowH + Math.floor((rowH - 16) / 2);
+        const r0 = rowsTop + i * rowH;
+        const ry = r0 + Math.floor((rowH - 9) / 2);
         const rank = first + i;
         const mine = rank === mineAt;
-        rect(x + 10, ry - 1 - Math.floor((rowH - 16) / 2), w - 20, rowH - 1, mine ? PAL.panelHi : i % 2 ? '#0d2117' : '#132d20');
-        if (rank < 3 && !mine) rect(x + 10, ry - 1 - Math.floor((rowH - 16) / 2), 2, rowH - 1, MEDAL[rank]); // podium edge
+        rect(x + 11, r0, w - 26, rowH - 1, mine ? '#24402c' : i % 2 ? '#0d2117' : '#132d20');
         if (mine) {
-          const r0 = ry - 1 - Math.floor((rowH - 16) / 2);
-          rect(x + 10, r0, w - 20, 1, PAL.yellow);
-          rect(x + 10, r0 + rowH - 2, w - 20, 1, PAL.yellow);
+          // The player's own row: a full gold outline.
+          rect(x + 10, r0 - 1, w - 24, 1, PAL.yellow);
+          rect(x + 10, r0 + rowH - 1, w - 24, 1, PAL.yellow);
+          rect(x + 10, r0 - 1, 1, rowH + 1, PAL.yellow);
+          rect(x + w - 15, r0 - 1, 1, rowH + 1, PAL.yellow);
         }
         const c = mine ? PAL.yellow : PAL.cream;
         if (rank < 3) {
-          disc(x + 22, ry + 6, 5, '#06120c');
-          disc(x + 22, ry + 6, 4, MEDAL[rank]);
-          text(String(rank + 1), x + 23, ry + 3, PAL.ink, { align: 'center' });
+          disc(x + 18, ry + 3, 5, '#06120c');
+          disc(x + 18, ry + 3, 4, MEDAL[rank]);
+          text(String(rank + 1), x + 19, ry, PAL.ink, { align: 'center' });
         } else {
-          text(String(rank + 1), x + 26, ry + 3, mine ? PAL.yellow : PAL.dim, { align: 'right' });
+          text(String(rank + 1), x + 15, ry, mine ? PAL.yellow : PAL.dim);
         }
-        text(e.name, x + 34, ry + 3, c, { sp: 2 });
-        text('C' + e.court, x + w - 74, ry + 3, PAL.dim);
-        text(String(e.score), x + w - 16, ry + 3, c, { align: 'right' });
+        text(e.name, x + 34, ry, c, { sp: 1 });
+        text('C' + e.court, x + w - 92, ry, mine ? PAL.yellow : PAL.dim);
+        text(String(e.score), x + w - 18, ry, c, { align: 'right' });
       });
+      // Scrollbar: where this window sits in the whole board.
+      if (ready && board.length > n) {
+        const tH = n * rowH - 2;
+        const th = Math.max(8, Math.round((tH * n) / board.length));
+        const ty = rowsTop + Math.round(((tH - th) * first) / (board.length - n));
+        rect(x + w - 12, rowsTop, 2, tH, '#1d3a2a');
+        rect(x + w - 12, ty, 2, th, PAL.yellow);
+      }
       infoBox(x + 10, boxY, w - 20, online, online);
       const canShare = S.board.fromRun && S.run && S.run.score > 0;
       if (canShare) {

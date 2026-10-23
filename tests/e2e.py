@@ -1633,6 +1633,12 @@ def board_and_share(browser, url):
     time.sleep(0.4)
     ids = d.ev("__court.ui.regions.map(r=>r.id)")
     check("after a run: HOME, SHARE and PLAY AGAIN", all(i in ids for i in ["home", "share", "again"]), ids)
+    d.ev("__court.S.timeScale=0.00001")
+    time.sleep(0.1)
+    pix = d.ev("""(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data, s=new Set();
+      for(let i=0;i<d.length;i+=4) s.add('#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')); return s.has('#f2b632')+','+s.has('#c9d3d6')+','+s.has('#d08a4e')})()""")
+    check("the podium shows gold, silver and bronze for the top three", pix == "true,true,true", pix)
+    d.ev("__court.S.timeScale=1")
     check("leaderboard_viewed and share_cta_viewed fire once each, however many frames are drawn",
           names(d).count("leaderboard_viewed") == 1 and names(d).count("share_cta_viewed") == 1 and d.ev("__ph.find(e=>e[0]==='leaderboard_viewed')[1].source") == "run", names(d))
     x, y = d.point("share")

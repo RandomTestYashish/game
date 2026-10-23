@@ -408,30 +408,37 @@ export function racket(cx, cy, dir = 1) {
 }
 
 const GOLD = { o: '#5a3410', d: '#c98a1c', g: '#f2b632', l: '#fff3c4' };
+// Cup metals for the podium: outline, dark, base, light.
+export const METAL = {
+  gold: GOLD,
+  silver: { o: '#2f363e', d: '#8c98a4', g: '#c9d3d6', l: '#f4f8fa' },
+  bronze: { o: '#4a2410', d: '#9c5a2e', g: '#d08a4e', l: '#f6c9a0' },
+};
 
-// A gold cup with a star, centred on cx with its rim at y, in pixels of size s.
-// About 24 x 17 units: handles reach 12 units either side.
-export function cup(cx, y, s = 1) {
+// A cup with a star (gold unless another METAL is given), centred on cx with
+// its rim at y, in pixels of size s. About 24 x 17 units: handles reach 12
+// units either side.
+export function cup(cx, y, s = 1, m = GOLD) {
   const parts = [];
   const bowl = [8, 8, 8, 7, 7, 6, 5, 4, 3];
-  bowl.forEach((hw, r) => parts.push([-hw, r, hw * 2, 1, r === 0 ? GOLD.l : GOLD.g]));
+  bowl.forEach((hw, r) => parts.push([-hw, r, hw * 2, 1, r === 0 ? m.l : m.g]));
   for (const d of [-1, 1]) {
     const ox = d < 0 ? -11 : 8;
-    parts.push([ox, 1, 3, 1, GOLD.g], [d < 0 ? -11 : 10, 1, 1, 5, GOLD.g], [d < 0 ? -11 : 6, 5, 5, 1, GOLD.d]);
+    parts.push([ox, 1, 3, 1, m.g], [d < 0 ? -11 : 10, 1, 1, 5, m.g], [d < 0 ? -11 : 6, 5, 5, 1, m.d]);
   }
-  parts.push([-1, 9, 2, 3, GOLD.d], [-2, 12, 4, 1, GOLD.g], [-1, 13, 2, 1, GOLD.d], [-4, 14, 8, 1, GOLD.g], [-6, 15, 12, 2, GOLD.d]);
+  parts.push([-1, 9, 2, 3, m.d], [-2, 12, 4, 1, m.g], [-1, 13, 2, 1, m.d], [-4, 14, 8, 1, m.g], [-6, 15, 12, 2, m.d]);
   const R = (x, yy, w, h, c) => rect(cx + x * s, y + yy * s, w * s, h * s, c);
-  for (const [x, yy, w, h] of parts) R(x - 1, yy - 1, w + 2, h + 2, GOLD.o);
+  for (const [x, yy, w, h] of parts) R(x - 1, yy - 1, w + 2, h + 2, m.o);
   for (const [x, yy, w, h, c] of parts) R(x, yy, w, h, c);
   bowl.forEach((hw, r) => {
     if (r === 0) return;
-    R(-hw + 1, r, 1, 1, GOLD.l);
-    R(hw - 2, r, 1, 1, GOLD.d);
+    R(-hw + 1, r, 1, 1, m.l);
+    R(hw - 2, r, 1, 1, m.d);
   });
-  R(-4, 15, 8, 1, GOLD.g);
+  R(-4, 15, 8, 1, m.g);
   // The star on the bowl.
   ['..#..', '#####', '.###.', '.#.#.'].forEach((row, r) => {
-    for (let i = 0; i < 5; i++) if (row[i] === '#') R(i - 3, r + 2, 1, 1, GOLD.d);
+    for (let i = 0; i < 5; i++) if (row[i] === '#') R(i - 3, r + 2, 1, 1, m.d);
   });
 }
 

@@ -11,7 +11,7 @@ import { COUNTRIES } from './themes.js';
 // everything nearer or farther slides against it.
 
 // landing 1 = the bare first screen (no net, no overhanging canopy).
-export const P = { cam: 0, wb: 0, hor: 0, G: 1, dFar: 1.45, kx: 1.16, cx: W / 2, shift: 0, sRef: 1, landing: 0 };
+export const P = { cam: 0, wb: 0, hor: 0, G: 1, dFar: 1.45, kx: 1.16, cx: W / 2, shift: 0, sRef: 1, landing: 0, banner: false };
 
 export function setCam(cam, shift = 0) {
   P.cam = cam;
@@ -50,11 +50,11 @@ function unprojY(sy) {
 
 const M = 26; // spare layer width each side, revealed as the camera trucks
 const WALL_H = 14;
-const BANNER_UP = 22; // how far the banner board stands above the stone wall
 const LAYER_H = 64;
 const HILL_H = 64;
 const LAND_H = 90;
 let lanterns = [];
+let bannerPillars = [];
 let speckles = [];
 let flies = [];
 let petals = [];
@@ -65,9 +65,10 @@ let L = null; // its layers
 export function buildLayers() {
   const rnd = mulberry(20261013);
   cache = {};
-  // The lantern pillars frame the banner board, near the edges of the court.
+  lanterns = [M + W / 2 - 82, M + W / 2 + 81].map(Math.round);
+  // On the courts the pillars stand wider apart, framing the banner board.
   const half = Math.min(120, Math.round(W / 2) - 9);
-  lanterns = [M + W / 2 - half, M + W / 2 + half - 1].map(Math.round);
+  bannerPillars = [M + W / 2 - half, M + W / 2 + half - 1].map(Math.round);
   speckles = [];
   const reach = W / 2 / 0.5; // world half-width visible at the far edge of the low view
   for (let i = 0; i < Math.round(W * 1.3); i++) {
@@ -245,61 +246,70 @@ function makeLayers(id, T) {
   }
   out.trees = trees.canvas;
 
-  // Hedge, wall, lantern pillars and flowering planters.
+  // Hedge, wall, lantern pillars and flowering planters. Painted twice from
+  // the same random numbers: the stone wall (landing screen and menus), and
+  // the courts' version, where a stadium banner board the same height as the
+  // stone fills the span between wider-set pillars.
   const wc = T.wall;
-  const wall = makeLayer(LW, LAYER_H);
-  setTarget(wall);
   const wy = LAYER_H - WALL_H;
-  for (let x = 0; x < LW; x++) {
-    const top = wy - 24 + Math.round(Math.sin(x * 0.4) * 0.6 + rnd() * 1.4);
-    rect(x, top, 1, wy - top + 2, '#1c4427');
-  }
-  for (let i = 0; i < LW * 1.75; i++) rect(rnd() * LW, wy - 23 + rnd() * 24, 1, 1, rnd() < 0.55 ? '#2a5f35' : '#133120');
-  for (let x = 0; x < LW; x += 2) if (rnd() < 0.5) rect(x, wy - 24, 1, 1, '#34743f');
-  rect(0, wy, LW, WALL_H, wc.base);
-  rect(0, wy, LW, 2, wc.top);
-  rect(0, wy + 2, LW, 1, wc.top2);
-  for (let r = 0; r < 3; r++) {
-    const y = wy + 5 + r * 4;
-    rect(0, y, LW, 1, wc.line);
-    for (let x = (r % 2) * 6; x < LW; x += 12) rect(x, y - 3, 1, 3, wc.line);
-  }
-  for (let i = 0; i < LW / 4; i++) rect(rnd() * LW, wy + 3 + rnd() * 10, 1, 1, wc.speck[rnd() < 0.5 ? 0 : 1]);
-  rect(0, LAYER_H - 1, LW, 1, '#35322e');
-  // Between the two lantern pillars the stone gives way to a stadium banner
-  // board, taller than the wall: THE COURT | COURT BITES.
-  const bTop = wy - BANNER_UP;
-  banner(lanterns[0] + 6, bTop, lanterns[1] - 6, LAYER_H - 1);
-  for (const lx of lanterns) {
-    const pt = bTop - 4; // pillars rise with the banner
-    rect(lx - 5, pt, 11, LAYER_H - pt, wc.pillar);
-    rect(lx - 6, pt - 1, 13, 2, wc.pillarTop);
-    rect(lx - 5, LAYER_H - 1, 11, 1, '#35322e');
-    rect(lx + 4, pt + 1, 1, LAYER_H - pt - 2, wc.line);
-    rect(lx - 3, pt - 11, 7, 10, '#231f1a');
-    rect(lx - 2, pt - 9, 5, 7, T.lamp);
-    rect(lx - 1, pt - 8, 3, 5, '#fff3b8');
-    rect(lx - 4, pt - 12, 9, 1, '#231f1a');
-    rect(lx - 1, pt - 14, 3, 2, '#231f1a');
-  }
-  const flowers = T.blossom ? [T.blossom[2], T.blossom[3]] : ['#f1eedd', '#c9d3b6'];
-  const beds = [M + 12, M + W - 12];
-  for (let x = W / 2 - 150; x > 40; x -= 70) beds.push(M + x, M + W - x);
-  for (const bx of beds) {
-    for (let i = 0; i < 6; i++) {
-      const x = bx + (rnd() - 0.5) * 34;
-      const y = wy - 2 + (rnd() - 0.5) * 12;
-      const r = 6 + rnd() * 5;
-      disc(x, y, r, '#214a2b');
-      disc(x - 1, y - 2, r * 0.6, '#2c6238');
-      for (let k = 0; k < 7; k++) {
-        const a = rnd() * 6.28;
-        const d = rnd() * r;
-        rect(x + Math.cos(a) * d, y + Math.sin(a) * d, rnd() < 0.3 ? 2 : 1, 1, rnd() < 0.7 ? flowers[0] : flowers[1]);
+  const paintWall = (rnd, pillars, withBanner) => {
+    const wall = makeLayer(LW, LAYER_H);
+    setTarget(wall);
+    for (let x = 0; x < LW; x++) {
+      const top = wy - 24 + Math.round(Math.sin(x * 0.4) * 0.6 + rnd() * 1.4);
+      rect(x, top, 1, wy - top + 2, '#1c4427');
+    }
+    for (let i = 0; i < LW * 1.75; i++) rect(rnd() * LW, wy - 23 + rnd() * 24, 1, 1, rnd() < 0.55 ? '#2a5f35' : '#133120');
+    for (let x = 0; x < LW; x += 2) if (rnd() < 0.5) rect(x, wy - 24, 1, 1, '#34743f');
+    rect(0, wy, LW, WALL_H, wc.base);
+    rect(0, wy, LW, 2, wc.top);
+    rect(0, wy + 2, LW, 1, wc.top2);
+    for (let r = 0; r < 3; r++) {
+      const y = wy + 5 + r * 4;
+      rect(0, y, LW, 1, wc.line);
+      for (let x = (r % 2) * 6; x < LW; x += 12) rect(x, y - 3, 1, 3, wc.line);
+    }
+    for (let i = 0; i < LW / 4; i++) rect(rnd() * LW, wy + 3 + rnd() * 10, 1, 1, wc.speck[rnd() < 0.5 ? 0 : 1]);
+    rect(0, LAYER_H - 1, LW, 1, '#35322e');
+    if (withBanner) banner(pillars[0] + 6, wy, pillars[1] - 6, LAYER_H - 1);
+    for (const lx of pillars) {
+      rect(lx - 5, wy - 4, 11, WALL_H + 4, wc.pillar);
+      rect(lx - 6, wy - 5, 13, 2, wc.pillarTop);
+      rect(lx - 5, LAYER_H - 1, 11, 1, '#35322e');
+      rect(lx + 4, wy - 3, 1, WALL_H + 2, wc.line);
+      rect(lx - 3, wy - 15, 7, 10, '#231f1a');
+      rect(lx - 2, wy - 13, 5, 7, T.lamp);
+      rect(lx - 1, wy - 12, 3, 5, '#fff3b8');
+      rect(lx - 4, wy - 16, 9, 1, '#231f1a');
+      rect(lx - 1, wy - 18, 3, 2, '#231f1a');
+    }
+    const flowers = T.blossom ? [T.blossom[2], T.blossom[3]] : ['#f1eedd', '#c9d3b6'];
+    const beds = [M + 12, M + W - 12];
+    for (let x = W / 2 - 150; x > 40; x -= 70) beds.push(M + x, M + W - x);
+    for (const bx of beds) {
+      for (let i = 0; i < 6; i++) {
+        const x = bx + (rnd() - 0.5) * 34;
+        const y = wy - 2 + (rnd() - 0.5) * 12;
+        const r = 6 + rnd() * 5;
+        disc(x, y, r, '#214a2b');
+        disc(x - 1, y - 2, r * 0.6, '#2c6238');
+        for (let k = 0; k < 7; k++) {
+          const a = rnd() * 6.28;
+          const d = rnd() * r;
+          rect(x + Math.cos(a) * d, y + Math.sin(a) * d, rnd() < 0.3 ? 2 : 1, 1, rnd() < 0.7 ? flowers[0] : flowers[1]);
+        }
       }
     }
-  }
-  out.wall = wall.canvas;
+    return wall.canvas;
+  };
+  const used = [];
+  out.wall = paintWall(() => {
+    const v = rnd();
+    used.push(v);
+    return v;
+  }, lanterns, false);
+  let k = 0;
+  out.wallBanner = paintWall(() => used[k++], bannerPillars, true);
 
   // Foreground canopy framing the top corners (blossom in Japan).
   const fore = makeLayer(LW, 190);
@@ -654,7 +664,7 @@ function drawSceneOnce(time) {
   const landS = Math.round(P.shift * (P.sRef - sFar * 0.45));
   ctx.drawImage(L.land, -M + landS, Math.round(wallTop - LAND_H - 22 + cam * 4));
   ctx.drawImage(L.trees, -M + treeS, Math.round(wallTop - 96 - 12 + cam * 9));
-  ctx.drawImage(L.wall, -M + wallS, wb - LAYER_H);
+  ctx.drawImage(P.banner ? L.wallBanner : L.wall, -M + wallS, wb - LAYER_H);
 
   // Grass with mowing stripes.
   const cp = theme.courtPalette;
@@ -731,9 +741,9 @@ function drawSceneOnce(time) {
 
   // Lantern glow.
   const flick = Math.sin(time * 7) > 0.6 ? 1 : 0;
-  for (const l of lanterns) {
+  for (const l of P.banner ? bannerPillars : lanterns) {
     const lx = l - M + wallS;
-    const ly = wb - WALL_H - BANNER_UP - 10; // the lamp on top of the raised pillar
+    const ly = wb - WALL_H - 10;
     ctx.globalAlpha = 0.14;
     disc(lx, ly, 9 + flick, theme.backgroundPalette.lamp);
     ctx.globalAlpha = 0.22;
@@ -998,37 +1008,31 @@ function sprite(rows, x, y, z) {
 function banner(x0, y0, x1, y1) {
   const w = x1 - x0;
   const h = y1 - y0;
-  const z = h >= 30 ? 2 : 1;
-  rect(x0 - 1, y0 - 1, w + 2, h + 1, '#06080d');
+  rect(x0 - 1, y0, w + 2, h, '#06080d');
   rect(x0, y0, w, h, '#111a28');
   rect(x0, y0, w, 1, '#2c3a52');
-  rect(x0, y0 + 1, w, 1, '#1a2538');
-  rect(x0, y1 - 2, w, 1, '#0a1019');
+  rect(x0, y1 - 1, w, 1, '#0a1019');
   const cx = Math.round(x0 + w / 2);
-  rect(cx, y0 + 4, 1, h - 8, '#56657c');
-  const lh = 7 * z; // a line of text
-  const ty = Math.round(y0 + (h - lh * 2 - 2 * z) / 2);
+  rect(cx, y0 + 2, 1, h - 4, '#56657c');
+  const ty = Math.round(y0 + (h - 7) / 2);
   const shadow = '#06080d';
-  const words = (a, b, x) => {
-    text(a, x, ty, '#f4f1de', { shadow, scale: z, sp: 0 });
-    text(b, x, ty + lh + 2 * z, '#f4f1de', { shadow, scale: z, sp: 0 });
-  };
+  // The words and icons sit either side of the divider, clear of the court's
+  // side lanterns at the ends of the board.
   // Left panel: THE COURT, and a ball flying in on green speed lines.
-  const lw = textW('COURT', z, 0);
-  const left = Math.round(x0 + (cx - x0 - lw - 7 * z - 4 * z) / 2);
-  words('THE', 'COURT', left);
-  const bx = left + lw + 4 * z;
-  const by = Math.round(y0 + h / 2 - 3.5 * z) - z;
-  for (let i = 0; i < 3; i++) rect(bx + 4 * z + i * 2 * z, by + 7 * z + i * z, 2 * z, z, i ? '#2f8f56' : '#5fd38a');
-  sprite(BALL, bx, by, z);
+  const lw = textW('THE COURT', 1, 0);
+  const left = cx - 7 - (lw + 4 + 12);
+  text('THE COURT', left, ty, '#f4f1de', { shadow, sp: 0 });
+  const bx = left + lw + 4;
+  const by = Math.round(y0 + (h - 7) / 2);
+  for (let i = 0; i < 3; i++) rect(bx + 7 + i * 2, by + 4 + i, 2, 1, i ? '#2f8f56' : '#5fd38a');
+  sprite(BALL, bx, by, 1);
   // Right panel: COURT BITES, a burger and a drink.
-  const iw = 9 * z + 2 * z + 5 * z;
-  const rx = Math.round(cx + 1 + (x1 - cx - 1 - lw - iw - 3 * z) / 2);
-  words('COURT', 'BITES', rx);
-  const gx = rx + lw + 3 * z;
-  const gy = Math.round(y0 + h / 2 - 4.5 * z);
-  sprite(BURGER, gx, gy, z);
-  sprite(DRINK, gx + 11 * z, gy, z);
+  const rw = textW('COURT BITES', 1, 0);
+  const rx = cx + 7;
+  text('COURT BITES', rx, ty, '#f4f1de', { shadow, sp: 0 });
+  const gy = Math.round(y0 + (h - 9) / 2);
+  sprite(BURGER, rx + rw + 3, gy, 1);
+  sprite(DRINK, rx + rw + 13, gy, 1);
 }
 
 // ---------------------------------------------------------------- sprites

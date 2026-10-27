@@ -1633,10 +1633,10 @@ function drawRulesOverlay(k) {
 let gameLayer = null;
 
 // ---- the signature -----------------------------------------------------------
-// "CRAFTED BY / YASHISH" in the game's own pixel font, run like a little
-// arcade intro on the landing screen: CRAFTED BY assembles pixel by pixel,
-// slides up a line, YASHISH rises in gold from below, then a shimmer runs
-// across it pixel by pixel while sparkles twinkle. Bottom right on wide
+// "CRAFTED BY / YASHISH" in the game's own pixel font on the landing screen,
+// fixed in place on its plate: a band of light runs across YASHISH pixel by
+// pixel, sparkles twinkle round it, CRAFTED BY catches a glint now and then,
+// and the plate's gold edge lights as the light passes. Bottom right on wide
 // screens, centred on phones.
 
 const SIG = { by: 'CRAFTED BY', name: 'YASHISH', zoom: 2, again: 14 };
@@ -1676,10 +1676,8 @@ function drawSignature(k) {
   const bh = by.h + 4 + name.h * z + 10;
   const x0 = W >= 400 ? W - 8 - bw : Math.round(W / 2 - bw / 2);
   const y0 = H - 6 - bh;
-  const floor = y0 + bh - 3; // YASHISH rises from behind this line
   const a0 = ctx.globalAlpha;
-  const shimmerOn = t > 2.7;
-  const sweep = shimmerOn ? ((t - 2.7) % 2.6) / 2.6 : -1; // 0..1 across, then a rest
+  const sweep = ((t + 2) % 2.6) / 2.6; // 0..1 across, then a rest
 
   // The plate: a dark tile with a gold edge that lights as the shimmer passes.
   ctx.globalAlpha = a0 * 0.6;
@@ -1691,27 +1689,22 @@ function drawSignature(k) {
   rect(x0 + bw - 1, y0 + 4, 1, bh - 8, PAL.yellow);
   ctx.globalAlpha = a0;
 
-  // CRAFTED BY: pixels pop in white, settle to cream, then the line slides up.
-  const build = clamp(t / 0.9, 0, 1);
-  const up = easeInOut(clamp((t - 1.4) / 0.45, 0, 1));
+  // CRAFTED BY, in cream; a few of its pixels glint white in turn.
   const byX = Math.round(x0 + bw / 2 - by.w / 2);
-  const byY = Math.round(lerp(y0 + 5 + by.h + 4 + 2, y0 + 5, up));
+  const byY = y0 + 5;
+  const glint = (t * 0.7) % 1;
   for (const p of by.px) {
-    if (build < p.r) continue;
-    const fresh = build - p.r < 0.12 && build < 1;
     rect(byX + p.x + 1, byY + p.y + 1, 1, 1, PAL.ink);
-    rect(byX + p.x, byY + p.y, 1, 1, fresh ? '#ffffff' : PAL.cream);
+    rect(byX + p.x, byY + p.y, 1, 1, Math.abs(p.r - glint) < 0.03 ? '#ffffff' : PAL.cream);
   }
 
-  // YASHISH: rises from below the floor with a little overshoot, in gold.
-  const rise = clamp((t - 1.85) / 0.55, 0, 1);
-  if (rise > 0) {
+  // YASHISH, in gold, with the shimmer crossing it.
+  {
     const nx = Math.round(x0 + bw / 2 - (name.w * z) / 2);
-    const ny = Math.round(y0 + 5 + by.h + 4 + (1 - easeBack(rise)) * (name.h * z + 6));
+    const ny = y0 + 5 + by.h + 4;
     for (const p of name.px) {
       const px = nx + p.x * z;
       const py = ny + p.y * z;
-      if (py + z > floor) continue; // still below the floor
       // The shimmer: a slanted band of light crossing the letters pixel by pixel.
       let c = PAL.yellow;
       if (sweep >= 0) {
@@ -1723,7 +1716,7 @@ function drawSignature(k) {
       rect(px, py, z, z, c);
     }
     // Sparkles: little pixel stars that twinkle round the name.
-    if (shimmerOn) {
+    {
       [[nx - 4, ny + 1], [nx + name.w * z + 3, ny + 2], [nx + name.w * z * 0.55, ny - 3]].forEach(([sx, sy], i) => {
         const tw = Math.sin(t * 3.3 + i * 2.1);
         if (tw < 0.35) return;
@@ -1744,6 +1737,7 @@ function draw() {
   S.pitch = (S.pitch || 0) + (pitch - (S.pitch || 0)) * 0.05;
   P.landing = easeInOut(S.landing);
   setCam(S.cam + S.pitch, S.shift);
+  P.banner = GAME_SCREENS.has(S.screen); // the banner board shows on the courts, the stone wall elsewhere
   say(ARIA);
   const look = courtTheme();
   setTheme(look);

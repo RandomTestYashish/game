@@ -1,7 +1,7 @@
 // The garden court: camera projection, parallax background layers and the
 // shared sprite painters (blocks, ball, paddle).
 
-import { W, H, ctx, PAL, makeLayer, setTarget, rect, disc, ellipse, line, trap, rrect, lerp, mulberry, bayer } from './gfx.js';
+import { W, H, ctx, PAL, makeLayer, setTarget, rect, disc, ellipse, line, trap, rrect, text, textW, lerp, mulberry, bayer } from './gfx.js';
 import { WW, WH, PADDLE_Y } from './game.js';
 import { COUNTRIES } from './themes.js';
 
@@ -50,6 +50,7 @@ function unprojY(sy) {
 
 const M = 26; // spare layer width each side, revealed as the camera trucks
 const WALL_H = 14;
+const BANNER_UP = 22; // how far the banner board stands above the stone wall
 const LAYER_H = 64;
 const HILL_H = 64;
 const LAND_H = 90;
@@ -64,7 +65,9 @@ let L = null; // its layers
 export function buildLayers() {
   const rnd = mulberry(20261013);
   cache = {};
-  lanterns = [M + W / 2 - 82, M + W / 2 + 81].map(Math.round);
+  // The lantern pillars frame the banner board, near the edges of the court.
+  const half = Math.min(120, Math.round(W / 2) - 9);
+  lanterns = [M + W / 2 - half, M + W / 2 + half - 1].map(Math.round);
   speckles = [];
   const reach = W / 2 / 0.5; // world half-width visible at the far edge of the low view
   for (let i = 0; i < Math.round(W * 1.3); i++) {
@@ -263,16 +266,21 @@ function makeLayers(id, T) {
   }
   for (let i = 0; i < LW / 4; i++) rect(rnd() * LW, wy + 3 + rnd() * 10, 1, 1, wc.speck[rnd() < 0.5 ? 0 : 1]);
   rect(0, LAYER_H - 1, LW, 1, '#35322e');
+  // Between the two lantern pillars the stone gives way to a stadium banner
+  // board, taller than the wall: THE COURT | COURT BITES.
+  const bTop = wy - BANNER_UP;
+  banner(lanterns[0] + 6, bTop, lanterns[1] - 6, LAYER_H - 1);
   for (const lx of lanterns) {
-    rect(lx - 5, wy - 4, 11, WALL_H + 4, wc.pillar);
-    rect(lx - 6, wy - 5, 13, 2, wc.pillarTop);
+    const pt = bTop - 4; // pillars rise with the banner
+    rect(lx - 5, pt, 11, LAYER_H - pt, wc.pillar);
+    rect(lx - 6, pt - 1, 13, 2, wc.pillarTop);
     rect(lx - 5, LAYER_H - 1, 11, 1, '#35322e');
-    rect(lx + 4, wy - 3, 1, WALL_H + 2, wc.line);
-    rect(lx - 3, wy - 15, 7, 10, '#231f1a');
-    rect(lx - 2, wy - 13, 5, 7, T.lamp);
-    rect(lx - 1, wy - 12, 3, 5, '#fff3b8');
-    rect(lx - 4, wy - 16, 9, 1, '#231f1a');
-    rect(lx - 1, wy - 18, 3, 2, '#231f1a');
+    rect(lx + 4, pt + 1, 1, LAYER_H - pt - 2, wc.line);
+    rect(lx - 3, pt - 11, 7, 10, '#231f1a');
+    rect(lx - 2, pt - 9, 5, 7, T.lamp);
+    rect(lx - 1, pt - 8, 3, 5, '#fff3b8');
+    rect(lx - 4, pt - 12, 9, 1, '#231f1a');
+    rect(lx - 1, pt - 14, 3, 2, '#231f1a');
   }
   const flowers = T.blossom ? [T.blossom[2], T.blossom[3]] : ['#f1eedd', '#c9d3b6'];
   const beds = [M + 12, M + W - 12];
@@ -725,7 +733,7 @@ function drawSceneOnce(time) {
   const flick = Math.sin(time * 7) > 0.6 ? 1 : 0;
   for (const l of lanterns) {
     const lx = l - M + wallS;
-    const ly = wb - WALL_H - 10;
+    const ly = wb - WALL_H - BANNER_UP - 10; // the lamp on top of the raised pillar
     ctx.globalAlpha = 0.14;
     disc(lx, ly, 9 + flick, theme.backgroundPalette.lamp);
     ctx.globalAlpha = 0.22;
@@ -974,6 +982,54 @@ const LAMP_STYLES = {
     },
   },
 };
+
+// The stadium banner board behind the court, drawn into the current layer:
+// a dark board with two panels split by a thin divider, THE COURT with a
+// tennis ball flying in, and COURT BITES with a burger and a drink. Text and
+// icons are drawn at double size (z) so the board reads from the back wall.
+const BALL = ['..yyy..', '.yyYyy.', 'yyYyyyy', 'yyyyyYy', 'yYyyyyy', '.yyyYy.', '..yyy..'];
+const BURGER = ['..bbbbb..', '.bBbbBbb.', 'bbbbbbbbb', 'lllllllll', 'ppppppppp', 'ppppppppp', 'ccccccccc', 'ddddddddd', '.ddddddd.'];
+const DRINK = ['....s', '...s.', 'wwwww', 'rRrrr', 'rRrrr', 'wwwww', 'rRrrr', 'rRrrr', '.rrr.'];
+const ICON_C = { y: '#d8f04a', Y: '#f6ffa6', b: '#e0a14a', B: '#fff3c4', l: '#5cbf4a', p: '#7a3b1e', c: '#f2c230', d: '#c98a3a', s: '#f4f1de', w: '#f4f1de', r: '#d8322a', R: '#f26b5e' };
+function sprite(rows, x, y, z) {
+  rows.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && rect(x + i * z, y + j * z, z, z, ICON_C[ch])));
+}
+
+function banner(x0, y0, x1, y1) {
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const z = h >= 30 ? 2 : 1;
+  rect(x0 - 1, y0 - 1, w + 2, h + 1, '#06080d');
+  rect(x0, y0, w, h, '#111a28');
+  rect(x0, y0, w, 1, '#2c3a52');
+  rect(x0, y0 + 1, w, 1, '#1a2538');
+  rect(x0, y1 - 2, w, 1, '#0a1019');
+  const cx = Math.round(x0 + w / 2);
+  rect(cx, y0 + 4, 1, h - 8, '#56657c');
+  const lh = 7 * z; // a line of text
+  const ty = Math.round(y0 + (h - lh * 2 - 2 * z) / 2);
+  const shadow = '#06080d';
+  const words = (a, b, x) => {
+    text(a, x, ty, '#f4f1de', { shadow, scale: z, sp: 0 });
+    text(b, x, ty + lh + 2 * z, '#f4f1de', { shadow, scale: z, sp: 0 });
+  };
+  // Left panel: THE COURT, and a ball flying in on green speed lines.
+  const lw = textW('COURT', z, 0);
+  const left = Math.round(x0 + (cx - x0 - lw - 7 * z - 4 * z) / 2);
+  words('THE', 'COURT', left);
+  const bx = left + lw + 4 * z;
+  const by = Math.round(y0 + h / 2 - 3.5 * z) - z;
+  for (let i = 0; i < 3; i++) rect(bx + 4 * z + i * 2 * z, by + 7 * z + i * z, 2 * z, z, i ? '#2f8f56' : '#5fd38a');
+  sprite(BALL, bx, by, z);
+  // Right panel: COURT BITES, a burger and a drink.
+  const iw = 9 * z + 2 * z + 5 * z;
+  const rx = Math.round(cx + 1 + (x1 - cx - 1 - lw - iw - 3 * z) / 2);
+  words('COURT', 'BITES', rx);
+  const gx = rx + lw + 3 * z;
+  const gy = Math.round(y0 + h / 2 - 4.5 * z);
+  sprite(BURGER, gx, gy, z);
+  sprite(DRINK, gx + 11 * z, gy, z);
+}
 
 // ---------------------------------------------------------------- sprites
 

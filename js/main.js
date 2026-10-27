@@ -100,7 +100,6 @@ function aimCam(to) {
 function enter(name) {
   S.screen = name;
   S.t = 0;
-  if (name === 'title') S.sigT = 0; // the signature builds itself again
   if (name === 'countdown') {
     S.count = BEAT * 3;
     S.beat = 4;
@@ -470,7 +469,6 @@ function toggleMute() {
 
 function update(dt) {
   S.time += dt;
-  if (S.screen === 'title') S.sigT = ((S.sigT || 0) + dt) % SIG.again; // replays like an arcade attract screen
   S.t += dt;
 
   if (S.leaving) {
@@ -1634,12 +1632,10 @@ let gameLayer = null;
 
 // ---- the signature -----------------------------------------------------------
 // "CRAFTED BY / YASHISH" in the game's own pixel font on the landing screen,
-// fixed in place on its plate: a band of light runs across YASHISH pixel by
-// pixel, sparkles twinkle round it, CRAFTED BY catches a glint now and then,
-// and the plate's gold edge lights as the light passes. Bottom right on wide
-// screens, centred on phones.
+// still, on a dark plate with a thin gold edge. Bottom right on wide screens,
+// centred on phones.
 
-const SIG = { by: 'CRAFTED BY', name: 'YASHISH', zoom: 2, again: 14 };
+const SIG = { by: 'CRAFTED BY', name: 'YASHISH', zoom: 2 };
 let sigMasks = null;
 
 // The lit pixels of a line of pixel text, each with a fixed random order.
@@ -1671,61 +1667,32 @@ function drawSignature(k) {
   if (!sigMasks) sigMasks = { by: sigMask(SIG.by, 2), name: sigMask(SIG.name, 1) };
   const { by, name } = sigMasks;
   const z = SIG.zoom;
-  const t = S.sigT || 0;
   const bw = Math.max(by.w, name.w * z) + 14;
   const bh = by.h + 4 + name.h * z + 10;
   const x0 = W >= 400 ? W - 8 - bw : Math.round(W / 2 - bw / 2);
   const y0 = H - 6 - bh;
   const a0 = ctx.globalAlpha;
-  const sweep = ((t + 2) % 2.6) / 2.6; // 0..1 across, then a rest
-
-  // The plate: a dark tile with a gold edge that lights as the shimmer passes.
+  // The plate: a dark tile with a thin gold edge.
   ctx.globalAlpha = a0 * 0.6;
   rrect(x0, y0, bw, bh, 4, PAL.ink);
-  ctx.globalAlpha = a0 * (0.35 + (sweep >= 0 && sweep < 0.6 ? 0.5 * Math.sin((sweep / 0.6) * Math.PI) : 0));
+  ctx.globalAlpha = a0 * 0.45;
   rect(x0 + 4, y0, bw - 8, 1, PAL.yellow);
   rect(x0 + 4, y0 + bh - 1, bw - 8, 1, PAL.yellow);
   rect(x0, y0 + 4, 1, bh - 8, PAL.yellow);
   rect(x0 + bw - 1, y0 + 4, 1, bh - 8, PAL.yellow);
   ctx.globalAlpha = a0;
-
-  // CRAFTED BY, in cream; a few of its pixels glint white in turn.
+  // CRAFTED BY in cream, YASHISH below it in gold, both with a dark drop.
   const byX = Math.round(x0 + bw / 2 - by.w / 2);
   const byY = y0 + 5;
-  const glint = (t * 0.7) % 1;
   for (const p of by.px) {
     rect(byX + p.x + 1, byY + p.y + 1, 1, 1, PAL.ink);
-    rect(byX + p.x, byY + p.y, 1, 1, Math.abs(p.r - glint) < 0.03 ? '#ffffff' : PAL.cream);
+    rect(byX + p.x, byY + p.y, 1, 1, PAL.cream);
   }
-
-  // YASHISH, in gold, with the shimmer crossing it.
-  {
-    const nx = Math.round(x0 + bw / 2 - (name.w * z) / 2);
-    const ny = y0 + 5 + by.h + 4;
-    for (const p of name.px) {
-      const px = nx + p.x * z;
-      const py = ny + p.y * z;
-      // The shimmer: a slanted band of light crossing the letters pixel by pixel.
-      let c = PAL.yellow;
-      if (sweep >= 0) {
-        const band = sweep * (name.w + name.h + 8) - 4 - (p.x + (name.h - p.y));
-        if (Math.abs(band) < 1.4) c = '#ffffff';
-        else if (Math.abs(band) < 3.2) c = PAL.yellowHi;
-      }
-      rect(px + 1, py + 1, z, z, PAL.ink);
-      rect(px, py, z, z, c);
-    }
-    // Sparkles: little pixel stars that twinkle round the name.
-    {
-      [[nx - 4, ny + 1], [nx + name.w * z + 3, ny + 2], [nx + name.w * z * 0.55, ny - 3]].forEach(([sx, sy], i) => {
-        const tw = Math.sin(t * 3.3 + i * 2.1);
-        if (tw < 0.35) return;
-        const arm = tw > 0.85 ? 2 : 1;
-        const col = tw > 0.85 ? '#ffffff' : PAL.yellowHi;
-        rect(Math.round(sx) - arm, Math.round(sy), arm * 2 + 1, 1, col);
-        rect(Math.round(sx), Math.round(sy) - arm, 1, arm * 2 + 1, col);
-      });
-    }
+  const nx = Math.round(x0 + bw / 2 - (name.w * z) / 2);
+  const ny = y0 + 5 + by.h + 4;
+  for (const p of name.px) {
+    rect(nx + p.x * z + 1, ny + p.y * z + 1, z, z, PAL.ink);
+    rect(nx + p.x * z, ny + p.y * z, z, z, PAL.yellow);
   }
 }
 

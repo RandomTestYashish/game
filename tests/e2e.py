@@ -1496,14 +1496,15 @@ def bricks_in_groups(browser, url):
     bad = [i + 1 for i, x in enumerate(g) if x["inner"] < 1 or not x["mirrored"]]
     check("every court is in groups: empty lanes between them, mirrored left and right", not bad, bad[:5])
     # The stadium banner (dark board, #111a28) is on the courts only; the landing keeps its stone wall.
-    has_board = "(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let n=0; for(let i=0;i<d.length;i+=4) if(d[i]===0x11&&d[i+1]===0x1a&&d[i+2]===0x28) n++; return n})()"
+    # Banner board #111a28 and the stands behind it #1f2738, counted together.
+    has_board = "(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let n=0, m=0; for(let i=0;i<d.length;i+=4){ if(d[i]===0x11&&d[i+1]===0x1a&&d[i+2]===0x28) n++; if(d[i]===0x1f&&d[i+1]===0x27&&d[i+2]===0x38) m++; } return Math.min(n, m)})()"
     d.ev("__court.S.timeScale=0.0001")
     time.sleep(0.15)
     on_court = d.ev(has_board)
     d.ev("__court.S.timeScale=1; __court.go('title')")
     d.screen("title", 1.0)
     on_landing = d.ev(has_board)
-    check("the stadium banner shows on the courts, and the landing keeps the stone wall", on_court > 200 and on_landing == 0 and not d.ev("__court.S.screen==='play'"), (on_court, on_landing))
+    check("the stadium banner and the stands with their crowd show on the courts; the landing keeps the stone wall and hedge", on_court > 200 and on_landing == 0 and not d.ev("__court.S.screen==='play'"), (on_court, on_landing))
     check("no console errors (bricks)", not d.errors, d.errors[:3])
     ctx.close()
 
@@ -1578,15 +1579,15 @@ def signature(browser, url):
         check(f"{name}: every load opens on a different theme than the last", all(looks[i] != looks[i - 1] for i in range(1, 4)), looks)
         W, H = d.ev("__court.size()")
         area = f"{int(W * 0.68) if name == 'desktop' else 0},{H - 60},{W},{H}"  # on desktop, clear of the PLAY button
-        d.ev("__court.S.timeScale=0.00001")
-        steps = {}
-        for t in (0.4, 1.2, 3.4):
-            d.ev(f"__court.S.sigT={t}")
-            time.sleep(0.1)
-            steps[t] = {"cream": d.ev(f"{lit}({area},'#efe6c8')")["n"], "gold": d.ev(f"{lit}({area},'#f5e663')"), "white": d.ev(f"{lit}({area},'#ffffff')")["n"]}
-        check(f"{name}: CRAFTED BY and YASHISH are both in place from the start (no build-up, no rise)",
-              steps[0.4]["cream"] > 100 and steps[0.4]["gold"]["n"] > 100 and abs(steps[0.4]["gold"]["mx"] - steps[3.4]["gold"]["mx"]) <= 1, steps)
-        check(f"{name}: the shimmer and glints light some pixels white as it animates in place", steps[3.4]["white"] > 0 or steps[1.2]["white"] > 0, steps)
+        # Two looks a second apart, at normal speed: the signature must not change.
+        snap = lambda: {"cream": d.ev(f"{lit}({area},'#efe6c8')")["n"], "gold": d.ev(f"{lit}({area},'#f5e663')"), "white": d.ev(f"{lit}({area},'#ffffff')")["n"]}
+        first = snap()
+        time.sleep(1.0)
+        second = snap()
+        steps = {3.4: second}
+        check(f"{name}: CRAFTED BY and YASHISH are both there, in cream and gold", first["cream"] > 100 and first["gold"]["n"] > 100, first)
+        check(f"{name}: the signature is still: no animation (nothing changes over a second, no white flashes)",
+              first["cream"] == second["cream"] and first["gold"] == second["gold"] and first["white"] == second["white"] == 0, (first, second))
         g = steps[3.4]["gold"]
         if name == "desktop":
             check("desktop: the signature sits bottom right", g["mx"] > W * 0.6 and g["Mx"] < W - 4, g)

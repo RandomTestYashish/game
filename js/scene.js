@@ -261,6 +261,7 @@ function makeLayers(id, T) {
     }
     for (let i = 0; i < LW * 1.75; i++) rect(rnd() * LW, wy - 23 + rnd() * 24, 1, 1, rnd() < 0.55 ? '#2a5f35' : '#133120');
     for (let x = 0; x < LW; x += 2) if (rnd() < 0.5) rect(x, wy - 24, 1, 1, '#34743f');
+    if (withBanner) stands(wy - 26, wy, T.accent);
     rect(0, wy, LW, WALL_H, wc.base);
     rect(0, wy, LW, 2, wc.top);
     rect(0, wy + 2, LW, 1, wc.top2);
@@ -1003,6 +1004,37 @@ const DRINK = ['....s', '...s.', 'wwwww', 'rRrrr', 'rRrrr', 'wwwww', 'rRrrr', 'r
 const ICON_C = { y: '#d8f04a', Y: '#f6ffa6', b: '#e0a14a', B: '#fff3c4', l: '#5cbf4a', p: '#7a3b1e', c: '#f2c230', d: '#c98a3a', s: '#f4f1de', w: '#f4f1de', r: '#d8322a', R: '#f26b5e' };
 function sprite(rows, x, y, z) {
   rows.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && rect(x + i * z, y + j * z, z, z, ICON_C[ch])));
+}
+
+// Stadium stands behind the banner on the courts: a roof edge, tiers of
+// seats packed with a pixel crowd in mixed shirts, a few flags in the
+// theme's accent, and a railing at the front. Its own random numbers, so the
+// rest of the scene is drawn exactly as before.
+function stands(y0, y1, accent) {
+  const r = mulberry(4242);
+  const w = ctx.canvas.width;
+  const SHIRTS = ['#d8403a', '#3a72d8', '#f2c230', '#eeede4', '#3f9d5a', '#8a4fd0', '#ee7a35', '#2b2f3a'];
+  const SKIN = ['#efc29c', '#d6a072', '#8a5938', '#e3ab7d'];
+  rect(0, y0, w, y1 - y0, '#1f2738');
+  rect(0, y0, w, 2, '#0f141e'); // roof edge
+  rect(0, y0 + 2, w, 1, '#3a4660');
+  const tiers = Math.floor((y1 - y0 - 5) / 6);
+  for (let t = 0; t < tiers; t++) {
+    const ty = y0 + 4 + t * 6;
+    rect(0, ty + 5, w, 1, '#141a26'); // the step under each row
+    for (let x = (t % 2) * 2; x < w - 1; x += 3) {
+      if (r() < 0.12) continue; // an empty seat
+      rect(x, ty + 2, 2, 3, SHIRTS[Math.floor(r() * SHIRTS.length)]);
+      rect(x, ty, 2, 2, SKIN[Math.floor(r() * SKIN.length)]);
+      if (r() < 0.04) rect(x + (r() < 0.5 ? -1 : 2), ty - 2, 1, 3, SKIN[0]); // an arm in the air
+    }
+  }
+  for (let x = 14; x < w; x += 46 + Math.floor(r() * 30)) {
+    rect(x, y0 + 3, 1, 6, '#c9d3d6'); // flag pole
+    rect(x + 1, y0 + 3, 5, 3, accent);
+  }
+  rect(0, y1 - 2, w, 1, '#56657c'); // railing
+  rect(0, y1 - 1, w, 1, '#0f141e');
 }
 
 function banner(x0, y0, x1, y1) {

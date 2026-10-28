@@ -261,7 +261,6 @@ function makeLayers(id, T) {
     }
     for (let i = 0; i < LW * 1.75; i++) rect(rnd() * LW, wy - 23 + rnd() * 24, 1, 1, rnd() < 0.55 ? '#2a5f35' : '#133120');
     for (let x = 0; x < LW; x += 2) if (rnd() < 0.5) rect(x, wy - 24, 1, 1, '#34743f');
-    if (withBanner) stands(wy - 26, wy, T.accent);
     rect(0, wy, LW, WALL_H, wc.base);
     rect(0, wy, LW, 2, wc.top);
     rect(0, wy + 2, LW, 1, wc.top2);
@@ -995,76 +994,67 @@ const LAMP_STYLES = {
 };
 
 // The stadium banner board behind the court, drawn into the current layer:
-// a dark board with two panels split by a thin divider, THE COURT with a
-// tennis ball flying in, and COURT BITES with a burger and a drink. Text and
-// icons are drawn at double size (z) so the board reads from the back wall.
-const BALL = ['..yyy..', '.yyYyy.', 'yyYyyyy', 'yyyyyYy', 'yYyyyyy', '.yyyYy.', '..yyy..'];
-const BURGER = ['..bbbbb..', '.bBbbBbb.', 'bbbbbbbbb', 'lllllllll', 'ppppppppp', 'ppppppppp', 'ccccccccc', 'ddddddddd', '.ddddddd.'];
-const DRINK = ['....s', '...s.', 'wwwww', 'rRrrr', 'rRrrr', 'wwwww', 'rRrrr', 'rRrrr', '.rrr.'];
-const ICON_C = { y: '#d8f04a', Y: '#f6ffa6', b: '#e0a14a', B: '#fff3c4', l: '#5cbf4a', p: '#7a3b1e', c: '#f2c230', d: '#c98a3a', s: '#f4f1de', w: '#f4f1de', r: '#d8322a', R: '#f26b5e' };
-function sprite(rows, x, y, z) {
-  rows.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && rect(x + i * z, y + j * z, z, z, ICON_C[ch])));
-}
-
-// Stadium stands behind the banner on the courts: a roof edge, tiers of
-// seats packed with a pixel crowd in mixed shirts, a few flags in the
-// theme's accent, and a railing at the front. Its own random numbers, so the
-// rest of the scene is drawn exactly as before.
-function stands(y0, y1, accent) {
-  const r = mulberry(4242);
-  const w = ctx.canvas.width;
-  const SHIRTS = ['#d8403a', '#3a72d8', '#f2c230', '#eeede4', '#3f9d5a', '#8a4fd0', '#ee7a35', '#2b2f3a'];
-  const SKIN = ['#efc29c', '#d6a072', '#8a5938', '#e3ab7d'];
-  rect(0, y0, w, y1 - y0, '#1f2738');
-  rect(0, y0, w, 2, '#0f141e'); // roof edge
-  rect(0, y0 + 2, w, 1, '#3a4660');
-  const tiers = Math.floor((y1 - y0 - 5) / 6);
-  for (let t = 0; t < tiers; t++) {
-    const ty = y0 + 4 + t * 6;
-    rect(0, ty + 5, w, 1, '#141a26'); // the step under each row
-    for (let x = (t % 2) * 2; x < w - 1; x += 3) {
-      if (r() < 0.12) continue; // an empty seat
-      rect(x, ty + 2, 2, 3, SHIRTS[Math.floor(r() * SHIRTS.length)]);
-      rect(x, ty, 2, 2, SKIN[Math.floor(r() * SKIN.length)]);
-      if (r() < 0.04) rect(x + (r() < 0.5 ? -1 : 2), ty - 2, 1, 3, SKIN[0]); // an arm in the air
-    }
-  }
-  for (let x = 14; x < w; x += 46 + Math.floor(r() * 30)) {
-    rect(x, y0 + 3, 1, 6, '#c9d3d6'); // flag pole
-    rect(x + 1, y0 + 3, 5, 3, accent);
-  }
-  rect(0, y1 - 2, w, 1, '#56657c'); // railing
-  rect(0, y1 - 1, w, 1, '#0f141e');
+// two logos either side of a thin divider, THE COURT (a tennis ball) and
+// COURT BITES (a burger and a drink). Board, words and logos use only a
+// 16-colour, 4-bit palette (PICO-8's), each logo outlined in black.
+const P4 = {
+  o: '#000000', n: '#1d2b53', v: '#83769c', w: '#fff1e8', y: '#ffec27', g: '#00e436', G: '#008751',
+  b: '#ffa300', p: '#ab5236', r: '#ff004d', k: '#ff77a8', s: '#c2c3c7', d: '#5f574f',
+};
+const LOGO_BALL = [
+  '..ooooo..',
+  '.oywyyyo.',
+  'oyywyyyyo',
+  'oyyywyyyo',
+  'oyyywyyyo',
+  'oyywyyyyo',
+  'oywyyyyyo',
+  '.oyyyyyo.',
+  '..ooooo..',
+];
+const LOGO_BURGER = [
+  '..ooooooo..',
+  '.obbwbbbbo.',
+  'obbbbbwbbbo',
+  'ogGgGgGgGgo',
+  'oyyyyyyyyyo',
+  'oppppppppPo',
+  'obbbbbbbbbo',
+  '.ooooooooo.',
+];
+const LOGO_DRINK = ['....ow', '...ow.', 'ooooo.', 'owwwo.', 'orkro.', 'owwwo.', 'orrro.', 'orrro.', '.ooo..'];
+function logo(rows, x, y) {
+  rows.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && rect(x + i, y + j, 1, 1, P4[ch] || P4.p)));
 }
 
 function banner(x0, y0, x1, y1) {
   const w = x1 - x0;
   const h = y1 - y0;
-  rect(x0 - 1, y0, w + 2, h, '#06080d');
-  rect(x0, y0, w, h, '#111a28');
-  rect(x0, y0, w, 1, '#2c3a52');
-  rect(x0, y1 - 1, w, 1, '#0a1019');
+  rect(x0 - 1, y0, w + 2, h, P4.o);
+  rect(x0, y0, w, h, P4.n);
+  rect(x0, y0, w, 1, P4.v);
+  rect(x0, y1 - 1, w, 1, P4.o);
   const cx = Math.round(x0 + w / 2);
-  rect(cx, y0 + 2, 1, h - 4, '#56657c');
+  rect(cx, y0 + 2, 1, h - 4, P4.v);
   const ty = Math.round(y0 + (h - 7) / 2);
-  const shadow = '#06080d';
-  // The words and icons sit either side of the divider, clear of the court's
-  // side lanterns at the ends of the board.
-  // Left panel: THE COURT, and a ball flying in on green speed lines.
-  const lw = textW('THE COURT', 1, 0);
-  const left = cx - 7 - (lw + 4 + 12);
-  text('THE COURT', left, ty, '#f4f1de', { shadow, sp: 0 });
-  const bx = left + lw + 4;
-  const by = Math.round(y0 + (h - 7) / 2);
-  for (let i = 0; i < 3; i++) rect(bx + 7 + i * 2, by + 4 + i, 2, 1, i ? '#2f8f56' : '#5fd38a');
-  sprite(BALL, bx, by, 1);
-  // Right panel: COURT BITES, a burger and a drink.
-  const rw = textW('COURT BITES', 1, 0);
+  const shadow = P4.o;
+  // The logos sit either side of the divider, clear of the court's side
+  // lanterns at the ends of the board.
+  // THE COURT: the ball badge, then the wordmark.
+  const tw = textW('THE ', 1, 0);
+  const lw = tw + textW('COURT', 1, 0);
+  const left = cx - 7 - (9 + 3 + lw);
+  logo(LOGO_BALL, left, Math.round(y0 + (h - 9) / 2));
+  text('THE', left + 12, ty, P4.w, { shadow, sp: 0 });
+  text('COURT', left + 12 + tw, ty, P4.y, { shadow, sp: 0 });
+  // COURT BITES: the wordmark, then the burger and the drink.
+  const cw = textW('COURT ', 1, 0);
   const rx = cx + 7;
-  text('COURT BITES', rx, ty, '#f4f1de', { shadow, sp: 0 });
-  const gy = Math.round(y0 + (h - 9) / 2);
-  sprite(BURGER, rx + rw + 3, gy, 1);
-  sprite(DRINK, rx + rw + 13, gy, 1);
+  text('COURT', rx, ty, P4.w, { shadow, sp: 0 });
+  text('BITES', rx + cw, ty, P4.b, { shadow, sp: 0 });
+  const ix = rx + cw + textW('BITES', 1, 0) + 3;
+  logo(LOGO_BURGER, ix, Math.round(y0 + (h - 8) / 2));
+  logo(LOGO_DRINK, ix + 12, Math.round(y0 + (h - 9) / 2));
 }
 
 // ---------------------------------------------------------------- sprites

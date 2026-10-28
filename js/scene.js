@@ -995,66 +995,83 @@ const LAMP_STYLES = {
 
 // The stadium banner board behind the court, drawn into the current layer:
 // two logos either side of a thin divider, THE COURT (a tennis ball) and
-// COURT BITES (a burger and a drink). Board, words and logos use only a
-// 16-colour, 4-bit palette (PICO-8's), each logo outlined in black.
-const P4 = {
-  o: '#000000', n: '#1d2b53', v: '#83769c', w: '#fff1e8', y: '#ffec27', g: '#00e436', G: '#008751',
-  b: '#ffa300', p: '#ab5236', r: '#ff004d', k: '#ff77a8', s: '#c2c3c7', d: '#5f574f',
+// COURT BITES (a burger and a drink). Drawn in 12-bit colour (4 bits per
+// channel, written as 3-digit hex), which leaves room for shading: rounded
+// logos, two-tone lettering and a soft gradient on the board.
+const C12 = {
+  o: '#012', // outline
+  // tennis ball: shadow, base, light, highlight, seam
+  a: '#8a1', y: '#ce3', Y: '#ef6', h: '#ffd', e: '#fff',
+  // burger: bun light/mid/dark, sesame, lettuce light/dark, cheese, patty light/dark
+  B: '#fd8', b: '#e93', D: '#b62', S: '#ffe', L: '#7e3', l: '#3a2', c: '#fd3', P: '#843', p: '#521',
+  // drink: cup light/mid/dark, band light/dark, lid, straw
+  R: '#f67', r: '#e23', d: '#a12', w: '#fff', W: '#bcd', i: '#dde', s: '#f45',
 };
 const LOGO_BALL = [
   '..ooooo..',
-  '.oywyyyo.',
-  'oyywyyyyo',
-  'oyyywyyyo',
-  'oyyywyyyo',
-  'oyywyyyyo',
-  'oywyyyyyo',
-  '.oyyyyyo.',
+  '.ohYeyyo.',
+  'oYYyeyyao',
+  'oYyyyeyao',
+  'oyyyyeyao',
+  'oyyyeyyao',
+  'oyyeyyaao',
+  '.oaaaaao.',
   '..ooooo..',
 ];
 const LOGO_BURGER = [
   '..ooooooo..',
-  '.obbwbbbbo.',
-  'obbbbbwbbbo',
-  'ogGgGgGgGgo',
-  'oyyyyyyyyyo',
-  'oppppppppPo',
-  'obbbbbbbbbo',
+  '.oBBSBBBbo.',
+  'oBBbbbSbbbo',
+  'obbSbbbbbDo',
+  'oLlLlLlLlLo',
+  'occcccccc.o',
+  'oPPPPPPPPpo',
+  'oDbbbbbbbDo',
   '.ooooooooo.',
 ];
-const LOGO_DRINK = ['....ow', '...ow.', 'ooooo.', 'owwwo.', 'orkro.', 'owwwo.', 'orrro.', 'orrro.', '.ooo..'];
+const LOGO_DRINK = ['....wo', '...so.', 'oiiiio', 'oRrrdo', 'owwWWo', 'oRrrdo', 'oRrrdo', '.oddo.'];
 function logo(rows, x, y) {
-  rows.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && rect(x + i, y + j, 1, 1, P4[ch] || P4.p)));
+  rows.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && C12[ch] && rect(x + i, y + j, 1, 1, C12[ch])));
+}
+// Two-tone lettering: the lower part in `lo`, the top three rows in `hi`.
+function word(str, x, y, hi, lo) {
+  text(str, x, y, lo, { shadow: C12.o, sp: 0 });
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x - 1, y, textW(str, 1, 0) + 2, 3);
+  ctx.clip();
+  text(str, x, y, hi, { sp: 0 });
+  ctx.restore();
 }
 
 function banner(x0, y0, x1, y1) {
   const w = x1 - x0;
   const h = y1 - y0;
-  rect(x0 - 1, y0, w + 2, h, P4.o);
-  rect(x0, y0, w, h, P4.n);
-  rect(x0, y0, w, 1, P4.v);
-  rect(x0, y1 - 1, w, 1, P4.o);
+  rect(x0 - 1, y0, w + 2, h, C12.o);
+  const grad = ['#246', '#235', '#124', '#124', '#123', '#113', '#013', '#012'];
+  for (let j = 0; j < h; j++) rect(x0, y0 + j, w, 1, grad[Math.min(grad.length - 1, Math.floor((j / h) * grad.length))]);
+  rect(x0, y0, w, 1, '#fc4'); // thin gold trim
+  rect(x0, y1 - 1, w, 1, '#001');
   const cx = Math.round(x0 + w / 2);
-  rect(cx, y0 + 2, 1, h - 4, P4.v);
-  const ty = Math.round(y0 + (h - 7) / 2);
-  const shadow = P4.o;
+  rect(cx, y0 + 2, 1, h - 4, '#879');
+  const ty = Math.round(y0 + (h - 7) / 2) + 1;
   // The logos sit either side of the divider, clear of the court's side
   // lanterns at the ends of the board.
-  // THE COURT: the ball badge, then the wordmark.
+  // THE COURT: the ball, then the wordmark.
   const tw = textW('THE ', 1, 0);
   const lw = tw + textW('COURT', 1, 0);
   const left = cx - 7 - (9 + 3 + lw);
-  logo(LOGO_BALL, left, Math.round(y0 + (h - 9) / 2));
-  text('THE', left + 12, ty, P4.w, { shadow, sp: 0 });
-  text('COURT', left + 12 + tw, ty, P4.y, { shadow, sp: 0 });
+  logo(LOGO_BALL, left, Math.round(y0 + (h - 9) / 2) + 1);
+  word('THE', left + 12, ty, '#fff', '#bcd');
+  word('COURT', left + 12 + tw, ty, '#ff8', '#fb2');
   // COURT BITES: the wordmark, then the burger and the drink.
   const cw = textW('COURT ', 1, 0);
   const rx = cx + 7;
-  text('COURT', rx, ty, P4.w, { shadow, sp: 0 });
-  text('BITES', rx + cw, ty, P4.b, { shadow, sp: 0 });
+  word('COURT', rx, ty, '#fff', '#bcd');
+  word('BITES', rx + cw, ty, '#fc6', '#f72');
   const ix = rx + cw + textW('BITES', 1, 0) + 3;
-  logo(LOGO_BURGER, ix, Math.round(y0 + (h - 8) / 2));
-  logo(LOGO_DRINK, ix + 12, Math.round(y0 + (h - 9) / 2));
+  logo(LOGO_BURGER, ix, Math.round(y0 + (h - 9) / 2) + 1);
+  logo(LOGO_DRINK, ix + 12, Math.round(y0 + (h - 8) / 2) + 1);
 }
 
 // ---------------------------------------------------------------- sprites

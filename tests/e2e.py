@@ -1496,15 +1496,15 @@ def bricks_in_groups(browser, url):
     bad = [i + 1 for i, x in enumerate(g) if x["inner"] < 1 or not x["mirrored"]]
     check("every court is in groups: empty lanes between them, mirrored left and right", not bad, bad[:5])
     # The stadium banner (dark board, #111a28) is on the courts only; the landing keeps its stone wall.
-    # The banner board is the 4-bit navy #1d2b53; no stands (#1f2738) anywhere.
-    has_board = "(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let n=0, m=0; for(let i=0;i<d.length;i+=4){ if(d[i]===0x1d&&d[i+1]===0x2b&&d[i+2]===0x53) n++; if(d[i]===0x1f&&d[i+1]===0x27&&d[i+2]===0x38) m++; } return m ? -m : n})()"
+    # The banner board's navy (#112244, 12-bit #124) and its gold trim (#ffcc44); no stands (#1f2738) anywhere.
+    has_board = "(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let n=0, g=0, m=0; for(let i=0;i<d.length;i+=4){ if(d[i]===0x11&&d[i+1]===0x22&&d[i+2]===0x44) n++; if(d[i]===0xff&&d[i+1]===0xcc&&d[i+2]===0x44) g++; if(d[i]===0x1f&&d[i+1]===0x27&&d[i+2]===0x38) m++; } return m ? -m : Math.min(n, g * 4)})()"
     d.ev("__court.S.timeScale=0.0001")
     time.sleep(0.15)
     on_court = d.ev(has_board)
     d.ev("__court.S.timeScale=1; __court.go('title')")
     d.screen("title", 1.0)
     on_landing = d.ev(has_board)
-    check("the 4-bit banner shows on the courts (no stands or crowd); the landing keeps the stone wall and hedge", on_court > 200 and on_landing == 0 and not d.ev("__court.S.screen==='play'"), (on_court, on_landing))
+    check("the 12-bit banner shows on the courts (no stands or crowd); the landing keeps the stone wall and hedge", on_court > 200 and on_landing == 0 and not d.ev("__court.S.screen==='play'"), (on_court, on_landing))
     check("no console errors (bricks)", not d.errors, d.errors[:3])
     ctx.close()
 

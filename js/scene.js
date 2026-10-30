@@ -1059,23 +1059,15 @@ function word(str, x, y, hi, lo) {
 // The crowd. Shirts are muted so the stands sit back behind the play.
 const FAN_SKIN = ['#e3c2a2', '#cfa182', '#a37859', '#71503a'];
 const FAN_HAIR = ['#2a1b12', '#5a3a1e', '#1c1c1c', '#b89a52', '#6f3220'];
-// The stands and the crowd take their colours from the court's theme: the
-// stands are built of the same stone as its wall, and the fans wear the
-// colours of its sky, accent and gardens, softened toward the stone so they
-// sit in the scene instead of jumping out of it.
+// The stands match the banner: black, lifted just enough that the tiers
+// read, with the banner's grey edge. The fans wear the banner's colours (the
+// wordmark's white, blue-grey, yellow and gold, the bites' orange and red,
+// the ball's green), toned a little so they don't outshine the play.
+const BANNER_STAND = { top: '#1c1d21', face: '#111215', lip: '#333333' };
+const BANNER_SHIRTS = ['#ffffff', '#bbccdd', '#ffff88', '#ffbb22', '#ffcc66', '#ff7722', '#ee2233', '#ccee33'];
 let crowdLook = null;
 function crowdColours() {
-  const key = theme.countryId + (theme.isBlackCourt ? ':b' : '');
-  if (crowdLook && crowdLook.key === key) return crowdLook;
-  const bg = theme.backgroundPalette;
-  const w = bg.wall;
-  const night = theme.isBlackCourt;
-  const k = night ? -0.45 : -0.12; // the stands in shadow on a Black Court
-  const stand = { top: shade(w.top2, k), face: shade(w.line, k), lip: shade(w.top, k) };
-  const sky = bg.sky;
-  const picks = [theme.accentColor, sky[sky.length - 2], sky[sky.length - 3], sky[sky.length - 1], theme.courtPalette.lines || '#e8e4c9', bg.trees.hi, (bg.blossom || bg.clouds)[1], w.top];
-  const shirts = picks.map((c) => mix(c, stand.top, night ? 0.45 : 0.3));
-  crowdLook = { key, stand, shirts };
+  if (!crowdLook) crowdLook = { stand: BANNER_STAND, shirts: BANNER_SHIRTS.map((c) => mix(c, BANNER_STAND.top, 0.22)) };
   return crowdLook;
 }
 // Blend two #rrggbb colours: k = 0 gives a, 1 gives b.

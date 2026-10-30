@@ -73,7 +73,7 @@ function generate(n) {
   if (C % 2 === 0) C++;
   const cell = Math.min(28, 196 / C);
   const R = Math.max(5, Math.round(C * 0.84));
-  const row = Math.min(20, cell * 0.72, FIELD / R);
+  const row = Math.min(20, cell * 0.72, (FIELD - 8) / R); // a little short of FIELD, leaving room to drift
   const mid = (C - 1) / 2;
   const slate = 0.03 + hard * 0.14;
   const rows = [];
@@ -103,14 +103,14 @@ function generate(n) {
     row,
     cols: C,
     most: Math.floor(FIELD / row),
-    drift: n >= 10 && hash(n, 7, 7) < 0.5 ? Math.round(2 + hard * 5) : 0,
+    drift: n >= 10 && hash(n, 7, 7) < 0.5 ? Math.round(3 + hard * 5) : 0,
   };
 }
 
 export const LEVELS = [];
 for (let n = 0; n < COUNT; n++) {
   // The hand-made courts keep their drawn layouts at full block size.
-  const lv = n < HAND.length ? { ...HAND[n], cell: 28, row: 20, cols: 7, most: Math.floor(FIELD / 20) } : generate(n);
+  const lv = n < HAND.length ? { ...HAND[n], cell: 28, row: 20, cols: 7, most: Math.max(HAND[n].rows.length, Math.floor(FIELD / 20)) } : generate(n);
   lv.blocks = lv.rows.join('').replace(/\./g, '').length;
   // Gentle growth: court 120 serves at 213, with a racket that narrows a little.
   lv.speed = Math.round(165 + n * 0.4);

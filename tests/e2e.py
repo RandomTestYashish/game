@@ -224,10 +224,12 @@ async () => {
   g = fresh(); g.launch(); g.applyTool('multiball');
   out.multiball = g.balls.length === 3 && g.balls.every(q => Math.abs(Math.hypot(q.vx, q.vy) - 1) < 1e-6);
 
-  // Smash: a hedge with blocks behind it and none in front, on the first court with hedges.
-  g = fresh(hl); g.launch(); g.applyTool('smash'); b = g.balls[0];
+  // Smash: a hedge with blocks behind it and none in front, on the first court that has one.
   const sameCol = (o, q) => o !== q && Math.abs(o.x + o.w / 2 - (q.x + q.w / 2)) < 1;
-  blk = g.blocks.find(q => q.type === 'H' && g.blocks.some(o => sameCol(o, q) && o.y < q.y) && !g.blocks.some(o => sameCol(o, q) && o.y > q.y));
+  const frontHedge = (gg) => gg.blocks.find(q => q.type === 'H' && gg.blocks.some(o => sameCol(o, q) && o.y < q.y) && !gg.blocks.some(o => sameCol(o, q) && o.y > q.y));
+  const sm = LEVELS.findIndex(l => frontHedge(new Game(l)));
+  g = fresh(sm); g.launch(); g.applyTool('smash'); b = g.balls[0];
+  blk = frontHedge(g);
   const before = g.remaining;
   Object.assign(b, { x: blk.x + blk.w / 2, y: blk.y + blk.d + 10, vx: 0, vy: -1 }); run(g, 0.35);
   out.smash = !blk.alive && g.remaining <= before - 2 && b.y < blk.y;

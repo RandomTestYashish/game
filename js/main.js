@@ -8,7 +8,7 @@ import { sections } from './rules.js';
 import { LEVELS } from './levels.js';
 import { drawGame, drawHUD, hudRows } from './render.js';
 import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, panel } from './ui.js';
-import { AudioSys } from './audio.js';
+import { AudioSys, COURT_TRACKS, RUSH_TEMPO } from './audio.js';
 import { Save, BOARD_SIZE, cleanName } from './save.js';
 import { onlineEnabled } from './config.js';
 import { fetchTopScores, submitScore, nameTaken } from './remote.js';
@@ -29,6 +29,7 @@ const CAM = { loading: 0, title: 0, intro: 0.14, courts: 0.38, tools: 0.5, count
 const GAME_SCREENS = new Set(['countdown', 'play', 'paused', 'complete', 'name']);
 const PER_PAGE = 20;
 const KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ-';
+const DIGITS = '1234567890';
 const LEAVE = 0.2;
 const BEAT = 0.75; // seconds per countdown number
 
@@ -134,12 +135,38 @@ function onGameEvent(type, arg) {
     audio.sfx('power');
   }
   if (type === 'win') S.cheer = { at: S.time }; // the finish: slow motion, flash, fireworks
+  if (type === 'break') {
+    // Big moments get the crowd going: a combo milestone, or a burst of bricks at once.
+    S.breaks = (S.breaks || []).filter((t) => S.time - t < BURST_WINDOW);
+    S.breaks.push(S.time);
+    if (arg >= 5 && arg % 5 === 0) crowdCheer(arg >= 10 ? 2 : 1);
+    else if (S.breaks.length >= BURST_BREAKS) crowdCheer(S.breaks.length >= 5 ? 2 : 1);
+  }
+  if (type === 'rush') crowdCheer(1);
+  if (type === 'win') crowdCheer(3);
   // Analytics only while the run is live: a quit run's ball may still roll out behind the name screen.
   const live = S.run && !S.run.over;
   if (live && (type === 'lost' || type === 'over')) track('life_lost', { court: S.level + 1, lives_left: S.game.lives, run_score: S.game.score });
   if (live && type === 'power') track('powerup_used', { powerup: arg, court: S.level + 1 });
   if (S.coach) coachEvent(type);
   if (type === 'win' || type === 'over') finish(type === 'win');
+}
+
+// The crowd behind the court cheers (and roars) at big moments; strength 1-3.
+const BURST_WINDOW = 0.45; // seconds
+const BURST_BREAKS = 3; // bricks broken inside the window that count as a burst
+const CROWD_GAP = 1.2; // seconds before the crowd can start another cheer
+function crowdCheer(big) {
+  if (S.crowd && S.time - S.crowd.at < CROWD_GAP && big <= S.crowd.big) return;
+  S.crowd = { at: S.time, big };
+  S.breaks = [];
+  audio.sfx('cheer', big);
+}
+const CROWD_LEN = 1.8; // seconds the fans keep jumping
+function crowdHype() {
+  if (!S.crowd || !GAME_SCREENS.has(S.screen)) return 0;
+  const k = 1 - (S.time - S.crowd.at) / (CROWD_LEN + S.crowd.big * 0.4);
+  return k <= 0 ? 0 : Math.min(1, k * 1.5) * (0.6 + S.crowd.big * 0.2);
 }
 
 // A run starts on any court with START_LIVES lives and carries score and lives
@@ -431,13 +458,13 @@ function chooseTheme(choice) {
   save.commit();
 }
 
-// Menus play Stage Select; courts play Stage 1 (Japan, London) or Stage 2
-// (New York, India); every Black Court plays Boss Fight.
+// Menus play Stage Select; the courts take turns through five pump-up tracks
+// so the music changes every court; every Black Court plays Boss Fight.
 function musicFor(look) {
   const inGame = GAME_SCREENS.has(S.screen) && S.game;
   if (!inGame) return 'select';
   if (look.isBlackCourt) return 'boss';
-  return look.countryId === 'japan' || look.countryId === 'london' ? 'stage1' : 'stage2';
+  return COURT_TRACKS[S.level % COURT_TRACKS.length];
 }
 
 // The theme for the court being played (or last played, in the menus).
@@ -1265,7 +1292,7 @@ const SCREENS = {
     if (!run) return;
     const scored = run.score > 0;
     const w = 206;
-    const h = scored ? 200 : 150;
+    const h = scored ? 219 : 150;
     const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2) - 2;
     const retry = () => beginRun(S.level);
@@ -1295,16 +1322,17 @@ const SCREENS = {
       rect(W / 2 - 57, y + 61, 114, 19, PAL.panel);
       const shown = S.name + (S.name.length < 8 && Math.floor(S.time * 2.5) % 2 ? '_' : '');
       text(shown || ' ', W / 2 - 50, y + 64, PAL.yellow, { scale: 2, sp: 1 });
-      [...KEYS, 'del'].forEach((ch, i) => {
-        const kx = x + 12 + (i % 7) * 26;
-        const ky = y + 88 + Math.floor(i / 7) * 19;
+      const key = (ch, kx, ky, kw) => {
         const id = 'key' + ch;
         const on = ui.hover === id || ui.pressed === id;
-        rect(kx, ky, 25, 18, PAL.creamLo);
-        rect(kx, ky, 25, 17, on ? PAL.yellow : '#f8f2dd');
-        text(ch === 'del' ? '<' : ch, kx + 13, ky + 5, PAL.ink, { align: 'center' });
-        region(id, kx, ky, 26, 19, () => typeKey(ch));
-      });
+        rect(kx, ky, kw, 18, PAL.creamLo);
+        rect(kx, ky, kw, 17, on ? PAL.yellow : '#f8f2dd');
+        text(ch === 'del' ? '<' : ch, kx + Math.ceil(kw / 2), ky + 5, PAL.ink, { align: 'center' });
+        region(id, kx, ky, kw + 1, 19, () => typeKey(ch));
+      };
+      // A row of numbers across the top, then the letters seven to a row.
+      [...DIGITS].forEach((ch, i) => key(ch, x + 12 + Math.round(i * 18.3), y + 88, 17));
+      [...KEYS, 'del'].forEach((ch, i) => key(ch, x + 12 + (i % 7) * 26, y + 107 + Math.floor(i / 7) * 19, 25));
       pill('save', 'SAVE SCORE', W / 2, y + h - 31, 130, 18, saveScore);
     });
     S.primary = scored ? saveScore : retry;
@@ -1832,10 +1860,12 @@ function draw() {
   P.landing = easeInOut(S.landing);
   setCam(S.cam + S.pitch, S.shift);
   P.banner = GAME_SCREENS.has(S.screen); // the banner board shows on the courts, the stone wall elsewhere
+  P.hype = crowdHype();
   say(ARIA);
   const look = courtTheme();
   setTheme(look);
   audio.setTrack(musicFor(look));
+  audio.setRate(GAME_SCREENS.has(S.screen) && S.game && S.game.rush ? RUSH_TEMPO : 1);
   beginUI();
   S.primary = null;
   S.back = null;
@@ -1999,7 +2029,7 @@ window.addEventListener('keydown', (e) => {
     if (k === 'backspace') typeKey('del');
     else if (k === 'enter') S.primary && S.primary();
     else if (k === 'escape') S.back && S.back();
-    else if (k.length === 1 && KEYS.includes(k.toUpperCase())) typeKey(k.toUpperCase());
+    else if (k.length === 1 && (KEYS + DIGITS).includes(k.toUpperCase())) typeKey(k.toUpperCase());
     else return;
     e.preventDefault();
     return;
@@ -2102,6 +2132,6 @@ async function boot() {
   S.ready = true;
 }
 
-if (debug) window.__court = { S, save, audio, ui, LEVELS, go, beginRun, proj, size: () => [W, H], onlineEnabled, getCourtTheme, currentTheme };
+if (debug) window.__court = { S, P, save, audio, ui, LEVELS, go, beginRun, proj, size: () => [W, H], onlineEnabled, getCourtTheme, currentTheme };
 
 boot();

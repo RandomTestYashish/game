@@ -1,15 +1,21 @@
 // Synthesised sound effects and a small generative music loop (Web Audio).
 // Nothing is created until the first user gesture calls unlock().
 
-// Background music: four CC0 tracks by Juhani Junkala ("Chiptune
-// Adventures", opengameart.org/content/4-chiptunes-adventure), as AAC files
-// in assets/music. They are fetched after the first tap and loop seamlessly.
+// Background music: CC0 tracks by Juhani Junkala ("Chiptune Adventures" and
+// "5 Chiptunes (Action)", opengameart.org), as AAC files in assets/music.
+// They are fetched after the first tap and loop seamlessly.
 export const TRACKS = {
   select: 'assets/music/select.m4a', // menus
-  stage1: 'assets/music/stage1.m4a', // Japan and London courts
-  stage2: 'assets/music/stage2.m4a', // New York and India courts
+  stage1: 'assets/music/stage1.m4a',
+  stage2: 'assets/music/stage2.m4a',
+  action1: 'assets/music/action1.m4a',
+  action2: 'assets/music/action2.m4a',
+  action3: 'assets/music/action3.m4a',
   boss: 'assets/music/boss.m4a', // every Black Court
 };
+// The courts take turns through these, so the music changes every court.
+export const COURT_TRACKS = ['action1', 'stage1', 'action2', 'stage2', 'action3'];
+export const RUSH_TEMPO = 1.08; // Power Rush plays the music a touch faster
 const TRACK_GAIN = 0.55; // the files are mastered loud; this sits them under the effects
 const XFADE = 0.9; // seconds to cross-fade from one track to the next
 
@@ -30,6 +36,13 @@ export class AudioSys {
     if (!TRACKS[name]) return;
     this.want = name;
     if (this.ac && this.playing && name !== this.current) this.play(name);
+  }
+
+  // Speed the music up a little (Power Rush) or back to normal.
+  setRate(rate) {
+    if (this.rate === rate) return;
+    this.rate = rate;
+    if (this.voice && this.ac) this.voice.src.playbackRate.setTargetAtTime(rate, this.ac.currentTime, 0.3);
   }
 
   unlock() {
@@ -189,6 +202,37 @@ export class AudioSys {
       case 'win':
         [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, 0.22, 'square', 0.13, { delay: i * 0.11 }));
         break;
+      case 'cheer': {
+        // A crowd roar: a swell of filtered noise, a few whoops and claps.
+        const big = Math.min(arg || 1, 3);
+        const t = this.ac.currentTime;
+        const roar = (cut, vol, dur) => {
+          const src = this.ac.createBufferSource();
+          src.buffer = this.noiseBuf;
+          src.loop = true;
+          const f = this.ac.createBiquadFilter();
+          f.type = 'bandpass';
+          f.frequency.value = cut;
+          f.Q.value = 0.8;
+          const g = this.ac.createGain();
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.linearRampToValueAtTime(vol, t + 0.12);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+          src.connect(f);
+          f.connect(g);
+          g.connect(this.sfxG);
+          src.start(t);
+          src.stop(t + dur + 0.05);
+        };
+        roar(900, 0.16 + big * 0.04, 0.7 + big * 0.25);
+        roar(2200, 0.08 + big * 0.02, 0.5 + big * 0.2);
+        for (let i = 0; i < 2 + big; i++) {
+          const f = 600 + Math.random() * 500;
+          this.tone(f, 0.22, 'triangle', 0.07, { to: f * 1.6, delay: 0.05 + i * 0.09 + Math.random() * 0.05 });
+        }
+        for (let i = 0; i < 4 + big * 3; i++) this.noise(0.03, 0.12, 3000, { type: 'highpass', delay: 0.1 + i * 0.07 + Math.random() * 0.04 });
+        break;
+      }
       case 'over':
         [392, 330, 262, 196].forEach((f, i) => this.tone(f, 0.3, 'triangle', 0.3, { delay: i * 0.17 }));
         break;
@@ -233,6 +277,7 @@ export class AudioSys {
     src.loop = true;
     src.loopStart = track.start;
     src.loopEnd = track.end;
+    src.playbackRate.value = this.rate || 1;
     const g = this.ac.createGain();
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(TRACK_GAIN, t + (this.voice ? XFADE : 0.4));

@@ -1,6 +1,6 @@
 # The Court
 
-A fast 2.5D pixel-art block-breaker set on a garden tennis court at dusk. 120 courts, six tools, a leaderboard, local saves, synthesised sound. Plain HTML, CSS and JavaScript modules: no build step, no dependencies, no image files; the only audio files are the four music tracks in `assets/music`.
+A fast 2.5D pixel-art block-breaker set on a garden tennis court at dusk. 120 courts, six tools, a leaderboard, local saves, synthesised sound. Plain HTML, CSS and JavaScript modules: no build step, no dependencies, no image files; the only audio files are the seven music tracks in `assets/music`.
 
 ## Setup
 
@@ -73,16 +73,17 @@ Every court is dressed as one of four countries, and every third court has a Bla
 
 On a Black Court the surface turns near-black, the lines take the country's accent colour, and the paddle gets a pale rim so it stays visible. The background stays the country's.
 
-**Music follows the theme.** The background music is "Chiptune Adventures" by Juhani Junkala (CC0, [opengameart.org](https://opengameart.org/content/4-chiptunes-adventure)), four looping tracks in `assets/music` (see `CREDITS.txt` there):
+**Music changes every court.** The background music is by Juhani Junkala (CC0): "Chiptune Adventures" ([opengameart.org](https://opengameart.org/content/4-chiptunes-adventure)) and "5 Chiptunes (Action)" ([opengameart.org](https://opengameart.org/content/5-chiptunes-action)), seven looping tracks in `assets/music` (see `CREDITS.txt` there):
 
 | When | Track |
 |---|---|
-| Landing, courts, leaderboard | Stage Select |
-| Japan and London courts | Stage 1 |
-| New York and India courts | Stage 2 |
+| Landing, leaderboard and other menus | Stage Select |
+| Courts, in turn (court 1, 2, 3...) | Action 1, Stage 1, Action 2, Stage 2, Action 3, round again |
 | Every Black Court | Boss Fight |
 
-`js/audio.js` fetches the tracks after the first tap (browsers allow sound only after one), loops each one, and cross-fades over about 0.9 s when the track changes. Sound effects are still synthesised.
+During a Power Rush the music plays about 8% faster. `js/audio.js` fetches the tracks after the first tap (browsers allow sound only after one), loops each one, and cross-fades over about 0.9 s when the track changes. Sound effects are still synthesised.
+
+**The crowd.** On the courts a few fans sit on two terraces behind the banner, with empty seats between them. At a big moment (every fifth brick in a combo, three or more bricks inside about half a second, the Power Rush, and the finish) they jump with their arms up and a crowd cheer plays. The side lamps send rings of light out from the lantern and across the grass beneath, so it is plain they are on.
 
 **Choosing a theme.** PLAY goes straight into the game on Automatic. Every visit turns the rotation to start on a different country than the last visit did (kept in `localStorage` under `the-court.look`, apart from the save). The theme can be changed from Pause, then Theme: Automatic or one of the four countries. Automatic follows the rotation. Picking a country keeps that country on every court until Automatic is picked again. The choice is saved with the sound settings (`settings.theme`: `auto`, `japan`, `newyork`, `london` or `india`). A change of theme cross-fades over about 0.35 s.
 

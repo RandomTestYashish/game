@@ -767,7 +767,7 @@ def touch_device(browser, url, name, w, h):
     d.ev("__court.S.game.score=420; __court.S.run.score=420")
     d.tap("home")
     d.screen("name", 0.8)
-    for key in ("keyT", "keyA", "keyP", "keyP", "keydel"):
+    for key in ("keyT", "key2", "keyP", "keyP", "keydel"):
         d.tap(key)
         time.sleep(0.05)
     d.shot(f"{name}-name")
@@ -775,7 +775,7 @@ def touch_device(browser, url, name, w, h):
     d.screen("scores", 0.8)
     d.shot(f"{name}-leaderboard")
     top = d.saved()["leaderboard"][0]
-    check(f"{name}: name typed on the on-screen keys reaches the leaderboard", top["name"] == "TAP" and top["score"] == 420, top)
+    check(f"{name}: name typed on the on-screen keys (letters and numbers) reaches the leaderboard", top["name"] == "T2P" and top["score"] == 420, top)
     d.tap("home")
     d.screen("title", 0.6)
 
@@ -1128,7 +1128,7 @@ def themes(browser, url):
         name = f"{t['countryId']}{' black' if t['isBlackCourt'] else ''}"
         check(f"court {court}: {name} is drawn (ground is {colour}, a court colour)", colour.lower() in (pal["court"].lower(), pal["alt"].lower()) and [t["countryId"], t["isBlackCourt"]] == got[court - 1], (colour, pal))
         d.shot(f"theme-c{court}-{name.replace(' ', '-')}")
-        want_track = "boss" if t["isBlackCourt"] else ("stage1" if t["countryId"] in ("japan", "london") else "stage2")
+        want_track = "boss" if t["isBlackCourt"] else ["action1", "stage1", "action2", "stage2", "action3"][(court - 1) % 5]
         check(f"court {court}: music is {want_track}", d.ev("__court.audio.want") == want_track)
     check("ball, paddle and HUD still drawn on a Black Court", d.ev("__court.S.game.balls.length>0") and d.ev("__court.S.screen") == "play")
 
@@ -1773,6 +1773,20 @@ def finale(browser, url):
     d.ev("(()=>{const g=__court.S.game; const live=g.blocks.filter(q=>q.alive); live.slice(1).forEach(q=>q.alive=false); g.remaining=1; const b=live[0]; g.balls=[g.balls[0]]; g.drops=[]; Object.assign(g.balls[0],{stuck:false,x:b.x+b.w/2,y:b.y+b.d+6,vx:0,vy:-1}); b.hp=1;})()")
     d.wait("__court.S.cheer && __court.S.time-__court.S.cheer.at>0.5", 10000)
     check("the last brick sets off the finish (fireworks and COURT CLEAR!)", d.ev("__court.S.game.state==='won'"))
+    check("the crowd behind the court cheers at the finish", d.ev("__court.S.crowd && __court.S.crowd.big===3"))
+    # Big moments in play: a combo of five, or three bricks inside half a second.
+    d.ev("__court.S.introSeen=true; __court.beginRun(12)")
+    d.wait("__court.S.screen==='play' && __court.S.game.ready", 30000)
+    d.ev("__court.S.crowd=null; __court.S.game.emit('break', 5)")
+    check("a five-brick combo makes the crowd cheer", d.ev("__court.S.crowd && __court.S.crowd.big===1"))
+    time.sleep(0.1)
+    check("the cheering crowd shows on the court (hype > 0)", d.ev("__court.P.hype") > 0, d.ev("__court.P.hype"))
+    d.ev("__court.S.crowd=null; __court.S.breaks=[]; ['break','break','break'].forEach(e=>__court.S.game.emit(e, 1))")
+    check("three bricks at once make the crowd cheer", d.ev("!!__court.S.crowd"))
+    d.ev("__court.S.crowd=null; __court.S.breaks=[]; __court.S.game.emit('break', 2)")
+    check("an ordinary break leaves the crowd calm", d.ev("__court.S.crowd===null"))
+    tracks = d.ev("(async()=>{const {TRACKS}=await import('/js/audio.js'); const out={}; for (const k in TRACKS) out[k]=(await fetch(TRACKS[k])).status; return out})()")
+    check("all seven music tracks are there", len(tracks) == 7 and all(v == 200 for v in tracks.values()), tracks)
     check("no console errors (finale)", not d.errors, d.errors[:3])
     ctx.close()
 

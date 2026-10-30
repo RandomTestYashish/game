@@ -1,7 +1,7 @@
 // The garden court: camera projection, parallax background layers and the
 // shared sprite painters (blocks, ball, paddle).
 
-import { W, H, ctx, PAL, makeLayer, setTarget, rect, disc, ellipse, line, trap, rrect, text, textW, lerp, mulberry, bayer } from './gfx.js';
+import { W, H, ctx, PAL, makeLayer, setTarget, rect, disc, ring, ellipse, line, trap, rrect, text, textW, lerp, mulberry, bayer } from './gfx.js';
 import { WW, WH, PADDLE_Y } from './game.js';
 import { COUNTRIES } from './themes.js';
 
@@ -11,7 +11,8 @@ import { COUNTRIES } from './themes.js';
 // everything nearer or farther slides against it.
 
 // landing 1 = the bare first screen (no net, no overhanging canopy).
-export const P = { cam: 0, wb: 0, hor: 0, G: 1, dFar: 1.45, kx: 1.16, cx: W / 2, shift: 0, sRef: 1, landing: 0, banner: false };
+export const P = { cam: 0, wb: 0, hor: 0, G: 1, dFar: 1.45, kx: 1.16, cx: W / 2, shift: 0, sRef: 1, landing: 0, banner: false, hype: 0 };
+// hype 0..1: how hard the crowd behind the court is cheering right now.
 
 export function setCam(cam, shift = 0) {
   P.cam = cam;
@@ -650,7 +651,10 @@ function drawSceneOnce(time) {
   ctx.drawImage(L.land, -M + landS, Math.round(wallTop - LAND_H - 22 + cam * 4));
   ctx.drawImage(L.trees, -M + treeS, Math.round(wallTop - 96 - 12 + cam * 9));
   ctx.drawImage(L.wall, -M + wallS, wb - LAYER_H);
-  if (P.banner) drawBanner(time);
+  if (P.banner) {
+    drawStands(time);
+    drawBanner(time);
+  }
 
   // Grass with mowing stripes.
   const cp = theme.courtPalette;
@@ -866,8 +870,28 @@ function drawSides(time) {
       disc(light.x, light.y, u(7), style.glow);
       ctx.globalAlpha = a0 * Math.min(0.7, 0.35 * flick * night);
       disc(light.x, light.y, u(3), style.core);
+      // Ripples: rings of light pulse out from the lamp and across the grass
+      // beneath it, so it is plain the lights are on.
+      for (let k = 0; k < 2; k++) {
+        const q = (time * 0.7 + k * 0.5 + ly * 0.013 + (side > 0 ? 0.25 : 0)) % 1;
+        const fade = (1 - q) * (1 - q);
+        ctx.globalAlpha = a0 * Math.min(0.9, 0.75 * fade * night);
+        ring(light.x, light.y, Math.max(2, (3 + 15 * q) * s), q < 0.35 ? style.core : style.glow);
+        ctx.globalAlpha = a0 * Math.min(0.7, 0.5 * fade * night);
+        ellipseRing(b.x + side * -u(4), b.y, (4 + 20 * q) * s * night, (1 + 5 * q) * s * night, style.glow);
+      }
       ctx.globalAlpha = a0;
     }
+  }
+}
+
+// The outline of an ellipse, a pixel at a time.
+function ellipseRing(cx, cy, rx, ry, c) {
+  ctx.fillStyle = c;
+  const steps = Math.ceil(rx * 7);
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    ctx.fillRect(Math.round(cx + Math.cos(a) * rx), Math.round(cy + Math.sin(a) * ry), 1, 1);
   }
 }
 
@@ -1026,6 +1050,59 @@ function word(str, x, y, hi, lo) {
   ctx.clip();
   text(str, x, y, hi, { sp: 0 });
   ctx.restore();
+}
+
+// Two low terraces behind the banner with a sparse crowd: a few small fans
+// with empty seats between them. When the player lands a big hit (P.hype)
+// they jump up and throw their arms in the air.
+const FAN_SHIRTS = ['#e8423f', '#3b7be0', '#f3c13a', '#f2f2f2', '#36a85b', '#ef7d2e', '#a35bd6', '#1f2a44'];
+const FAN_SKIN = ['#f1c6a0', '#d9a07a', '#a8714e', '#6e452c'];
+const FAN_HAIR = ['#2a1b12', '#5a3a1e', '#111', '#c8a050', '#7a2a12'];
+const hash = (i, k) => {
+  const v = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
+  return v - Math.floor(v);
+};
+function drawStands(time) {
+  const a = proj(0, 0);
+  const b = proj(WW, 0);
+  const x0 = Math.round(a.x) - 10;
+  const x1 = Math.round(b.x) + 10;
+  const top = P.wb - WALL_H;
+  const night = theme.isBlackCourt;
+  const step = 8; // each tier's height
+  // The terraces: the back one higher, each with a lighter lip.
+  rect(x0, top - step * 2 - 2, x1 - x0, step * 2 + 2, night ? '#23262d' : '#59606b');
+  rect(x0, top - step * 2 - 2, x1 - x0, 1, night ? '#363a44' : '#7d8591');
+  rect(x0, top - step, x1 - x0, 1, night ? '#30343d' : '#6e7581');
+  rect(x0 - 1, top - step * 2 - 3, 1, step * 2 + 3, night ? '#15171b' : '#3d424a');
+  rect(x1, top - step * 2 - 3, 1, step * 2 + 3, night ? '#15171b' : '#3d424a');
+  const hype = P.hype;
+  for (let row = 1; row >= 0; row--) {
+    const fy = top - step * row + 1; // where this row's feet are
+    const off = row ? 4 : 0;
+    for (let x = x0 + 3 + off, i = 0; x < x1 - 4; x += 8, i++) {
+      if (hash(i, row) > 0.38) continue; // an empty seat
+      const r = hash(i, row + 7);
+      // Most fans cheer at a big moment; the odd one stays seated.
+      const cheer = hype > 0 && r < 0.4 + hype * 0.6;
+      const jump = cheer ? Math.round(Math.abs(Math.sin(time * 11 + r * 20)) * 3 * hype) : 0;
+      const bob = !cheer && Math.sin(time * 1.3 + r * 40) > 0.96 ? 1 : 0; // the odd fidget
+      const y = fy - jump - bob;
+      const shirt = FAN_SHIRTS[Math.floor(hash(i, row + 3) * FAN_SHIRTS.length)];
+      const skin = FAN_SKIN[Math.floor(hash(i, row + 5) * FAN_SKIN.length)];
+      rect(x, y - 6, 3, 5, shirt);
+      rect(x, y - 9, 3, 3, skin);
+      rect(x, y - 9, 3, 1, FAN_HAIR[Math.floor(r * FAN_HAIR.length)]);
+      if (cheer) {
+        const wave = Math.sin(time * 14 + r * 30) > 0 ? 1 : 0;
+        rect(x - 1, y - 10 - wave, 1, 4, skin);
+        rect(x + 3, y - 11 + wave, 1, 4, skin);
+      } else {
+        rect(x - 1, y - 6, 1, 3, shade(shirt, -0.3));
+        rect(x + 3, y - 6, 1, 3, shade(shirt, -0.3));
+      }
+    }
+  }
 }
 
 // On the courts the stone wall carries a black banner exactly as wide as the

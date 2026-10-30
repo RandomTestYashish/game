@@ -1,7 +1,7 @@
 // The garden court: camera projection, parallax background layers and the
 // shared sprite painters (blocks, ball, paddle).
 
-import { W, H, ctx, PAL, makeLayer, setTarget, rect, disc, ring, ellipse, line, trap, rrect, text, textW, lerp, mulberry, bayer } from './gfx.js';
+import { W, H, ctx, PAL, makeLayer, setTarget, rect, disc, ellipse, line, trap, rrect, text, textW, lerp, mulberry, bayer } from './gfx.js';
 import { WW, WH, PADDLE_Y } from './game.js';
 import { COUNTRIES } from './themes.js';
 
@@ -696,7 +696,7 @@ function drawSceneOnce(time) {
     ctx.globalAlpha = 1;
   }
 
-  // Fences and lamp posts down both sides once play is in view.
+  // Stands down both sides once play is in view.
   if (cam > 0.45 && P.landing < 1) {
     ctx.globalAlpha = Math.min(1, (cam - 0.45) / 0.3);
     drawSides(time);
@@ -729,9 +729,9 @@ function drawSceneOnce(time) {
     }
   }
 
-  // Lantern glow.
+  // Lantern glow (the menus only: the courts are kept clear).
   const flick = Math.sin(time * 7) > 0.6 ? 1 : 0;
-  for (const l of lanterns) {
+  for (const l of P.banner ? [] : lanterns) {
     const lx = l - M + wallS;
     const ly = wb - WALL_H - 10;
     ctx.globalAlpha = 0.14;
@@ -743,8 +743,8 @@ function drawSceneOnce(time) {
     ctx.globalAlpha = 1;
   }
 
-  // Fireflies along the hedge.
-  for (const f of flies) {
+  // Fireflies along the hedge (the menus only).
+  for (const f of P.banner ? [] : flies) {
     const glow = Math.sin(time * f.f * 1.7 + f.p);
     if (glow < 0) continue;
     const x = wrap(f.x + Math.sin(time * 0.4 * f.f + f.p) * 16 + wallS, W);
@@ -758,7 +758,7 @@ function drawSceneOnce(time) {
 
   // Petals drifting across the whole view.
   const amb = theme.ambientEffects;
-  if (amb.petals) {
+  if (amb.petals && !P.banner) {
     for (const q of petals) {
       if (q.k * 2 > amb.petalRate) continue; // denser in Japan, sparse elsewhere
       const y = wrap(q.y * H + time * q.v, H + 10) - 5;
@@ -768,7 +768,7 @@ function drawSceneOnce(time) {
     }
   }
 
-  if (cam > 0.45 && P.landing < 1) {
+  if (cam > 0.45 && P.landing < 1 && !P.banner) {
     ctx.globalAlpha = Math.min(1, (cam - 0.45) / 0.3);
     const bh = L.bushes.height;
     ctx.drawImage(L.bushes, -12, H - bh + 6);
@@ -814,194 +814,60 @@ function shade(hex, k) {
   return '#' + [n >> 16, (n >> 8) & 255, n & 255].map((c) => f(c).toString(16).padStart(2, '0')).join('');
 }
 
-// Chain-link fences just outside the hedge borders, and lamp posts whose
-// heads glow and flicker.
-const LAMPS = [8, 92, 176, 260];
+// Low stands down both sides of the court (in place of fences and lamps),
+// two tiers each with the same sparse fans as the stands at the back.
+const SIDE_TIERS = [
+  { x0: -12, x1: -24, z: 5 },
+  { x0: -24, x1: -36, z: 13 },
+];
 function drawSides(time) {
-  const a0 = ctx.globalAlpha;
+  const night = theme.isBlackCourt;
+  const far = -6;
+  const near = WH + 40;
   for (const side of [-1, 1]) {
-    const fx = side < 0 ? -10 : WW + 10;
-    const far = -14;
-    const near = WH + 40;
-    // Mesh: a dark see-through band between the ground and the top rail.
-    const g0 = proj(fx, far);
-    const g1 = proj(fx, near);
-    const t0 = proj(fx, far, 12);
-    const t1 = proj(fx, near, 12);
-    ctx.globalAlpha = a0 * 0.32;
-    ctx.fillStyle = '#0b1a12';
-    ctx.beginPath();
-    ctx.moveTo(g0.x, g0.y);
-    ctx.lineTo(t0.x, t0.y);
-    ctx.lineTo(t1.x, t1.y);
-    ctx.lineTo(g1.x, g1.y);
-    ctx.fill();
-    ctx.globalAlpha = a0;
-    for (let wy = far; wy <= near; wy += 22) {
-      const b = proj(fx, wy);
-      const t = proj(fx, wy, 12);
-      line(b.x, b.y, t.x, t.y, '#1b2a22', b.s > 1 ? 2 : 1);
+    const X = (wx) => (side < 0 ? wx : WW - wx);
+    let zBelow = 0;
+    for (const t of SIDE_TIERS) {
+      // The riser (facing the court), then the tread the fans stand on.
+      quad(proj(X(t.x0), far, zBelow), proj(X(t.x0), near, zBelow), proj(X(t.x0), near, t.z), proj(X(t.x0), far, t.z), night ? STAND.nightFace : STAND.face);
+      quad(proj(X(t.x0), far, t.z), proj(X(t.x0), near, t.z), proj(X(t.x1), near, t.z), proj(X(t.x1), far, t.z), night ? STAND.nightTop : STAND.top);
+      const e0 = proj(X(t.x0), far, t.z);
+      const e1 = proj(X(t.x0), near, t.z);
+      line(e0.x, e0.y, e1.x, e1.y, night ? STAND.nightLip : STAND.lip, 1);
+      // Seat rows: faint lines across the tread.
+      for (let wy = far + 11; wy < near; wy += 11) {
+        const s0 = proj(X(t.x0), wy, t.z);
+        const s1 = proj(X(t.x1), wy, t.z);
+        line(s0.x, s0.y, s1.x, s1.y, night ? STAND.nightFace : STAND.face, 1);
+      }
+      zBelow = t.z;
     }
-    line(t0.x, t0.y, t1.x, t1.y, '#2b3d31', 1);
   }
-  // Lamp posts, far to near so nearer ones overlap. Each country has its own
-  // famous street light; see LAMP_STYLES.
-  const style = LAMP_STYLES[theme.countryId] || LAMP_STYLES.london;
-  for (const ly of LAMPS) {
+  // Fans, far to near so nearer ones overlap.
+  for (let i = 0, wy = far + 6; wy < near; wy += 11, i++) {
     for (const side of [-1, 1]) {
-      const lx = side < 0 ? -18 : WW + 18;
-      const b = proj(lx, ly);
-      const t = proj(lx, ly, 36);
-      if (b.y < P.wb) continue;
-      const s = t.s;
-      const u = (n) => Math.max(1, Math.round(n * s));
-      const flick = 0.85 + 0.15 * Math.sin(time * 7 + ly * 1.3 + side * 2) * Math.sin(time * 2.3 + ly);
-      // A warm pool of light on the grass under the lamp.
-      // At night (a Black Court) the lamps are the only light: brighter, wider.
-      const night = theme.isBlackCourt ? 1.6 : 1;
-      ctx.globalAlpha = a0 * Math.min(0.3, 0.1 * flick * night);
-      ellipse(b.x + side * -u(4), b.y, u(16 * night), u(4 * night), style.glow);
-      ctx.globalAlpha = a0;
-      const light = style.draw(b, t, u, -side, a0);
-      // The glow: a wide soft halo and a bright core.
-      ctx.globalAlpha = a0 * Math.min(0.4, 0.14 * flick * night);
-      disc(light.x, light.y, u(13 * Math.sqrt(night)), style.glow);
-      ctx.globalAlpha = a0 * Math.min(0.5, 0.22 * flick * night);
-      disc(light.x, light.y, u(7), style.glow);
-      ctx.globalAlpha = a0 * Math.min(0.7, 0.35 * flick * night);
-      disc(light.x, light.y, u(3), style.core);
-      // Ripples: rings of light pulse out from the lamp and across the grass
-      // beneath it, so it is plain the lights are on.
-      for (let k = 0; k < 2; k++) {
-        const q = (time * 0.7 + k * 0.5 + ly * 0.013 + (side > 0 ? 0.25 : 0)) % 1;
-        const fade = (1 - q) * (1 - q);
-        ctx.globalAlpha = a0 * Math.min(0.9, 0.75 * fade * night);
-        ring(light.x, light.y, Math.max(2, (3 + 15 * q) * s), q < 0.35 ? style.core : style.glow);
-        ctx.globalAlpha = a0 * Math.min(0.7, 0.5 * fade * night);
-        ellipseRing(b.x + side * -u(4), b.y, (4 + 20 * q) * s * night, (1 + 5 * q) * s * night, style.glow);
-      }
-      ctx.globalAlpha = a0;
+      SIDE_TIERS.forEach((t, row) => {
+        const k = i * 2 + (side > 0 ? 1 : 0);
+        if (hash(k, row + 11) > 0.36) return; // an empty seat
+        const wx = (t.x0 + t.x1) / 2 + (hash(k, row + 13) - 0.5) * 4;
+        const p = proj(side < 0 ? wx : WW - wx, wy, t.z);
+        if (p.y < P.wb) return;
+        drawFan(p.x, p.y + 1, p.s > 1.2 ? 2 : 1, k, row + 20, time);
+      });
     }
   }
 }
 
-// The outline of an ellipse, a pixel at a time.
-function ellipseRing(cx, cy, rx, ry, c) {
-  ctx.fillStyle = c;
-  const steps = Math.ceil(rx * 7);
-  for (let i = 0; i < steps; i++) {
-    const a = (i / steps) * Math.PI * 2;
-    ctx.fillRect(Math.round(cx + Math.cos(a) * rx), Math.round(cy + Math.sin(a) * ry), 1, 1);
-  }
+function quad(a, b, c, d, col) {
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(Math.round(a.x), Math.round(a.y));
+  ctx.lineTo(Math.round(b.x), Math.round(b.y));
+  ctx.lineTo(Math.round(c.x), Math.round(c.y));
+  ctx.lineTo(Math.round(d.x), Math.round(d.y));
+  ctx.closePath();
+  ctx.fill();
 }
-
-// Street lights by country. draw(base, top, u, inward, alpha) paints the post
-// and lantern (u scales a size to the lamp's distance; inward is +1 toward
-// the court) and returns the point the glow comes from.
-const LAMP_STYLES = {
-  // Japan: a red paper chochin lantern hanging from a wooden post.
-  japan: {
-    glow: '#ff6a3a',
-    core: '#ffd0a0',
-    draw(b, t, u, inward) {
-      const pw = u(1.6);
-      rect(b.x - pw / 2, t.y - u(2), pw, b.y - t.y + u(2), '#3b2618');
-      rect(b.x - pw / 2, t.y - u(2), 1, b.y - t.y + u(2), '#6a4a30');
-      // A little roof over the post top.
-      trap(t.y - u(4), b.x - u(1.5), b.x + u(1.5), t.y - u(2), b.x - u(3.5), b.x + u(3.5), '#22140c');
-      // Arm out toward the court, the lantern hanging from its end.
-      const ax = b.x + inward * u(5);
-      rect(Math.min(b.x, ax), t.y, Math.abs(ax - b.x) + 1, u(1), '#3b2618');
-      rect(ax, t.y, 1, u(2), '#22140c');
-      const cy = t.y + u(2) + u(4.5);
-      const rx = u(3.2);
-      const ry = u(4.2);
-      ellipse(ax, cy, rx + 1, ry, '#5e100c');
-      ellipse(ax, cy, rx, ry - 1, '#d8322a');
-      ellipse(ax, cy, Math.max(1, rx - u(1.2)), Math.max(1, ry - u(1.5)), '#ff7a4a');
-      for (let dy = -ry + u(1.5); dy < ry - 1; dy += Math.max(2, u(1.6))) rect(ax - rx + 1, cy + dy, rx * 2 - 1, 1, '#a8231c'); // ribs
-      rect(ax - u(2), cy - ry - u(1), u(4) + 1, u(1), '#1a1210'); // black caps
-      rect(ax - u(2), cy + ry, u(4) + 1, u(1), '#1a1210');
-      rect(ax, cy + ry + u(1), 1, u(2), '#f2c230'); // tassel
-      return { x: ax, y: cy };
-    },
-  },
-  // New York: a cast-iron "bishop's crook" lamp with a sodium glow.
-  newyork: {
-    glow: '#ffa640',
-    core: '#ffe2a8',
-    draw(b, t, u, inward) {
-      const pw = u(1.6);
-      rect(b.x - u(1.5), b.y - u(4), u(3) + 1, u(4), '#18221d'); // base
-      rect(b.x - pw / 2, t.y, pw, b.y - t.y, '#1d2a24');
-      rect(b.x - pw / 2, t.y, 1, b.y - t.y, '#3d5248');
-      for (const k of [0.35, 0.7]) rect(b.x - u(1.2), t.y + (b.y - t.y) * k, u(2.4) + 1, u(1), '#2c3d35'); // collars
-      // The crook: up, over toward the court, and down.
-      const ax = b.x + inward * u(5);
-      rect(b.x - pw / 2, t.y - u(3), pw, u(3), '#1d2a24');
-      rect(Math.min(b.x, ax), t.y - u(3), Math.abs(ax - b.x) + 1, u(1.2), '#1d2a24');
-      rect(ax - (inward < 0 ? 0 : u(1)), t.y - u(3), u(1.2), u(2.5), '#1d2a24');
-      // Acorn lantern.
-      const cy = t.y + u(1.5);
-      rect(ax - u(2.5), cy - u(2.2), u(5) + 1, u(1), '#18221d');
-      ellipse(ax, cy + u(0.8), u(2.4), u(2.8), '#3a2a14');
-      ellipse(ax, cy + u(0.8), u(1.8), u(2.2), '#ffcf7a');
-      rect(ax, cy + u(3.4), 1, u(1), '#18221d');
-      return { x: ax, y: cy + u(0.8) };
-    },
-  },
-  // London: a black Victorian gas lamp with a ladder bar and a four-pane lantern.
-  london: {
-    glow: '#ffe1a0',
-    core: '#fff6d8',
-    draw(b, t, u) {
-      const pw = u(1.6);
-      rect(b.x - u(2), b.y - u(5), u(4) + 1, u(5), '#121212'); // fluted base
-      rect(b.x - u(2) + 1, b.y - u(5), 1, u(5), '#3a3a3a');
-      rect(b.x - u(2.5), b.y - u(5) - u(1), u(5) + 1, u(1), '#121212');
-      rect(b.x - pw / 2, t.y, pw, b.y - t.y, '#151515');
-      rect(b.x - pw / 2, t.y, 1, b.y - t.y, '#444');
-      rect(b.x - u(3.5), t.y + u(2), u(7) + 1, u(1), '#151515'); // ladder bar
-      // Lantern: tapered glass box, pointed roof, finial.
-      const top = t.y - u(7);
-      const gw = u(2.6);
-      trap(top + u(1.5), b.x - gw - u(0.8), b.x + gw + u(0.8), t.y - u(0.5), b.x - gw + u(0.6), b.x + gw - u(0.6), '#111');
-      trap(top + u(2.2), b.x - gw, b.x + gw, t.y - u(1.2), b.x - gw + u(1.2), b.x + gw - u(1.2), '#ffe6a0');
-      rect(b.x, top + u(2.2), 1, t.y - top - u(3.4), '#2a2a2a'); // mullion
-      trap(top - u(1.5), b.x, b.x + 1, top + u(1.5), b.x - gw - u(1.2), b.x + gw + u(1.2), '#111'); // roof
-      rect(b.x, top - u(2.8), 1, u(1.4), '#111'); // finial
-      return { x: b.x, y: top + u(3.8) };
-    },
-  },
-  // India: an ornate brass Jaipur lantern, its pierced pattern glowing.
-  india: {
-    glow: '#ffa23a',
-    core: '#ffe3a0',
-    draw(b, t, u) {
-      const pw = u(1.8);
-      rect(b.x - pw / 2, t.y, pw, b.y - t.y, '#8a5a1e');
-      rect(b.x - pw / 2, t.y, 1, b.y - t.y, '#e0b45a');
-      for (const k of [0.25, 0.5, 0.75]) {
-        const y = t.y + (b.y - t.y) * k;
-        rect(b.x - u(1.4), y, u(2.8) + 1, u(1), '#c8923a'); // brass rings
-      }
-      rect(b.x - u(2.2), b.y - u(2), u(4.4) + 1, u(2), '#8a5a1e');
-      // Lantern body with a pierced (jaali) pattern, under an onion dome.
-      const bw = u(3);
-      const top = t.y - u(7);
-      rect(b.x - bw - 1, top + u(2), bw * 2 + 3, u(6), '#6a3a0e');
-      rect(b.x - bw, top + u(2) + 1, bw * 2 + 1, u(6) - 2, '#c8923a');
-      for (let y = top + u(2) + 2; y < top + u(8) - 2; y += 2) {
-        for (let x = b.x - bw + 1 + ((y >> 1) & 1); x <= b.x + bw - 1; x += 2) rect(x, y, 1, 1, '#ffd27a');
-      }
-      ellipse(b.x, top + u(1), bw + 1, u(2), '#a8742a'); // dome
-      ellipse(b.x, top + u(1), bw, u(1.4), '#e0b45a');
-      rect(b.x, top - u(2), 1, u(2), '#e0b45a'); // finial
-      rect(b.x - u(1), t.y, u(2) + 1, u(1), '#6a3a0e');
-      return { x: b.x, y: top + u(5) };
-    },
-  },
-};
 
 // The banner's logos, THE COURT (a tennis ball) and COURT BITES (a burger and
 // a drink), in 12-bit colour (4 bits per channel, written as 3-digit hex),
@@ -1055,13 +921,48 @@ function word(str, x, y, hi, lo) {
 // Two low terraces behind the banner with a sparse crowd: a few small fans
 // with empty seats between them. When the player lands a big hit (P.hype)
 // they jump up and throw their arms in the air.
-const FAN_SHIRTS = ['#e8423f', '#3b7be0', '#f3c13a', '#f2f2f2', '#36a85b', '#ef7d2e', '#a35bd6', '#1f2a44'];
-const FAN_SKIN = ['#f1c6a0', '#d9a07a', '#a8714e', '#6e452c'];
-const FAN_HAIR = ['#2a1b12', '#5a3a1e', '#111', '#c8a050', '#7a2a12'];
+// Bright, saturated shirts so the fans stand out against the dark terraces.
+const FAN_SHIRTS = ['#ff4a4a', '#3d8bff', '#ffd23a', '#ffffff', '#3fd170', '#ff8a2a', '#c86bff', '#2ee6e0'];
+const FAN_SKIN = ['#f6cfa8', '#e0aa82', '#b07a55', '#7a4e32'];
+const FAN_HAIR = ['#2a1b12', '#5a3a1e', '#111', '#d8b050', '#8a2f12'];
+const STAND = {
+  top: '#3a3f4a', face: '#23272f', lip: '#6a7282',
+  nightTop: '#1c1f26', nightFace: '#14161b', nightLip: '#323844',
+};
 const hash = (i, k) => {
   const v = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
   return v - Math.floor(v);
 };
+
+// One fan, feet at (x, y), drawn n pixels to a pixel. At a big moment
+// (P.hype) most of them jump and throw their arms up.
+function drawFan(x, y, n, i, row, time) {
+  const r = hash(i, row + 7);
+  const hype = P.hype;
+  const cheer = hype > 0 && r < 0.4 + hype * 0.6;
+  const jump = cheer ? Math.round(Math.abs(Math.sin(time * 11 + r * 20)) * 3 * hype) : 0;
+  const bob = !cheer && Math.sin(time * 1.3 + r * 40) > 0.96 ? 1 : 0; // the odd fidget
+  x = Math.round(x - 1.5 * n);
+  y = Math.round(y - (jump + bob) * n);
+  const shirt = FAN_SHIRTS[Math.floor(hash(i, row + 3) * FAN_SHIRTS.length)];
+  const skin = FAN_SKIN[Math.floor(hash(i, row + 5) * FAN_SKIN.length)];
+  const px = (dx, dy, w, h, c) => rect(x + dx * n, y + dy * n, w * n, h * n, c);
+  px(0, -6, 3, 5, shirt);
+  px(0, -5, 3, 1, shade(shirt, 0.25)); // a lit shoulder line
+  px(0, -9, 3, 3, skin);
+  px(0, -9, 3, 1, FAN_HAIR[Math.floor(r * FAN_HAIR.length)]);
+  if (cheer) {
+    const wave = Math.sin(time * 14 + r * 30) > 0 ? 1 : 0;
+    px(-1, -10 - wave, 1, 4, skin);
+    px(3, -11 + wave, 1, 4, skin);
+  } else {
+    px(-1, -6, 1, 3, shade(shirt, -0.3));
+    px(3, -6, 1, 3, shade(shirt, -0.3));
+  }
+}
+
+// Two low terraces behind the banner with a sparse crowd: a few small fans
+// with empty seats between them.
 function drawStands(time) {
   const a = proj(0, 0);
   const b = proj(WW, 0);
@@ -1070,37 +971,14 @@ function drawStands(time) {
   const top = P.wb - WALL_H;
   const night = theme.isBlackCourt;
   const step = 8; // each tier's height
-  // The terraces: the back one higher, each with a lighter lip.
-  rect(x0, top - step * 2 - 2, x1 - x0, step * 2 + 2, night ? '#23262d' : '#59606b');
-  rect(x0, top - step * 2 - 2, x1 - x0, 1, night ? '#363a44' : '#7d8591');
-  rect(x0, top - step, x1 - x0, 1, night ? '#30343d' : '#6e7581');
-  rect(x0 - 1, top - step * 2 - 3, 1, step * 2 + 3, night ? '#15171b' : '#3d424a');
-  rect(x1, top - step * 2 - 3, 1, step * 2 + 3, night ? '#15171b' : '#3d424a');
-  const hype = P.hype;
+  rect(x0, top - step * 2 - 2, x1 - x0, step * 2 + 2, night ? STAND.nightTop : STAND.top);
+  rect(x0, top - step * 2 - 2, x1 - x0, 1, night ? STAND.nightLip : STAND.lip);
+  rect(x0, top - step, x1 - x0, 1, night ? STAND.nightLip : STAND.lip);
   for (let row = 1; row >= 0; row--) {
     const fy = top - step * row + 1; // where this row's feet are
-    const off = row ? 4 : 0;
-    for (let x = x0 + 3 + off, i = 0; x < x1 - 4; x += 8, i++) {
+    for (let x = x0 + 4 + (row ? 4 : 0), i = 0; x < x1 - 4; x += 8, i++) {
       if (hash(i, row) > 0.38) continue; // an empty seat
-      const r = hash(i, row + 7);
-      // Most fans cheer at a big moment; the odd one stays seated.
-      const cheer = hype > 0 && r < 0.4 + hype * 0.6;
-      const jump = cheer ? Math.round(Math.abs(Math.sin(time * 11 + r * 20)) * 3 * hype) : 0;
-      const bob = !cheer && Math.sin(time * 1.3 + r * 40) > 0.96 ? 1 : 0; // the odd fidget
-      const y = fy - jump - bob;
-      const shirt = FAN_SHIRTS[Math.floor(hash(i, row + 3) * FAN_SHIRTS.length)];
-      const skin = FAN_SKIN[Math.floor(hash(i, row + 5) * FAN_SKIN.length)];
-      rect(x, y - 6, 3, 5, shirt);
-      rect(x, y - 9, 3, 3, skin);
-      rect(x, y - 9, 3, 1, FAN_HAIR[Math.floor(r * FAN_HAIR.length)]);
-      if (cheer) {
-        const wave = Math.sin(time * 14 + r * 30) > 0 ? 1 : 0;
-        rect(x - 1, y - 10 - wave, 1, 4, skin);
-        rect(x + 3, y - 11 + wave, 1, 4, skin);
-      } else {
-        rect(x - 1, y - 6, 1, 3, shade(shirt, -0.3));
-        rect(x + 3, y - 6, 1, 3, shade(shirt, -0.3));
-      }
+      drawFan(x + 1.5, fy, 1, i, row, time);
     }
   }
 }

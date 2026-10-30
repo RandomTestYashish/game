@@ -172,6 +172,8 @@ SUPABASE_URL=https://YOUR-PROJECT.supabase.co SUPABASE_ANON_KEY=sb_publishable_.
 
 The PostHog setup wizard (`npx @posthog/wizard`) does not support plain HTML/JS projects, so `js/analytics.js` uses the official PostHog HTML snippet instead. It is off until `js/config.js` has a PostHog **project** API key (`posthogKey: 'phc_...'`, public by design) and the matching `posthogHost` (`https://us.i.posthog.com` or `https://eu.i.posthog.com`). A personal API key (`phx_...`) is refused. Nothing is sent from localhost.
 
+To check the deployed sites for real (page errors, the leaderboard read, and every event PostHog receives, with its `deployment` tag), run `python tests/live_check.py`. It never saves a score and never sends production events; the end-to-end suite uses a stand-in PostHog, so this is the check that real delivery works. PostHog ignores automated browsers (`navigator.webdriver`), which the script hides.
+
 It sends a page view plus these events, with numbers only (no player names). Autocapture, heatmaps, session recording and surveys are off:
 
 | Event | When | Properties |

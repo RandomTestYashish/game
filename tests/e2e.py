@@ -1828,7 +1828,8 @@ def sounds_and_haptics(browser, url):
     for ev in [["paddle", 0.9, {"x": 100}], ["break", 1, {"type": "S"}], ["break", 1, {"type": "T"}], ["power", "smash"], ["lost"]]:
         time.sleep(0.08)
         d.pg.evaluate("(e)=>{window.__vib=[]; __court.S.game.emit(...e)}", ev)
-        got[ev[0] + str(ev[1]) + (ev[2]["type"] if len(ev) > 2 and "type" in ev[2] else "")] = d.ev("window.__vib.at(-1)")
+        extra = ev[2].get("type", "") if len(ev) > 2 else ""
+        got[ev[0] + str(ev[1] if len(ev) > 1 else "") + extra] = d.ev("window.__vib.at(-1)")
     check("each event buzzes in its own pattern", len({json.dumps(v) for v in got.values()}) == len(got) and all(got.values()), got)
     d.ev("__court.setSetting('haptics', false)")
     d.pg.evaluate("()=>{window.__vib=[]; __court.S.game.emit('lost')}")

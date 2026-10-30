@@ -205,8 +205,12 @@ async () => {
     && l.rows.join('').replace(/\./g, '').length >= 14 && (l.move || []).every(r => l.rows[r][0] === '.' && l.rows[r][l.cols - 1] === '.'));
   // Every court: more blocks than the last (24 up to 1000), and smaller ones once they no longer fit at full size.
   const count = (i) => new Game(LEVELS[i]).blocks.length;
-  out.blocksShrink = LEVELS.every((l, i) => i === 0 || l.cell < LEVELS[i - 1].cell || (l.cell === 28 && LEVELS[i - 1].cell === 28)) && LEVELS[0].cols === 7 && LEVELS[119].cell < 6;
-  out.moreBlocks = LEVELS.every((l, i) => count(i) === l.blocks && (i === 0 || count(i) > count(i - 1))) && count(0) === 24 && count(119) === 1000;
+  // Courts fill up gently: 24 on court 1, every 20 courts fuller on average, at most about 350.
+  const band = (a) => { let t = 0; for (let i = a; i < a + 20; i++) t += count(i); return t / 20; };
+  out.blocksShrink = LEVELS[0].cols === 7 && LEVELS[119].cell < LEVELS[0].cell;
+  out.moreBlocks = count(0) === 24 && [0, 20, 40, 60, 80, 100].every((a, i, xs) => i === 0 || band(a) > band(xs[i - 1])) && Math.max(...LEVELS.map((l, i) => count(i))) <= 360;
+  // Each generated court is one geometric formation, mirrored left and right, and the shapes vary.
+  out.geometricCourts = LEVELS.slice(5).every(l => l.form && l.rows.every(r => [...r].every((ch, i) => (ch === '.') === (r[r.length - 1 - i] === '.')))) && new Set(LEVELS.map(l => l.form).filter(Boolean)).size >= 10;
   out.blocksOnCourt = LEVELS.every(l => new Game(l).blocks.every(b => b.x - (b.amp || 0) >= 0 && b.x + b.w + (b.amp || 0) <= WW && b.y + b.d < PADDLE_Y - 30));
   out.getsHarder = LEVELS[119].speed > LEVELS[0].speed * 1.25 && LEVELS[119].paddle < LEVELS[0].paddle - 8 && LEVELS[0].speed >= 160;
   // ...but stays playable: the fastest a ball can ever go is well under the old court-1 top speed x 1.8.
@@ -1486,25 +1490,29 @@ def bricks_in_groups(browser, url):
     check("court 1: bricks, the black paddle, no characters, no racket",
           "#cf6f4f" in hexes and "#22262d" in hexes and "#f2c39a" not in hexes and "#e3b341" not in hexes)
     d.ev("__court.S.timeScale=1")
-    # Every court is split into groups: some whole columns stay empty (mirrored
-    # left and right), there are at least two groups, and the count is exact.
-    g = d.ev("""(()=>{const L=__court.LEVELS; return L.map(l=>{const R=l.rows, C=R[0].length;
-      const empty=[...Array(C).keys()].filter(c=>R.every(r=>r[c]==='.'));
-      const inner=empty.filter(c=>c>0&&c<C-1);
-      const mirrored=empty.every(c=>empty.includes(C-1-c));
-      return {inner: inner.length, mirrored}})})()""")
-    bad = [i + 1 for i, x in enumerate(g) if x["inner"] < 1 or not x["mirrored"]]
-    check("every court is in groups: empty lanes between them, mirrored left and right", not bad, bad[:5])
+    forms = d.ev("[...new Set(__court.LEVELS.map(l=>l.form).filter(Boolean))]")
+    check("courts 6-120 are geometric formations (diamond, circle, ring, triangle...), at least 10 kinds", len(forms) >= 10, forms)
     # The stadium banner (dark board, #111a28) is on the courts only; the landing keeps its stone wall.
-    # The banner board's navy (#112244, 12-bit #124) and its gold trim (#ffcc44); no stands (#1f2738) anywhere.
-    has_board = "(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let n=0, g=0, m=0; for(let i=0;i<d.length;i+=4){ if(d[i]===0x11&&d[i+1]===0x22&&d[i+2]===0x44) n++; if(d[i]===0xff&&d[i+1]===0xcc&&d[i+2]===0x44) g++; if(d[i]===0x1f&&d[i+1]===0x27&&d[i+2]===0x38) m++; } return m ? -m : Math.min(n, g * 4)})()"
+    # The banner's logos: the ball's #ccee33 or the burger bun's #ee9933 (whichever is showing).
+    has_board = "(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let n=0; for(let i=0;i<d.length;i+=4){ if((d[i]===0xcc&&d[i+1]===0xee&&d[i+2]===0x33)||(d[i]===0xee&&d[i+1]===0x99&&d[i+2]===0x33)) n++; } return n})()"
     d.ev("__court.S.timeScale=0.0001")
     time.sleep(0.15)
     on_court = d.ev(has_board)
     d.ev("__court.S.timeScale=1; __court.go('title')")
     d.screen("title", 1.0)
     on_landing = d.ev(has_board)
-    check("the 12-bit banner shows on the courts (no stands or crowd); the landing keeps the stone wall and hedge", on_court > 200 and on_landing == 0 and not d.ev("__court.S.screen==='play'"), (on_court, on_landing))
+    check("the black banner with its logos shows on the courts; the landing keeps the plain stone wall", on_court > 10 and on_landing == 0 and not d.ev("__court.S.screen==='play'"), (on_court, on_landing))
+    # The banner takes turns: THE COURT (ball) and COURT BITES (burger), one sliding out as the other comes in.
+    d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+    d.wait("__court.S.screen==='play' && __court.S.game.ready", 20000)
+    d.ev("__court.S.timeScale=0.0001")
+    shows = []
+    for t in (600.5, 604.0):
+        d.ev(f"__court.S.time={t}")
+        time.sleep(0.15)
+        shows.append(d.ev("""(()=>{const c=document.getElementById('court'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let ball=0, bun=0; for(let i=0;i<d.length;i+=4){ if(d[i]===0xcc&&d[i+1]===0xee&&d[i+2]===0x33) ball++; if(d[i]===0xee&&d[i+1]===0x99&&d[i+2]===0x33) bun++; } return [ball, bun]})()"""))
+    d.ev("__court.S.timeScale=1")
+    check("the banner alternates: THE COURT, then COURT BITES", shows[0][0] > 0 and shows[0][1] == 0 and shows[1][1] > 0 and shows[1][0] == 0, shows)
     check("no console errors (bricks)", not d.errors, d.errors[:3])
     ctx.close()
 

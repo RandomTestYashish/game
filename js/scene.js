@@ -54,7 +54,6 @@ const LAYER_H = 64;
 const HILL_H = 64;
 const LAND_H = 90;
 let lanterns = [];
-let bannerPillars = [];
 let speckles = [];
 let flies = [];
 let petals = [];
@@ -66,9 +65,6 @@ export function buildLayers() {
   const rnd = mulberry(20261013);
   cache = {};
   lanterns = [M + W / 2 - 82, M + W / 2 + 81].map(Math.round);
-  // On the courts the pillars stand wider apart, framing the banner board.
-  const half = Math.min(120, Math.round(W / 2) - 9);
-  bannerPillars = [M + W / 2 - half, M + W / 2 + half - 1].map(Math.round);
   speckles = [];
   const reach = W / 2 / 0.5; // world half-width visible at the far edge of the low view
   for (let i = 0; i < Math.round(W * 1.3); i++) {
@@ -246,13 +242,10 @@ function makeLayers(id, T) {
   }
   out.trees = trees.canvas;
 
-  // Hedge, wall, lantern pillars and flowering planters. Painted twice from
-  // the same random numbers: the stone wall (landing screen and menus), and
-  // the courts' version, where a stadium banner board the same height as the
-  // stone fills the span between wider-set pillars.
+  // Hedge, wall, lantern pillars and flowering planters.
   const wc = T.wall;
   const wy = LAYER_H - WALL_H;
-  const paintWall = (rnd, pillars, withBanner) => {
+  const paintWall = (rnd, pillars) => {
     const wall = makeLayer(LW, LAYER_H);
     setTarget(wall);
     for (let x = 0; x < LW; x++) {
@@ -271,7 +264,6 @@ function makeLayers(id, T) {
     }
     for (let i = 0; i < LW / 4; i++) rect(rnd() * LW, wy + 3 + rnd() * 10, 1, 1, wc.speck[rnd() < 0.5 ? 0 : 1]);
     rect(0, LAYER_H - 1, LW, 1, '#35322e');
-    if (withBanner) banner(pillars[0] + 6, wy, pillars[1] - 6, LAYER_H - 1);
     for (const lx of pillars) {
       rect(lx - 5, wy - 4, 11, WALL_H + 4, wc.pillar);
       rect(lx - 6, wy - 5, 13, 2, wc.pillarTop);
@@ -302,14 +294,7 @@ function makeLayers(id, T) {
     }
     return wall.canvas;
   };
-  const used = [];
-  out.wall = paintWall(() => {
-    const v = rnd();
-    used.push(v);
-    return v;
-  }, lanterns, false);
-  let k = 0;
-  out.wallBanner = paintWall(() => used[k++], bannerPillars, true);
+  out.wall = paintWall(rnd, lanterns);
 
   // Foreground canopy framing the top corners (blossom in Japan).
   const fore = makeLayer(LW, 190);
@@ -664,7 +649,8 @@ function drawSceneOnce(time) {
   const landS = Math.round(P.shift * (P.sRef - sFar * 0.45));
   ctx.drawImage(L.land, -M + landS, Math.round(wallTop - LAND_H - 22 + cam * 4));
   ctx.drawImage(L.trees, -M + treeS, Math.round(wallTop - 96 - 12 + cam * 9));
-  ctx.drawImage(P.banner ? L.wallBanner : L.wall, -M + wallS, wb - LAYER_H);
+  ctx.drawImage(L.wall, -M + wallS, wb - LAYER_H);
+  if (P.banner) drawBanner(time);
 
   // Grass with mowing stripes.
   const cp = theme.courtPalette;
@@ -741,7 +727,7 @@ function drawSceneOnce(time) {
 
   // Lantern glow.
   const flick = Math.sin(time * 7) > 0.6 ? 1 : 0;
-  for (const l of P.banner ? bannerPillars : lanterns) {
+  for (const l of lanterns) {
     const lx = l - M + wallS;
     const ly = wb - WALL_H - 10;
     ctx.globalAlpha = 0.14;
@@ -993,11 +979,9 @@ const LAMP_STYLES = {
   },
 };
 
-// The stadium banner board behind the court, drawn into the current layer:
-// two logos either side of a thin divider, THE COURT (a tennis ball) and
-// COURT BITES (a burger and a drink). Drawn in 12-bit colour (4 bits per
-// channel, written as 3-digit hex), which leaves room for shading: rounded
-// logos, two-tone lettering and a soft gradient on the board.
+// The banner's logos, THE COURT (a tennis ball) and COURT BITES (a burger and
+// a drink), in 12-bit colour (4 bits per channel, written as 3-digit hex),
+// which leaves room for shading: rounded logos and two-tone lettering.
 const C12 = {
   o: '#012', // outline
   // tennis ball: shadow, base, light, highlight, seam
@@ -1044,34 +1028,58 @@ function word(str, x, y, hi, lo) {
   ctx.restore();
 }
 
-function banner(x0, y0, x1, y1) {
-  const w = x1 - x0;
-  const h = y1 - y0;
-  rect(x0 - 1, y0, w + 2, h, C12.o);
-  const grad = ['#246', '#235', '#124', '#124', '#123', '#113', '#013', '#012'];
-  for (let j = 0; j < h; j++) rect(x0, y0 + j, w, 1, grad[Math.min(grad.length - 1, Math.floor((j / h) * grad.length))]);
-  rect(x0, y0, w, 1, '#fc4'); // thin gold trim
-  rect(x0, y1 - 1, w, 1, '#001');
-  const cx = Math.round(x0 + w / 2);
-  rect(cx, y0 + 2, 1, h - 4, '#879');
-  const ty = Math.round(y0 + (h - 7) / 2) + 1;
-  // The logos sit either side of the divider, clear of the court's side
-  // lanterns at the ends of the board.
+// On the courts the stone wall carries a black banner exactly as wide as the
+// court's far end. Two logos take turns on it: THE COURT shows, slides up
+// and away, COURT BITES rises from below, and round again.
+const BANNER_CYCLE = 6; // seconds for both logos
+function drawBanner(time) {
+  const a = proj(0, 0);
+  const b = proj(WW, 0);
+  const x0 = Math.round(a.x);
+  const x1 = Math.round(b.x);
+  const y1 = P.wb;
+  const y0 = y1 - WALL_H;
+  const h = WALL_H;
+  rect(x0 - 1, y0 - 1, x1 - x0 + 2, h + 1, '#333');
+  rect(x0, y0, x1 - x0, h, '#000');
+  const cx = Math.round((x0 + x1) / 2);
+  // Where each logo sits: 0 in view, -h gone up, +h waiting below.
+  const t = time % BANNER_CYCLE;
+  const half = BANNER_CYCLE / 2;
+  const turn = 0.45; // how long the swap takes
+  const k = (from) => {
+    const q = Math.min(1, Math.max(0, (t - from) / turn));
+    return q < 0.5 ? 2 * q * q : 1 - 2 * (1 - q) * (1 - q);
+  };
+  let offA;
+  let offB;
+  if (t < half - turn) [offA, offB] = [0, h];
+  else if (t < half) [offA, offB] = [-k(half - turn) * h, (1 - k(half - turn)) * h];
+  else if (t < BANNER_CYCLE - turn) [offA, offB] = [h, 0];
+  else [offA, offB] = [(1 - k(BANNER_CYCLE - turn)) * h, -k(BANNER_CYCLE - turn) * h];
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0, y0, x1 - x0, h);
+  ctx.clip();
   // THE COURT: the ball, then the wordmark.
   const tw = textW('THE ', 1, 0);
-  const lw = tw + textW('COURT', 1, 0);
-  const left = cx - 7 - (9 + 3 + lw);
-  logo(LOGO_BALL, left, Math.round(y0 + (h - 9) / 2) + 1);
-  word('THE', left + 12, ty, '#fff', '#bcd');
-  word('COURT', left + 12 + tw, ty, '#ff8', '#fb2');
+  const aw = 9 + 3 + tw + textW('COURT', 1, 0);
+  const ax = cx - Math.round(aw / 2);
+  const ay = Math.round(y0 + offA);
+  logo(LOGO_BALL, ax, ay + Math.round((h - 9) / 2));
+  word('THE', ax + 12, ay + Math.round((h - 7) / 2) + 1, '#fff', '#bcd');
+  word('COURT', ax + 12 + tw, ay + Math.round((h - 7) / 2) + 1, '#ff8', '#fb2');
   // COURT BITES: the wordmark, then the burger and the drink.
   const cw = textW('COURT ', 1, 0);
-  const rx = cx + 7;
-  word('COURT', rx, ty, '#fff', '#bcd');
-  word('BITES', rx + cw, ty, '#fc6', '#f72');
-  const ix = rx + cw + textW('BITES', 1, 0) + 3;
-  logo(LOGO_BURGER, ix, Math.round(y0 + (h - 9) / 2) + 1);
-  logo(LOGO_DRINK, ix + 12, Math.round(y0 + (h - 8) / 2) + 1);
+  const bw = cw + textW('BITES', 1, 0) + 3 + 11 + 1 + 6;
+  const bx = cx - Math.round(bw / 2);
+  const by = Math.round(y0 + offB);
+  word('COURT', bx, by + Math.round((h - 7) / 2) + 1, '#fff', '#bcd');
+  word('BITES', bx + cw, by + Math.round((h - 7) / 2) + 1, '#fc6', '#f72');
+  const ix = bx + cw + textW('BITES', 1, 0) + 3;
+  logo(LOGO_BURGER, ix, by + Math.round((h - 9) / 2));
+  logo(LOGO_DRINK, ix + 12, by + Math.round((h - 8) / 2));
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------- sprites

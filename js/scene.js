@@ -11,7 +11,7 @@ import { COUNTRIES } from './themes.js';
 // everything nearer or farther slides against it.
 
 // landing 1 = the bare first screen (no net, no overhanging canopy).
-export const P = { cam: 0, wb: 0, hor: 0, G: 1, dFar: 1.45, kx: 1.16, cx: W / 2, shift: 0, sRef: 1, landing: 0, banner: false, hype: 0 };
+export const P = { cam: 0, wb: 0, hor: 0, G: 1, dFar: 1.45, kx: 1.16, cx: W / 2, shift: 0, sRef: 1, landing: 0, banner: false, hype: 0, clap: 0, groan: 0 };
 // hype 0..1: how hard the crowd behind the court is cheering right now.
 
 export function setCam(cam, shift = 0) {
@@ -683,15 +683,14 @@ function drawSceneOnce(time) {
   }
   ctx.globalAlpha = 1;
 
-  // Low box-hedge borders mark the side walls once play is in view.
+  // A thin hedge line marks the side walls once play is in view.
   if (cam > 0.45) {
     ctx.globalAlpha = Math.min(1, (cam - 0.45) / 0.3);
     for (const side of [-1, 1]) {
       const wx = side < 0 ? -3 : WW + 3;
       const a = proj(wx, -6);
       const b = proj(wx, WH + 40);
-      line(a.x - 1, wb + 2, b.x - 2, b.y, '#1c4427', 4);
-      line(a.x - (side < 0 ? -1 : 0), wb + 2, b.x - (side < 0 ? -1 : 1), b.y, '#34743f', 1);
+      line(a.x - 1, wb + 2, b.x - 2, b.y, '#1c4427', 2); // a single, quiet edge
     }
     ctx.globalAlpha = 1;
   }
@@ -814,8 +813,8 @@ function shade(hex, k) {
   return '#' + [n >> 16, (n >> 8) & 255, n & 255].map((c) => f(c).toString(16).padStart(2, '0')).join('');
 }
 
-// Stands down both sides of the court: three stepped tiers of fans and a
-// back wall striped in the country's accent colour. In front of them, by
+// Stands down both sides of the court: three plain stepped tiers of fans
+// in front of a back wall. In front of them, by
 // the court, each country's own street lamps (see LAMP_STYLES).
 const SIDE_TIERS = [
   { x0: -12, x1: -21, z: 5 },
@@ -832,27 +831,14 @@ function drawSides(time) {
   const back = SIDE_TIERS[SIDE_TIERS.length - 1].x1;
   for (const side of [-1, 1]) {
     const X = (wx) => (side < 0 ? wx : WW - wx);
-    // The back wall with its accent stripe and a light coping on top.
+    // The back wall, plain.
     quad(proj(X(back), far, 0), proj(X(back), near, 0), proj(X(back), near, SIDE_WALL), proj(X(back), far, SIDE_WALL), night ? STAND.nightFace : STAND.face);
-    quad(proj(X(back), far, SIDE_WALL - 6), proj(X(back), near, SIDE_WALL - 6), proj(X(back), near, SIDE_WALL - 3), proj(X(back), far, SIDE_WALL - 3), theme.accentColor);
-    const c0 = proj(X(back), far, SIDE_WALL);
-    const c1 = proj(X(back), near, SIDE_WALL);
-    line(c0.x, c0.y, c1.x, c1.y, night ? STAND.nightLip : STAND.lip, 1);
     let zBelow = 0;
     for (const t of SIDE_TIERS) {
       // The riser (facing the court), then the tread the fans stand on.
       quad(proj(X(t.x0), far, zBelow), proj(X(t.x0), near, zBelow), proj(X(t.x0), near, t.z), proj(X(t.x0), far, t.z), night ? STAND.nightFace : STAND.face);
       quad(proj(X(t.x0), far, t.z), proj(X(t.x0), near, t.z), proj(X(t.x1), near, t.z), proj(X(t.x1), far, t.z), night ? STAND.nightTop : STAND.top);
-      const e0 = proj(X(t.x0), far, t.z);
-      const e1 = proj(X(t.x0), near, t.z);
-      line(e0.x, e0.y, e1.x, e1.y, night ? STAND.nightLip : STAND.lip, 1);
       zBelow = t.z;
-    }
-    // Aisles: stairs cutting through the tiers.
-    for (const wy of [60, 160, 260]) {
-      const s0 = proj(X(SIDE_TIERS[0].x0), wy, 0);
-      const s1 = proj(X(back), wy, SIDE_WALL - 6);
-      line(s0.x, s0.y, s1.x, s1.y, night ? STAND.nightLip : STAND.lip, s0.s > 1.1 ? 2 : 1);
     }
   }
   // Fans, back tier first and far to near, so nearer ones overlap.
@@ -862,7 +848,6 @@ function drawSides(time) {
       for (const side of [-1, 1]) {
         const k = i * 2 + (side > 0 ? 1 : 0);
         if (hash(k, row + 11) > FAN_FILL) continue; // an empty seat
-        if ([60, 160, 260].some((a) => Math.abs(wy - a) < 4)) continue; // the aisle
         const wx = (t.x0 + t.x1) / 2 + (hash(k, row + 13) - 0.5) * 3;
         const p = proj(side < 0 ? wx : WW - wx, wy, t.z);
         if (p.y < P.wb) continue;
@@ -1104,7 +1089,11 @@ function drawFan(x, y, n, i, row, time) {
     const wave = Math.sin(time * 14 + r * 30) > 0 ? 1 : 0;
     px(-1, -10 - wave, 1, 4, skin);
     px(3, -11 + wave, 1, 4, skin);
-  } else if (Math.sin(time * 0.9 + r * 50) > 0.85) {
+  } else if (P.groan > 0 && r < 0.75) {
+    // A groan: hands to heads.
+    px(-1, -9, 1, 3, skin);
+    px(3, -9, 1, 3, skin);
+  } else if ((P.clap > 0 && r < 0.85) || Math.sin(time * 0.9 + r * 50) > 0.85) {
     // Now and then a fan claps, each on their own beat.
     const clap = Math.sin(time * 16 + r * 9) > 0 ? 1 : 0;
     px(-1 + clap, -5, 1, 2, skin);

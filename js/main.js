@@ -141,7 +141,10 @@ function onGameEvent(type, arg) {
     S.breaks.push(S.time);
     if (arg >= 5 && arg % 5 === 0) crowdCheer(arg >= 10 ? 2 : 1);
     else if (S.breaks.length >= BURST_BREAKS) crowdCheer(S.breaks.length >= 5 ? 2 : 1);
+    else if (arg === 3) crowdReact('clap'); // a nice little run
   }
+  if (type === 'power') crowdReact('clap'); // a tool caught
+  if (type === 'lost' || type === 'over') crowdReact('groan');
   if (type === 'rush') crowdCheer(1);
   if (type === 'win') crowdCheer(3);
   // Analytics only while the run is live: a quit run's ball may still roll out behind the name screen.
@@ -157,14 +160,26 @@ const BURST_WINDOW = 0.45; // seconds
 const BURST_BREAKS = 3; // bricks broken inside the window that count as a burst
 const CROWD_GAP = 1.2; // seconds before the crowd can start another cheer
 function crowdCheer(big) {
-  if (S.crowd && S.time - S.crowd.at < CROWD_GAP && big <= S.crowd.big) return;
-  S.crowd = { at: S.time, big };
+  if (S.crowd && S.crowd.kind === 'cheer' && S.time - S.crowd.at < CROWD_GAP && big <= S.crowd.big) return;
+  S.crowd = { at: S.time, big, kind: 'cheer' };
   S.breaks = [];
   audio.sfx('cheer', big);
 }
+// Smaller reactions: a round of applause ('clap') or a groan ('groan').
+// They never cut a cheer short.
+function crowdReact(kind) {
+  if (S.crowd && S.time - S.crowd.at < CROWD_GAP && (S.crowd.kind === 'cheer' || S.crowd.kind === kind)) return;
+  S.crowd = { at: S.time, big: 1, kind };
+  audio.sfx(kind);
+}
 const CROWD_LEN = 1.8; // seconds the fans keep jumping
+function crowdMood(kind) {
+  if (!S.crowd || S.crowd.kind !== kind || !GAME_SCREENS.has(S.screen)) return 0;
+  const k = 1 - (S.time - S.crowd.at) / CROWD_LEN;
+  return k <= 0 ? 0 : Math.min(1, k * 1.5);
+}
 function crowdHype() {
-  if (!S.crowd || !GAME_SCREENS.has(S.screen)) return 0;
+  if (!S.crowd || S.crowd.kind !== 'cheer' || !GAME_SCREENS.has(S.screen)) return 0;
   const k = 1 - (S.time - S.crowd.at) / (CROWD_LEN + S.crowd.big * 0.4);
   return k <= 0 ? 0 : Math.min(1, k * 1.5) * (0.6 + S.crowd.big * 0.2);
 }
@@ -1871,6 +1886,9 @@ function draw() {
   setCam(S.cam + S.pitch, S.shift);
   P.banner = GAME_SCREENS.has(S.screen); // the banner board shows on the courts, the stone wall elsewhere
   P.hype = crowdHype();
+  P.clap = crowdMood('clap');
+  P.groan = crowdMood('groan');
+  audio.setCrowd(GAME_SCREENS.has(S.screen) && !!S.game);
   say(ARIA);
   const look = courtTheme();
   setTheme(look);

@@ -19,7 +19,9 @@ export const COURT_TRACKS = ['action1', 'stage1', 'action2', 'stage2', 'action3'
 // opens, the bass shelf (dB) comes up and the level rises a touch.
 const BUILD = { cutFrom: 650, cutTo: 20000, bassFrom: -2, bassTo: 9, gainFrom: 0.78 };
 export const RUSH_TEMPO = 1.08; // Power Rush plays the music a touch faster
-const TRACK_GAIN = 0.55; // the files are mastered loud; this sits them under the effects
+const TRACK_GAIN = 0.33; // the files are mastered loud; this sits them well under the crowd and effects
+const CROWD_BED = 0.07; // the crowd's constant murmur on the courts
+const DUCK = 0.45; // the music drops to this while the crowd roars
 const XFADE = 0.9; // seconds to cross-fade from one track to the next
 
 export class AudioSys {
@@ -39,6 +41,82 @@ export class AudioSys {
     if (!TRACKS[name]) return;
     this.want = name;
     if (this.ac && this.playing && name !== this.current) this.play(name);
+  }
+
+  // The crowd's murmur under everything on the courts: two bands of noise
+  // that rise and fall slowly, like a stadium talking among itself.
+  startCrowdBed() {
+    this.bedG = this.ac.createGain();
+    this.bedG.gain.value = 0;
+    this.bedG.connect(this.sfxG);
+    [[420, 0.13], [1100, 0.07]].forEach(([cut, rate], i) => {
+      const src = this.ac.createBufferSource();
+      src.buffer = this.noiseBuf;
+      src.loop = true;
+      src.playbackRate.value = 0.9 + i * 0.13; // the two loops never line up
+      const f = this.ac.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = cut;
+      f.Q.value = 0.7;
+      const g = this.ac.createGain();
+      g.gain.value = i ? 0.5 : 1;
+      const lfo = this.ac.createOscillator();
+      const depth = this.ac.createGain();
+      lfo.frequency.value = rate;
+      depth.gain.value = i ? 0.2 : 0.35;
+      lfo.connect(depth);
+      depth.connect(g.gain);
+      src.connect(f);
+      f.connect(g);
+      g.connect(this.bedG);
+      src.start();
+      lfo.start();
+    });
+    this.setCrowd(this.crowdOn || false);
+  }
+
+  setCrowd(on) {
+    this.crowdOn = on;
+    if (this.bedG) this.bedG.gain.setTargetAtTime(on ? CROWD_BED : 0, this.ac.currentTime, 0.5);
+  }
+
+  // Drop the music under a crowd roar for a moment, then bring it back.
+  duck(dur) {
+    if (!this.musicDuck) return;
+    const g = this.musicDuck.gain;
+    const t = this.ac.currentTime;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(DUCK, t + 0.12);
+    g.setValueAtTime(DUCK, t + dur);
+    g.linearRampToValueAtTime(1, t + dur + 0.8);
+  }
+
+  // A swell of crowd noise in one band; o.to slides the band (a groan falls).
+  roar(cut, vol, dur, o = {}) {
+    const t = this.ac.currentTime + (o.delay || 0);
+    const src = this.ac.createBufferSource();
+    src.buffer = this.noiseBuf;
+    src.loop = true;
+    const f = this.ac.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.setValueAtTime(cut, t);
+    if (o.to) f.frequency.exponentialRampToValueAtTime(o.to, t + dur);
+    f.Q.value = o.q || 0.8;
+    const g = this.ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + (o.attack || 0.12));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f);
+    f.connect(g);
+    g.connect(this.sfxG);
+    src.start(t);
+    src.stop(t + dur + 0.05);
+  }
+
+  // Applause: many short claps, scattered.
+  claps(n, spread, vol, delay = 0) {
+    for (let i = 0; i < n; i++) this.noise(0.025 + Math.random() * 0.02, vol * (0.6 + Math.random() * 0.4), 2200 + Math.random() * 1800, { type: 'highpass', delay: delay + Math.random() * spread });
   }
 
   // How far the court's music has built, 0 (mellow) to 1 (full power).
@@ -82,7 +160,9 @@ export class AudioSys {
       this.musicG.connect(this.musicBass);
       this.musicBass.connect(this.musicLP);
       this.musicLP.connect(this.musicLift);
-      this.musicLift.connect(this.master);
+      this.musicDuck = this.ac.createGain();
+      this.musicLift.connect(this.musicDuck);
+      this.musicDuck.connect(this.master);
       this.sfxG.connect(this.master);
 
       this.master.connect(this.ac.destination);
@@ -92,6 +172,7 @@ export class AudioSys {
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
       this.apply();
       this.setBuild(this.build ?? 1, true);
+      this.startCrowdBed();
     }
     // 'suspended' is the normal locked state; iOS also uses 'interrupted' after a call or alarm.
     if (this.ac.state !== 'running' && !this.held) this.ac.resume().catch(() => {});
@@ -233,36 +314,32 @@ export class AudioSys {
         [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, 0.22, 'square', 0.13, { delay: i * 0.11 }));
         break;
       case 'cheer': {
-        // A crowd roar: a swell of filtered noise, a few whoops and claps.
+        // The crowd roars: a big swell, whoops and a long round of applause.
         const big = Math.min(arg || 1, 3);
-        const t = this.ac.currentTime;
-        const roar = (cut, vol, dur) => {
-          const src = this.ac.createBufferSource();
-          src.buffer = this.noiseBuf;
-          src.loop = true;
-          const f = this.ac.createBiquadFilter();
-          f.type = 'bandpass';
-          f.frequency.value = cut;
-          f.Q.value = 0.8;
-          const g = this.ac.createGain();
-          g.gain.setValueAtTime(0.0001, t);
-          g.gain.linearRampToValueAtTime(vol, t + 0.12);
-          g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-          src.connect(f);
-          f.connect(g);
-          g.connect(this.sfxG);
-          src.start(t);
-          src.stop(t + dur + 0.05);
-        };
-        roar(900, 0.16 + big * 0.04, 0.7 + big * 0.25);
-        roar(2200, 0.08 + big * 0.02, 0.5 + big * 0.2);
-        for (let i = 0; i < 2 + big; i++) {
-          const f = 600 + Math.random() * 500;
-          this.tone(f, 0.22, 'triangle', 0.07, { to: f * 1.6, delay: 0.05 + i * 0.09 + Math.random() * 0.05 });
+        const len = 1.1 + big * 0.4;
+        this.duck(len * 0.7);
+        this.roar(800, 0.3 + big * 0.07, len, { attack: 0.15 });
+        this.roar(1900, 0.14 + big * 0.04, len * 0.8, { attack: 0.2 });
+        this.roar(350, 0.16 + big * 0.04, len * 0.9, { attack: 0.25 });
+        for (let i = 0; i < 3 + big * 2; i++) {
+          const f = 550 + Math.random() * 600;
+          this.tone(f, 0.25, 'triangle', 0.08, { to: f * 1.7, delay: 0.05 + i * 0.12 + Math.random() * 0.08 });
         }
-        for (let i = 0; i < 4 + big * 3; i++) this.noise(0.03, 0.12, 3000, { type: 'highpass', delay: 0.1 + i * 0.07 + Math.random() * 0.04 });
+        this.claps(14 + big * 10, len, 0.18, 0.1);
         break;
       }
+      case 'clap':
+        // A warm round of applause with a little murmur of approval.
+        this.duck(0.7);
+        this.roar(700, 0.12, 1.0, { attack: 0.2 });
+        this.claps(16, 0.9, 0.16);
+        break;
+      case 'groan':
+        // "Awww": the crowd's voice sinks.
+        this.duck(0.8);
+        this.roar(720, 0.26, 1.2, { to: 300, q: 1.4, attack: 0.1 });
+        this.roar(1500, 0.08, 0.9, { to: 700, q: 1.2, attack: 0.1 });
+        break;
       case 'over':
         [392, 330, 262, 196].forEach((f, i) => this.tone(f, 0.3, 'triangle', 0.3, { delay: i * 0.17 }));
         break;

@@ -1489,8 +1489,13 @@ def bricks_in_groups(browser, url):
     d.ev("__court.S.timeScale=0.0001")
     time.sleep(0.2)
     hexes = d.ev(pix)
-    check("court 1: bricks, the black paddle, no characters, no racket",
-          "#cf6f4f" in hexes and "#22262d" in hexes and "#f2c39a" not in hexes and "#e3b341" not in hexes)
+    check("court 1 (game-3): bricks, the tennis racket (gold frame, red-banded grip), no characters",
+          "#cf6f4f" in hexes and "#e3b341" in hexes and "#c8352e" in hexes and "#f2c39a" not in hexes)
+    d.ev("__court.S.timeScale=1; __court.S.game.racket={t:0, off:0.2}")
+    check("a hit springs the racket and fades (RACKET_RING)", d.ev("(async()=>{const {RACKET_RING}=await import('/js/game.js'); return RACKET_RING})()") == 0.45)
+    time.sleep(0.7)
+    check("the racket settles after the spring", d.ev("__court.S.game.racket") is None)
+    d.ev("__court.S.timeScale=0.0001")
     d.ev("__court.S.timeScale=1")
     forms = d.ev("[...new Set(__court.LEVELS.map(l=>l.form).filter(Boolean))]")
     check("courts 6-120 are geometric formations (diamond, circle, ring, triangle...), at least 10 kinds", len(forms) >= 10, forms)

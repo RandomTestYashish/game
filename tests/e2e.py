@@ -1763,9 +1763,13 @@ def finale(browser, url):
     check("game rules export RUSH_AT (25%)", r["RUSH_AT"] == 0.25, r)
     d.ev("__court.S.introSeen=true; __court.beginRun(10)")
     d.wait("__court.S.screen==='play' && __court.S.game.ready", 30000)
+    time.sleep(0.2)
+    check("a court's music starts mellow", d.ev("__court.audio.build") < 0.3, d.ev("__court.audio.build"))
     d.ev("""(()=>{const g=__court.S.game; const keep=Math.floor(g.total*0.25)+1; let n=g.remaining; for(const b of g.blocks){ if(n<=keep) break; b.alive=false; n--; } g.remaining=n; g.state='play';
        const b=g.blocks.find(q=>q.alive); g.balls[0].stuck=false; Object.assign(g.balls[0],{x:b.x+b.w/2,y:b.y+b.d+8,vx:0,vy:-1});})()""")
     d.wait("__court.S.game.rush", 10000)
+    time.sleep(0.2)
+    check("by the Power Rush the court's music is at full power (heavy bass)", d.ev("__court.audio.build") == 1, d.ev("__court.audio.build"))
     check("with a quarter of the court left, Power Rush starts and its banner shows", d.ev("__court.S.game.rush && __court.S.time-__court.S.rushAt < 2"))
     # In the rush most breaks drop a tool: count drops over many breaks on a fresh court in rush.
     rate = d.ev("""(async()=>{const {Game}=await import('/js/game.js'); let made=0, tries=0; for (let k=0;k<40;k++){ const g=new Game(__court.LEVELS[30], ()=>{}, Math.random); g.rush=true; g.drops=[]; g.sinceDrop=0; const b=g.blocks[0]; g.maybeDrop(b); if (g.drops.length) made++; tries++; } return made/tries})()""")

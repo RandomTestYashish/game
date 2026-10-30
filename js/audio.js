@@ -15,6 +15,9 @@ export const TRACKS = {
 };
 // The courts take turns through these, so the music changes every court.
 export const COURT_TRACKS = ['action1', 'stage1', 'action2', 'stage2', 'action3'];
+// A court's music builds from mellow to full power: the low-pass cutoff (Hz)
+// opens, the bass shelf (dB) comes up and the level rises a touch.
+const BUILD = { cutFrom: 650, cutTo: 20000, bassFrom: -2, bassTo: 9, gainFrom: 0.78 };
 export const RUSH_TEMPO = 1.08; // Power Rush plays the music a touch faster
 const TRACK_GAIN = 0.55; // the files are mastered loud; this sits them under the effects
 const XFADE = 0.9; // seconds to cross-fade from one track to the next
@@ -38,6 +41,20 @@ export class AudioSys {
     if (this.ac && this.playing && name !== this.current) this.play(name);
   }
 
+  // How far the court's music has built, 0 (mellow) to 1 (full power).
+  setBuild(k, now = false) {
+    k = Math.max(0, Math.min(1, k));
+    if (!now && this.build != null && Math.abs(k - this.build) < 0.01) return;
+    this.build = k;
+    if (!this.ac) return;
+    const t = this.ac.currentTime;
+    const ease = now ? 0.01 : 0.6;
+    const cut = BUILD.cutFrom * Math.pow(BUILD.cutTo / BUILD.cutFrom, k);
+    this.musicLP.frequency.setTargetAtTime(cut, t, ease);
+    this.musicBass.gain.setTargetAtTime(BUILD.bassFrom + (BUILD.bassTo - BUILD.bassFrom) * k * k, t, ease);
+    this.musicLift.gain.setTargetAtTime(BUILD.gainFrom + (1 - BUILD.gainFrom) * k, t, ease);
+  }
+
   // Speed the music up a little (Power Rush) or back to normal.
   setRate(rate) {
     if (this.rate === rate) return;
@@ -53,7 +70,19 @@ export class AudioSys {
       this.master = this.ac.createGain();
       this.musicG = this.ac.createGain();
       this.sfxG = this.ac.createGain();
-      this.musicG.connect(this.master);
+      // The court's build-up: music starts mellow (high notes muffled, bass
+      // light) and opens out with heavy bass as the court is cleared.
+      this.musicLP = this.ac.createBiquadFilter();
+      this.musicLP.type = 'lowpass';
+      this.musicLP.Q.value = 0.9;
+      this.musicBass = this.ac.createBiquadFilter();
+      this.musicBass.type = 'lowshelf';
+      this.musicBass.frequency.value = 140;
+      this.musicLift = this.ac.createGain();
+      this.musicG.connect(this.musicBass);
+      this.musicBass.connect(this.musicLP);
+      this.musicLP.connect(this.musicLift);
+      this.musicLift.connect(this.master);
       this.sfxG.connect(this.master);
 
       this.master.connect(this.ac.destination);
@@ -62,6 +91,7 @@ export class AudioSys {
       const d = this.noiseBuf.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
       this.apply();
+      this.setBuild(this.build ?? 1, true);
     }
     // 'suspended' is the normal locked state; iOS also uses 'interrupted' after a call or alarm.
     if (this.ac.state !== 'running' && !this.held) this.ac.resume().catch(() => {});

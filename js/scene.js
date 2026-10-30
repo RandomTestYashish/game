@@ -696,7 +696,7 @@ function drawSceneOnce(time) {
     ctx.globalAlpha = 1;
   }
 
-  // Stands down both sides once play is in view.
+  // Stands and lamps down both sides once play is in view.
   if (cam > 0.45 && P.landing < 1) {
     ctx.globalAlpha = Math.min(1, (cam - 0.45) / 0.3);
     drawSides(time);
@@ -814,18 +814,30 @@ function shade(hex, k) {
   return '#' + [n >> 16, (n >> 8) & 255, n & 255].map((c) => f(c).toString(16).padStart(2, '0')).join('');
 }
 
-// Low stands down both sides of the court (in place of fences and lamps),
-// two tiers each with the same sparse fans as the stands at the back.
+// Stands down both sides of the court: three stepped tiers of fans and a
+// back wall striped in the country's accent colour. In front of them, by
+// the court, each country's own street lamps (see LAMP_STYLES).
 const SIDE_TIERS = [
-  { x0: -12, x1: -24, z: 5 },
-  { x0: -24, x1: -36, z: 13 },
+  { x0: -12, x1: -21, z: 5 },
+  { x0: -21, x1: -30, z: 11 },
+  { x0: -30, x1: -39, z: 17 },
 ];
+const SIDE_WALL = 27; // the back wall's height
+const LAMPS = [8, 92, 176, 260];
 function drawSides(time) {
+  const a0 = ctx.globalAlpha;
   const night = theme.isBlackCourt;
   const far = -6;
   const near = WH + 40;
+  const back = SIDE_TIERS[SIDE_TIERS.length - 1].x1;
   for (const side of [-1, 1]) {
     const X = (wx) => (side < 0 ? wx : WW - wx);
+    // The back wall with its accent stripe and a light coping on top.
+    quad(proj(X(back), far, 0), proj(X(back), near, 0), proj(X(back), near, SIDE_WALL), proj(X(back), far, SIDE_WALL), night ? STAND.nightFace : STAND.face);
+    quad(proj(X(back), far, SIDE_WALL - 6), proj(X(back), near, SIDE_WALL - 6), proj(X(back), near, SIDE_WALL - 3), proj(X(back), far, SIDE_WALL - 3), theme.accentColor);
+    const c0 = proj(X(back), far, SIDE_WALL);
+    const c1 = proj(X(back), near, SIDE_WALL);
+    line(c0.x, c0.y, c1.x, c1.y, night ? STAND.nightLip : STAND.lip, 1);
     let zBelow = 0;
     for (const t of SIDE_TIERS) {
       // The riser (facing the court), then the tread the fans stand on.
@@ -834,26 +846,54 @@ function drawSides(time) {
       const e0 = proj(X(t.x0), far, t.z);
       const e1 = proj(X(t.x0), near, t.z);
       line(e0.x, e0.y, e1.x, e1.y, night ? STAND.nightLip : STAND.lip, 1);
-      // Seat rows: faint lines across the tread.
-      for (let wy = far + 11; wy < near; wy += 11) {
-        const s0 = proj(X(t.x0), wy, t.z);
-        const s1 = proj(X(t.x1), wy, t.z);
-        line(s0.x, s0.y, s1.x, s1.y, night ? STAND.nightFace : STAND.face, 1);
-      }
       zBelow = t.z;
     }
+    // Aisles: stairs cutting through the tiers.
+    for (const wy of [60, 160, 260]) {
+      const s0 = proj(X(SIDE_TIERS[0].x0), wy, 0);
+      const s1 = proj(X(back), wy, SIDE_WALL - 6);
+      line(s0.x, s0.y, s1.x, s1.y, night ? STAND.nightLip : STAND.lip, s0.s > 1.1 ? 2 : 1);
+    }
   }
-  // Fans, far to near so nearer ones overlap.
-  for (let i = 0, wy = far + 6; wy < near; wy += 11, i++) {
-    for (const side of [-1, 1]) {
-      SIDE_TIERS.forEach((t, row) => {
+  // Fans, back tier first and far to near, so nearer ones overlap.
+  for (let row = SIDE_TIERS.length - 1; row >= 0; row--) {
+    const t = SIDE_TIERS[row];
+    for (let i = 0, wy = far + 4; wy < near; wy += 7, i++) {
+      for (const side of [-1, 1]) {
         const k = i * 2 + (side > 0 ? 1 : 0);
-        if (hash(k, row + 11) > 0.36) return; // an empty seat
-        const wx = (t.x0 + t.x1) / 2 + (hash(k, row + 13) - 0.5) * 4;
+        if (hash(k, row + 11) > FAN_FILL) continue; // an empty seat
+        if ([60, 160, 260].some((a) => Math.abs(wy - a) < 4)) continue; // the aisle
+        const wx = (t.x0 + t.x1) / 2 + (hash(k, row + 13) - 0.5) * 3;
         const p = proj(side < 0 ? wx : WW - wx, wy, t.z);
-        if (p.y < P.wb) return;
+        if (p.y < P.wb) continue;
         drawFan(p.x, p.y + 1, p.s > 1.2 ? 2 : 1, k, row + 20, time);
-      });
+      }
+    }
+  }
+  // Lamp posts by the court, far to near.
+  const style = LAMP_STYLES[theme.countryId] || LAMP_STYLES.london;
+  for (const ly of LAMPS) {
+    for (const side of [-1, 1]) {
+      const lx = side < 0 ? -8 : WW + 8;
+      const b = proj(lx, ly);
+      const t = proj(lx, ly, 36);
+      if (b.y < P.wb) continue;
+      const s = t.s;
+      const u = (n) => Math.max(1, Math.round(n * s));
+      const flick = 0.85 + 0.15 * Math.sin(time * 7 + ly * 1.3 + side * 2) * Math.sin(time * 2.3 + ly);
+      // A warm pool of light on the grass; at night (a Black Court) brighter and wider.
+      const glow = night ? 1.6 : 1;
+      ctx.globalAlpha = a0 * Math.min(0.3, 0.1 * flick * glow);
+      ellipse(b.x + side * u(3), b.y, u(14 * glow), u(4 * glow), style.glow);
+      ctx.globalAlpha = a0;
+      const light = style.draw(b, t, u, -side, a0);
+      ctx.globalAlpha = a0 * Math.min(0.4, 0.14 * flick * glow);
+      disc(light.x, light.y, u(13 * Math.sqrt(glow)), style.glow);
+      ctx.globalAlpha = a0 * Math.min(0.5, 0.22 * flick * glow);
+      disc(light.x, light.y, u(7), style.glow);
+      ctx.globalAlpha = a0 * Math.min(0.7, 0.35 * flick * glow);
+      disc(light.x, light.y, u(3), style.core);
+      ctx.globalAlpha = a0;
     }
   }
 }
@@ -868,6 +908,114 @@ function quad(a, b, c, d, col) {
   ctx.closePath();
   ctx.fill();
 }
+
+// Street lights by country. draw(base, top, u, inward, alpha) paints the post
+// and lantern (u scales a size to the lamp's distance; inward is +1 toward
+// the court) and returns the point the glow comes from.
+const LAMP_STYLES = {
+  // Japan: a red paper chochin lantern hanging from a wooden post.
+  japan: {
+    glow: '#ff6a3a',
+    core: '#ffd0a0',
+    draw(b, t, u, inward) {
+      const pw = u(1.6);
+      rect(b.x - pw / 2, t.y - u(2), pw, b.y - t.y + u(2), '#3b2618');
+      rect(b.x - pw / 2, t.y - u(2), 1, b.y - t.y + u(2), '#6a4a30');
+      // A little roof over the post top.
+      trap(t.y - u(4), b.x - u(1.5), b.x + u(1.5), t.y - u(2), b.x - u(3.5), b.x + u(3.5), '#22140c');
+      // Arm out toward the court, the lantern hanging from its end.
+      const ax = b.x + inward * u(5);
+      rect(Math.min(b.x, ax), t.y, Math.abs(ax - b.x) + 1, u(1), '#3b2618');
+      rect(ax, t.y, 1, u(2), '#22140c');
+      const cy = t.y + u(2) + u(4.5);
+      const rx = u(3.2);
+      const ry = u(4.2);
+      ellipse(ax, cy, rx + 1, ry, '#5e100c');
+      ellipse(ax, cy, rx, ry - 1, '#d8322a');
+      ellipse(ax, cy, Math.max(1, rx - u(1.2)), Math.max(1, ry - u(1.5)), '#ff7a4a');
+      for (let dy = -ry + u(1.5); dy < ry - 1; dy += Math.max(2, u(1.6))) rect(ax - rx + 1, cy + dy, rx * 2 - 1, 1, '#a8231c'); // ribs
+      rect(ax - u(2), cy - ry - u(1), u(4) + 1, u(1), '#1a1210'); // black caps
+      rect(ax - u(2), cy + ry, u(4) + 1, u(1), '#1a1210');
+      rect(ax, cy + ry + u(1), 1, u(2), '#f2c230'); // tassel
+      return { x: ax, y: cy };
+    },
+  },
+  // New York: a cast-iron "bishop's crook" lamp with a sodium glow.
+  newyork: {
+    glow: '#ffa640',
+    core: '#ffe2a8',
+    draw(b, t, u, inward) {
+      const pw = u(1.6);
+      rect(b.x - u(1.5), b.y - u(4), u(3) + 1, u(4), '#18221d'); // base
+      rect(b.x - pw / 2, t.y, pw, b.y - t.y, '#1d2a24');
+      rect(b.x - pw / 2, t.y, 1, b.y - t.y, '#3d5248');
+      for (const k of [0.35, 0.7]) rect(b.x - u(1.2), t.y + (b.y - t.y) * k, u(2.4) + 1, u(1), '#2c3d35'); // collars
+      // The crook: up, over toward the court, and down.
+      const ax = b.x + inward * u(5);
+      rect(b.x - pw / 2, t.y - u(3), pw, u(3), '#1d2a24');
+      rect(Math.min(b.x, ax), t.y - u(3), Math.abs(ax - b.x) + 1, u(1.2), '#1d2a24');
+      rect(ax - (inward < 0 ? 0 : u(1)), t.y - u(3), u(1.2), u(2.5), '#1d2a24');
+      // Acorn lantern.
+      const cy = t.y + u(1.5);
+      rect(ax - u(2.5), cy - u(2.2), u(5) + 1, u(1), '#18221d');
+      ellipse(ax, cy + u(0.8), u(2.4), u(2.8), '#3a2a14');
+      ellipse(ax, cy + u(0.8), u(1.8), u(2.2), '#ffcf7a');
+      rect(ax, cy + u(3.4), 1, u(1), '#18221d');
+      return { x: ax, y: cy + u(0.8) };
+    },
+  },
+  // London: a black Victorian gas lamp with a ladder bar and a four-pane lantern.
+  london: {
+    glow: '#ffe1a0',
+    core: '#fff6d8',
+    draw(b, t, u) {
+      const pw = u(1.6);
+      rect(b.x - u(2), b.y - u(5), u(4) + 1, u(5), '#121212'); // fluted base
+      rect(b.x - u(2) + 1, b.y - u(5), 1, u(5), '#3a3a3a');
+      rect(b.x - u(2.5), b.y - u(5) - u(1), u(5) + 1, u(1), '#121212');
+      rect(b.x - pw / 2, t.y, pw, b.y - t.y, '#151515');
+      rect(b.x - pw / 2, t.y, 1, b.y - t.y, '#444');
+      rect(b.x - u(3.5), t.y + u(2), u(7) + 1, u(1), '#151515'); // ladder bar
+      // Lantern: tapered glass box, pointed roof, finial.
+      const top = t.y - u(7);
+      const gw = u(2.6);
+      trap(top + u(1.5), b.x - gw - u(0.8), b.x + gw + u(0.8), t.y - u(0.5), b.x - gw + u(0.6), b.x + gw - u(0.6), '#111');
+      trap(top + u(2.2), b.x - gw, b.x + gw, t.y - u(1.2), b.x - gw + u(1.2), b.x + gw - u(1.2), '#ffe6a0');
+      rect(b.x, top + u(2.2), 1, t.y - top - u(3.4), '#2a2a2a'); // mullion
+      trap(top - u(1.5), b.x, b.x + 1, top + u(1.5), b.x - gw - u(1.2), b.x + gw + u(1.2), '#111'); // roof
+      rect(b.x, top - u(2.8), 1, u(1.4), '#111'); // finial
+      return { x: b.x, y: top + u(3.8) };
+    },
+  },
+  // India: an ornate brass Jaipur lantern, its pierced pattern glowing.
+  india: {
+    glow: '#ffa23a',
+    core: '#ffe3a0',
+    draw(b, t, u) {
+      const pw = u(1.8);
+      rect(b.x - pw / 2, t.y, pw, b.y - t.y, '#8a5a1e');
+      rect(b.x - pw / 2, t.y, 1, b.y - t.y, '#e0b45a');
+      for (const k of [0.25, 0.5, 0.75]) {
+        const y = t.y + (b.y - t.y) * k;
+        rect(b.x - u(1.4), y, u(2.8) + 1, u(1), '#c8923a'); // brass rings
+      }
+      rect(b.x - u(2.2), b.y - u(2), u(4.4) + 1, u(2), '#8a5a1e');
+      // Lantern body with a pierced (jaali) pattern, under an onion dome.
+      const bw = u(3);
+      const top = t.y - u(7);
+      rect(b.x - bw - 1, top + u(2), bw * 2 + 3, u(6), '#6a3a0e');
+      rect(b.x - bw, top + u(2) + 1, bw * 2 + 1, u(6) - 2, '#c8923a');
+      for (let y = top + u(2) + 2; y < top + u(8) - 2; y += 2) {
+        for (let x = b.x - bw + 1 + ((y >> 1) & 1); x <= b.x + bw - 1; x += 2) rect(x, y, 1, 1, '#ffd27a');
+      }
+      ellipse(b.x, top + u(1), bw + 1, u(2), '#a8742a'); // dome
+      ellipse(b.x, top + u(1), bw, u(1.4), '#e0b45a');
+      rect(b.x, top - u(2), 1, u(2), '#e0b45a'); // finial
+      rect(b.x - u(1), t.y, u(2) + 1, u(1), '#6a3a0e');
+      return { x: b.x, y: top + u(5) };
+    },
+  },
+};
 
 // The banner's logos, THE COURT (a tennis ball) and COURT BITES (a burger and
 // a drink), in 12-bit colour (4 bits per channel, written as 3-digit hex),
@@ -929,6 +1077,7 @@ const STAND = {
   top: '#3a3f4a', face: '#23272f', lip: '#6a7282',
   nightTop: '#1c1f26', nightFace: '#14161b', nightLip: '#323844',
 };
+const FAN_FILL = 0.62; // the share of seats taken
 const hash = (i, k) => {
   const v = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
   return v - Math.floor(v);
@@ -955,6 +1104,11 @@ function drawFan(x, y, n, i, row, time) {
     const wave = Math.sin(time * 14 + r * 30) > 0 ? 1 : 0;
     px(-1, -10 - wave, 1, 4, skin);
     px(3, -11 + wave, 1, 4, skin);
+  } else if (Math.sin(time * 0.9 + r * 50) > 0.85) {
+    // Now and then a fan claps, each on their own beat.
+    const clap = Math.sin(time * 16 + r * 9) > 0 ? 1 : 0;
+    px(-1 + clap, -5, 1, 2, skin);
+    px(3 - clap, -5, 1, 2, skin);
   } else {
     px(-1, -6, 1, 3, shade(shirt, -0.3));
     px(3, -6, 1, 3, shade(shirt, -0.3));
@@ -976,9 +1130,9 @@ function drawStands(time) {
   rect(x0, top - step, x1 - x0, 1, night ? STAND.nightLip : STAND.lip);
   for (let row = 1; row >= 0; row--) {
     const fy = top - step * row + 1; // where this row's feet are
-    for (let x = x0 + 4 + (row ? 4 : 0), i = 0; x < x1 - 4; x += 8, i++) {
-      if (hash(i, row) > 0.38) continue; // an empty seat
-      drawFan(x + 1.5, fy, 1, i, row, time);
+    for (let x = x0 + 4 + (row ? 3 : 0), i = 0; x < x1 - 4; x += 6, i++) {
+      if (hash(i, row) > FAN_FILL) continue; // an empty seat
+      drawFan(x + 1.5 + Math.round((hash(i, row + 9) - 0.5) * 2), fy, 1, i, row, time);
     }
   }
 }

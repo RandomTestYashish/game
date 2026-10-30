@@ -3,7 +3,7 @@
 import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, ellipse, line, text, textW, wrap, blockTitle, sparkle, racket, cup, METAL, trophy, laurel, rays, globe, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
 import { P, setCam, buildLayers, drawScene, setTheme, currentTheme, drawThemePreview, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
 import { COUNTRIES, getCourtTheme } from './themes.js';
-import { Game, TOOLS, START_LIVES } from './game.js';
+import { Game, TOOLS, START_LIVES, RUSH_AT } from './game.js';
 import { sections } from './rules.js';
 import { LEVELS } from './levels.js';
 import { drawGame, drawHUD, hudRows } from './render.js';
@@ -465,6 +465,16 @@ function musicFor(look) {
   if (!inGame) return 'select';
   if (look.isBlackCourt) return 'boss';
   return COURT_TRACKS[S.level % COURT_TRACKS.length];
+}
+
+// How far a court's music has built: mellow at the serve, opening up as the
+// bricks go, full power with heavy bass for the last stretch (and the menus).
+function musicBuild() {
+  const g = S.game;
+  if (!GAME_SCREENS.has(S.screen) || !g || !g.total) return 1;
+  if (g.state === 'won' || g.rush) return 1;
+  const done = 1 - g.remaining / g.total;
+  return 0.12 + 0.88 * Math.pow(done / (1 - RUSH_AT), 1.3);
 }
 
 // The theme for the court being played (or last played, in the menus).
@@ -1866,6 +1876,7 @@ function draw() {
   setTheme(look);
   audio.setTrack(musicFor(look));
   audio.setRate(GAME_SCREENS.has(S.screen) && S.game && S.game.rush ? RUSH_TEMPO : 1);
+  audio.setBuild(musicBuild());
   beginUI();
   S.primary = null;
   S.back = null;

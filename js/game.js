@@ -25,6 +25,8 @@ export const PADDLE_Y = WH - 34; // just in front of the baseline
 export const START_LIVES = 3; // a run's lives; a lost life never comes back
 export const MAX_BALLS = 9;
 export const MAX_DROPS = 2; // tools falling at once
+// Power Rush: a tool falls from the far end every this many seconds (min, max).
+export const RAIN_EVERY = [1.4, 2.4];
 // Power Rush: once only this share of a court's blocks is left, tools drop on
 // most breaks (still no more than MAX_DROPS falling at once).
 export const RUSH_AT = 0.25;
@@ -391,17 +393,7 @@ export class Game {
     }
     if (this.drops.length >= MAX_DROPS) return;
     if (this.sinceDrop < 7 && this.rng() >= (this.rush ? RUSH_RATE : this.dropRate)) return;
-    let total = 0;
-    for (const t of TOOLS) total += this.weight(t.id);
-    let pick = this.rng() * total;
-    let type = TOOLS[0].id;
-    for (const t of TOOLS) {
-      pick -= this.weight(t.id);
-      if (pick <= 0) {
-        type = t.id;
-        break;
-      }
-    }
+    const type = this.pickTool();
     this.sinceDrop = 0;
     this.drops.push({ type, x: b.x + b.w / 2, y: b.y + b.d / 2, t: 0 });
     this.emit('drop', type, { x: b.x + b.w / 2 });
@@ -413,7 +405,34 @@ export class Game {
     return WEIGHTS[id];
   }
 
+  // A tool at random, weighted (see weight()).
+  pickTool() {
+    let total = 0;
+    for (const t of TOOLS) total += this.weight(t.id);
+    let pick = this.rng() * total;
+    for (const t of TOOLS) {
+      pick -= this.weight(t.id);
+      if (pick <= 0) return t.id;
+    }
+    return TOOLS[0].id;
+  }
+
+  // In a Power Rush few bricks are left to break, so tools also fall from
+  // the far end at random places every couple of seconds.
+  rushRain(dt) {
+    if (!this.rush || this.state !== 'play') return;
+    this.rainIn = (this.rainIn ?? RAIN_EVERY[0]) - dt;
+    if (this.rainIn > 0) return;
+    this.rainIn = RAIN_EVERY[0] + this.rng() * (RAIN_EVERY[1] - RAIN_EVERY[0]);
+    if (this.drops.length >= MAX_DROPS) return;
+    const type = this.pickTool();
+    const x = 16 + this.rng() * (WW - 32);
+    this.drops.push({ type, x, y: 8, t: 0 });
+    this.emit('drop', type, { x });
+  }
+
   updateDrops(dt) {
+    this.rushRain(dt);
     const p = this.paddle;
     const fall = 62 * (this.fx.lowgrav > 0 ? 0.5 : 1);
     for (const d of this.drops) {

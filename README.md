@@ -81,7 +81,7 @@ On a Black Court the surface turns near-black, the lines take the country's acce
 | Courts, in turn (court 1, 2, 3...) | Action 1, Stage 1, Action 2, Stage 2, Action 3, round again |
 | Every Black Court | Boss Fight |
 
-Each court's music builds with the court: it starts mellow (the high end muffled, the bass light) and opens up as bricks go, reaching full power with heavy bass for the Power Rush and the finish. During a Power Rush it also plays about 8% faster. `js/audio.js` fetches the tracks after the first tap (browsers allow sound only after one), loops each one, and cross-fades over about 0.9 s when the track changes. Sound effects are still synthesised, and every element has its own: each brick type breaks in its own voice (terracotta cracks, light stone pops, hedge crunches, slate shatters), its pitch rising with the combo; the racket's note follows where the ball meets it, with a ping off the edge; the side walls knock and the far wall thuds; each tool has its own falling chime and its own tune when caught; Power Rush has a siren; menu buttons sound by kind (go ahead, back, tabs, toggles) and every letter on the name keyboard ticks a little differently. Sounds are placed left or right by where they happen on the court.
+Each court's music builds with the court: it starts mellow (the high end muffled, the bass light) and opens up as bricks go, reaching full power with heavy bass for the Power Rush and the finish. During a Power Rush it also plays about 8% faster. `js/audio.js` fetches the tracks after the first tap (browsers allow sound only after one), loops each one, and cross-fades over about 0.9 s when the track changes. Sound effects are still synthesised: the original set (one click for every button, a thwock off the racket, a crack and a falling note for each break, rising with the combo, a jingle for each tool caught), plus the crowd's reactions.
 
 **Haptics.** `js/haptics.js` gives each event its own vibration pattern (a light tick for a button, a firmer one off the racket's edge, heavier for slate than terracotta, a long double buzz for a lost ball, a drum roll for the finish). Android browsers use `navigator.vibrate`; iPhones, which don't have it, get a light tick per pulse from Safari's switch control. Vibration can be turned off in Sound (`settings.haptics`).
 
@@ -209,7 +209,7 @@ No player names are sent.
 
 **Tidy-up (2026-10-23).** `supabase/2026-10-23-tidy-up.sql` removes the one test score left from checking the game, adds an index for the top-20 query, and ends with read-only checks (the 150300 limit is in place; the public key can call `submit_score` but cannot insert directly). Run it once in the SQL Editor; running it again does nothing harmful.
 
-**Power Rush and the finish.** With a quarter of a court's blocks left (`RUSH_AT` in `js/game.js`), a POWER RUSH! banner shows, a gold edge pulses round the screen, and most breaks drop a tool (`RUSH_RATE`, still at most `MAX_DROPS` falling at once). The last brick goes in slow motion, with a white flash, bursts of confetti and COURT CLEAR!
+**Power Rush and the finish.** With a quarter of a court's blocks left (`RUSH_AT` in `js/game.js`), a small POWER RUSH label shows under the HUD for a moment, most breaks drop a tool (`RUSH_RATE`), and tools also fall from the far end at random places every 1.4 to 2.4 s (`RAIN_EVERY`), since few bricks are left to break; still at most `MAX_DROPS` falling at once. The last brick brings a short, gentle slow-down, a light fall of confetti and COURT CLEAR!
 
 ## Score sharing
 

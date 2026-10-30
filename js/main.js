@@ -634,7 +634,7 @@ function update(dt) {
   if (frozen) return;
   const steer = S.screen === 'play' || S.screen === 'countdown';
   // The last brick goes in slow motion for a moment.
-  const slow = S.cheer && S.time - S.cheer.at < 0.55 ? 0.35 : 1;
+  const slow = S.cheer && S.time - S.cheer.at < 0.35 ? 0.6 : 1; // a short, gentle slow-down at the finish
   g.update(dt * slow, steer ? (S.right ? 1 : 0) - (S.left ? 1 : 0) : 0);
 
   if (S.screen === 'countdown' && !S.leaving) {
@@ -749,58 +749,41 @@ function drawPlace() {
 
 function drawRush(g) {
   if (!g.rush || g.state !== 'play') return;
-  const a0 = ctx.globalAlpha;
-  const pulse = 0.35 + 0.25 * Math.sin(S.time * 6);
-  ctx.globalAlpha = a0 * pulse;
-  rect(0, 0, W, 2, PAL.yellow);
-  rect(0, H - 2, W, 2, PAL.yellow);
-  rect(0, 0, 2, H, PAL.yellow);
-  rect(W - 2, 0, 2, H, PAL.yellow);
-  ctx.globalAlpha = a0;
   const t = S.time - (S.rushAt || -99);
-  if (t < 0 || t > 1.8) return;
-  // POWER RUSH! drops in, flickers between gold and white, and fades.
-  const y = Math.round(hudRows().toast + 18 - (1 - easeBack(clamp(t / 0.35, 0, 1))) * 14);
-  const msg = 'POWER RUSH!';
-  const w = textW(msg, 2, 2) + 20;
-  ctx.globalAlpha = a0 * clamp((1.8 - t) * 2.5, 0, 1);
-  rrect(W / 2 - w / 2 - 1, y - 1, w + 2, 22, 7, PAL.ink);
-  rrect(W / 2 - w / 2, y, w, 20, 6, Math.floor(t * 8) % 2 ? PAL.yellow : '#ffffff');
-  text(msg, W / 2, y + 3, PAL.ink, { align: 'center', scale: 2, sp: 2 });
+  if (t < 0 || t > RUSH_LABEL) return;
+  // A small POWER RUSH label slides in under the HUD and fades: no flashing.
+  const a0 = ctx.globalAlpha;
+  const y = Math.round(hudRows().toast + 18 - (1 - easeOut(clamp(t / 0.3, 0, 1))) * 6);
+  const msg = 'POWER RUSH';
+  const w = textW(msg, 1, 2) + 16;
+  ctx.globalAlpha = a0 * clamp(t * 5, 0, 1) * clamp((RUSH_LABEL - t) * 2, 0, 1);
+  rrect(W / 2 - w / 2, y, w, 13, 5, PAL.ink);
+  text(msg, W / 2, y + 3, PAL.yellow, { align: 'center', sp: 2 });
   ctx.globalAlpha = a0;
 }
+const RUSH_LABEL = 1.6; // seconds the POWER RUSH label shows
 
-const CHEER_COLORS = ['#f5e663', '#ff6fa8', '#5fd3ff', '#9cff6a', '#ffffff', '#ff9a4a'];
+const CHEER_COLORS = ['#f5e663', '#ffffff', '#ffbb22'];
+const CHEER_LEN = 1.8; // seconds the court-clear moment lasts
+const CHEER_PIECES = 28; // confetti pieces
 function drawCheer() {
   if (!S.cheer) return;
   const t = S.time - S.cheer.at;
-  if (t > 2.2) return;
+  if (t > CHEER_LEN) return;
   const a0 = ctx.globalAlpha;
-  // Flash.
-  if (t < 0.3) {
-    ctx.globalAlpha = a0 * 0.55 * (1 - t / 0.3);
-    rect(0, 0, W, H, '#ffffff');
+  // A light fall of confetti from the top, drifting as it comes down.
+  for (let i = 0; i < CHEER_PIECES; i++) {
+    const r = (i * 0.618) % 1;
+    const x = W * (0.08 + 0.84 * r) + Math.sin(t * 3 + i) * 6;
+    const y = -6 + (36 + (i % 5) * 9) * t + ((i * 13) % 20);
+    ctx.globalAlpha = a0 * clamp((CHEER_LEN - t) * 1.5, 0, 1);
+    rect(x, y, Math.sin(t * 8 + i) > 0 ? 2 : 1, 2, CHEER_COLORS[i % CHEER_COLORS.length]);
   }
-  // Three bursts of confetti, one after another, falling as they spread.
-  const bursts = [[0.5, 0.4, 0], [0.24, 0.32, 0.22], [0.76, 0.32, 0.42], [0.5, 0.25, 0.6]];
-  bursts.forEach(([bx, by, at], j) => {
-    const tt = t - at;
-    if (tt < 0) return;
-    for (let i = 0; i < 40; i++) {
-      const a = (i / 40) * Math.PI * 2 + j;
-      const sp = 70 + ((i * 37 + j * 11) % 40);
-      const x = W * bx + Math.cos(a) * sp * tt;
-      const y = H * by + Math.sin(a) * sp * tt + 90 * tt * tt;
-      ctx.globalAlpha = a0 * clamp(1.6 - tt, 0, 1);
-      const c = CHEER_COLORS[(i + j) % CHEER_COLORS.length];
-      rect(x, y, (i + Math.floor(tt * 12)) % 3 ? 3 : 2, 2, c);
-    }
-  });
-  // COURT CLEAR! pops in over it all.
-  if (t > 0.1 && t < 2) {
-    ctx.globalAlpha = a0 * clamp((2 - t) * 3, 0, 1);
-    const y = Math.round(H * 0.45 - (1 - easeBack(clamp((t - 0.1) / 0.35, 0, 1))) * 20);
-    blockTitle('COURT CLEAR!', W / 2, y, W >= 400 ? 3 : 2);
+  // COURT CLEAR! settles in and fades.
+  if (t > 0.15) {
+    ctx.globalAlpha = a0 * clamp((t - 0.15) * 4, 0, 1) * clamp((CHEER_LEN - t) * 2, 0, 1);
+    const y = Math.round(H * 0.42 - (1 - easeOut(clamp((t - 0.15) / 0.4, 0, 1))) * 8);
+    blockTitle('COURT CLEAR!', W / 2, y, 2);
   }
   ctx.globalAlpha = a0;
 }

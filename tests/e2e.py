@@ -1774,6 +1774,8 @@ def finale(browser, url):
     # In the rush most breaks drop a tool: count drops over many breaks on a fresh court in rush.
     rate = d.ev("""(async()=>{const {Game}=await import('/js/game.js'); let made=0, tries=0; for (let k=0;k<40;k++){ const g=new Game(__court.LEVELS[30], ()=>{}, Math.random); g.rush=true; g.drops=[]; g.sinceDrop=0; const b=g.blocks[0]; g.maybeDrop(b); if (g.drops.length) made++; tries++; } return made/tries})()""")
     check("in a Power Rush most breaks drop a tool (about 65%)", rate > 0.45, rate)
+    rain = d.ev("""(async()=>{const {Game}=await import('/js/game.js'); const g=new Game(__court.LEVELS[30], ()=>{}, Math.random); g.state='play'; g.rush=true; let made=0; for (let i=0;i<600;i++){ const n=g.drops.length; g.updateDrops(1/60); if (g.drops.length>n) made++; } return made})()""")
+    check("in a Power Rush tools also fall from the far end on their own (about every 2 s)", 3 <= rain <= 9, rain)
     d.ev("(()=>{const g=__court.S.game; const live=g.blocks.filter(q=>q.alive); live.slice(1).forEach(q=>q.alive=false); g.remaining=1; const b=live[0]; g.balls=[g.balls[0]]; g.drops=[]; Object.assign(g.balls[0],{stuck:false,x:b.x+b.w/2,y:b.y+b.d+6,vx:0,vy:-1}); b.hp=1;})()")
     d.wait("__court.S.cheer && __court.S.time-__court.S.cheer.at>0.5", 10000)
     check("the last brick sets off the finish (fireworks and COURT CLEAR!)", d.ev("__court.S.game.state==='won'"))

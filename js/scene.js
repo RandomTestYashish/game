@@ -834,12 +834,12 @@ function drawSides(time) {
   for (const side of [-1, 1]) {
     const X = (wx) => (side < 0 ? wx : WW - wx);
     // The back wall, plain.
-    quad(proj(X(back), far, 0), proj(X(back), near, 0), proj(X(back), near, SIDE_WALL), proj(X(back), far, SIDE_WALL), night ? STAND.nightFace : STAND.face);
+    quad(proj(X(back), far, 0), proj(X(back), near, 0), proj(X(back), near, SIDE_WALL), proj(X(back), far, SIDE_WALL), crowdColours().stand.face);
     let zBelow = 0;
     for (const t of SIDE_TIERS) {
       // The riser (facing the court), then the tread the fans stand on.
-      quad(proj(X(t.x0), far, zBelow), proj(X(t.x0), near, zBelow), proj(X(t.x0), near, t.z), proj(X(t.x0), far, t.z), night ? STAND.nightFace : STAND.face);
-      quad(proj(X(t.x0), far, t.z), proj(X(t.x0), near, t.z), proj(X(t.x1), near, t.z), proj(X(t.x1), far, t.z), night ? STAND.nightTop : STAND.top);
+      quad(proj(X(t.x0), far, zBelow), proj(X(t.x0), near, zBelow), proj(X(t.x0), near, t.z), proj(X(t.x0), far, t.z), crowdColours().stand.face);
+      quad(proj(X(t.x0), far, t.z), proj(X(t.x0), near, t.z), proj(X(t.x1), near, t.z), proj(X(t.x1), far, t.z), crowdColours().stand.top);
       zBelow = t.z;
     }
   }
@@ -1057,13 +1057,33 @@ function word(str, x, y, hi, lo) {
 }
 
 // The crowd. Shirts are muted so the stands sit back behind the play.
-const FAN_SHIRTS = ['#b8625c', '#5a7db0', '#c2a352', '#cfcac0', '#5f9670', '#bf7d4e', '#8a6ea3', '#5c9c99'];
 const FAN_SKIN = ['#e3c2a2', '#cfa182', '#a37859', '#71503a'];
 const FAN_HAIR = ['#2a1b12', '#5a3a1e', '#1c1c1c', '#b89a52', '#6f3220'];
-const STAND = {
-  top: '#454a52', face: '#353940', lip: '#5c626b',
-  nightTop: '#22252b', nightFace: '#191b20', nightLip: '#30343b',
-};
+// The stands and the crowd take their colours from the court's theme: the
+// stands are built of the same stone as its wall, and the fans wear the
+// colours of its sky, accent and gardens, softened toward the stone so they
+// sit in the scene instead of jumping out of it.
+let crowdLook = null;
+function crowdColours() {
+  const key = theme.countryId + (theme.isBlackCourt ? ':b' : '');
+  if (crowdLook && crowdLook.key === key) return crowdLook;
+  const bg = theme.backgroundPalette;
+  const w = bg.wall;
+  const night = theme.isBlackCourt;
+  const k = night ? -0.45 : -0.12; // the stands in shadow on a Black Court
+  const stand = { top: shade(w.top2, k), face: shade(w.line, k), lip: shade(w.top, k) };
+  const sky = bg.sky;
+  const picks = [theme.accentColor, sky[sky.length - 2], sky[sky.length - 3], sky[sky.length - 1], theme.courtPalette.lines || '#e8e4c9', bg.trees.hi, (bg.blossom || bg.clouds)[1], w.top];
+  const shirts = picks.map((c) => mix(c, stand.top, night ? 0.45 : 0.3));
+  crowdLook = { key, stand, shirts };
+  return crowdLook;
+}
+// Blend two #rrggbb colours: k = 0 gives a, 1 gives b.
+function mix(a, b, k) {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  return '#' + [16, 8, 0].map((sh) => Math.round(((pa >> sh) & 255) * (1 - k) + ((pb >> sh) & 255) * k).toString(16).padStart(2, '0')).join('');
+}
 const FAN_FILL = 0.62; // the share of seats taken
 const POP_R = 60; // how far from a brick hit the fans react (court units)
 const WAVE_W = 0.06; // how wide the Mexican wave's crest is, around the stands
@@ -1096,7 +1116,8 @@ function drawFan(x, y, n, i, row, time, wx, wy, u) {
   const bob = !cheer && Math.sin(time * 1.3 + r * 40) > 0.96 ? 1 : 0; // the odd fidget
   x = Math.round(x - 1.5 * n);
   y = Math.round(y - (lift + bob) * n);
-  const shirt = FAN_SHIRTS[Math.floor(hash(i, row + 3) * FAN_SHIRTS.length)];
+  const shirts = crowdColours().shirts;
+  const shirt = shirts[Math.floor(hash(i, row + 3) * shirts.length)];
   const skin = FAN_SKIN[Math.floor(hash(i, row + 5) * FAN_SKIN.length)];
   const px = (dx, dy, w, h, c) => rect(x + dx * n, y + dy * n, w * n, h * n, c);
   px(0, -6, 3, 5, shirt);
@@ -1135,9 +1156,9 @@ function drawStands(time) {
   const top = P.wb - WALL_H;
   const night = theme.isBlackCourt;
   const step = 8; // each tier's height
-  rect(x0, top - step * 2 - 2, x1 - x0, step * 2 + 2, night ? STAND.nightTop : STAND.top);
-  rect(x0, top - step * 2 - 2, x1 - x0, 1, night ? STAND.nightLip : STAND.lip);
-  rect(x0, top - step, x1 - x0, 1, night ? STAND.nightLip : STAND.lip);
+  rect(x0, top - step * 2 - 2, x1 - x0, step * 2 + 2, crowdColours().stand.top);
+  rect(x0, top - step * 2 - 2, x1 - x0, 1, crowdColours().stand.lip);
+  rect(x0, top - step, x1 - x0, 1, crowdColours().stand.lip);
   for (let row = 1; row >= 0; row--) {
     const fy = top - step * row + 1; // where this row's feet are
     for (let x = x0 + 4 + (row ? 3 : 0), i = 0; x < x1 - 4; x += 6, i++) {

@@ -17,16 +17,8 @@ export const TRACKS = {
 export const COURT_TRACKS = ['action1', 'stage1', 'action2', 'stage2', 'action3'];
 // A court's music builds from mellow to full power: the low-pass cutoff (Hz)
 // opens, the bass shelf (dB) comes up and the level rises a touch.
-// The crowd: real recordings from "Free Crowd Cheering Sounds" by Gregor
-// Quendel (CC-BY 4.0, see assets/sfx/CREDITS.txt). Short moments are cut
-// from them as they play, so no two reactions sound quite the same.
-export const CROWD = {
-  bed: 'assets/sfx/crowd-bed.m4a', // a stadium's murmur, looped under play
-  cheer: 'assets/sfx/crowd-cheer.m4a', // a big roar
-  soft: 'assets/sfx/crowd-soft.m4a', // "ooh", "yeah", applause
-  wave: 'assets/sfx/crowd-wave.m4a', // rhythmic cheering for the wave
-};
-const CROWD_BED_VOL = 0.45; // the murmur's level, under everything
+// The crowd's notes: a major pentatonic, so any run of them sounds musical.
+const PENTA = [523, 587, 659, 784, 880];
 // The court's width in game units, for placing sounds left to right.
 const COURT_W = 200;
 // The note each tool's falling chime starts on.
@@ -34,7 +26,6 @@ const TOOL_NOTE = { shield: 660, multiball: 880, smash: 440, freeze: 1320, expan
 const BUILD = { cutFrom: 650, cutTo: 20000, bassFrom: -2, bassTo: 9, gainFrom: 0.78 };
 export const RUSH_TEMPO = 1.08; // Power Rush plays the music a touch faster
 const TRACK_GAIN = 0.33; // the files are mastered loud; this sits them well under the crowd and effects
-const CROWD_BED = 0.07; // the crowd's constant murmur on the courts
 const DUCK = 0.45; // the music drops to this while the crowd roars
 const XFADE = 0.9; // seconds to cross-fade from one track to the next
 
@@ -47,7 +38,6 @@ export class AudioSys {
     this.want = 'select'; // the track the game wants now
     this.current = null; // the track actually playing
     this.buffers = {};
-    this.samples = {}; // the crowd recordings, once loaded
     this.loading = {};
   }
 
@@ -58,144 +48,23 @@ export class AudioSys {
     if (this.ac && this.playing && name !== this.current) this.play(name);
   }
 
-  // The crowd's murmur under everything on the courts: two bands of noise
-  // that rise and fall slowly, like a stadium talking among itself.
-  startCrowdBed() {
-    this.bedG = this.ac.createGain();
-    this.bedG.gain.value = 0;
-    this.bedG.connect(this.sfxG);
-    [[420, 0.13], [1100, 0.07]].forEach(([cut, rate], i) => {
-      const src = this.ac.createBufferSource();
-      src.buffer = this.noiseBuf;
-      src.loop = true;
-      src.playbackRate.value = 0.9 + i * 0.13; // the two loops never line up
-      const f = this.ac.createBiquadFilter();
-      f.type = 'bandpass';
-      f.frequency.value = cut;
-      f.Q.value = 0.7;
-      const g = this.ac.createGain();
-      g.gain.value = i ? 0.5 : 1;
-      const lfo = this.ac.createOscillator();
-      const depth = this.ac.createGain();
-      lfo.frequency.value = rate;
-      depth.gain.value = i ? 0.2 : 0.35;
-      lfo.connect(depth);
-      depth.connect(g.gain);
-      src.connect(f);
-      f.connect(g);
-      g.connect(this.bedG);
-      src.start();
-      lfo.start();
-    });
-    this.setCrowd(this.crowdOn || false);
-  }
-
+  // The crowd is arcade-style: square-wave voices and NES-style noise
+  // claps, short and light. Nothing plays under the game between reactions.
   setCrowd(on) {
-    if (on === this.crowdOn && (this.bedLive || !this.samples.bed)) return;
     this.crowdOn = on;
-    if (!this.ac) return;
-    const t = this.ac.currentTime;
-    // The recording, once it has loaded; the synthesised murmur until then.
-    if (this.samples.bed && !this.bedLive) {
-      const src = this.ac.createBufferSource();
-      src.buffer = this.samples.bed;
-      src.loop = true;
-      this.bedLiveG = this.ac.createGain();
-      this.bedLiveG.gain.value = 0;
-      src.connect(this.bedLiveG);
-      this.bedLiveG.connect(this.sfxG);
-      src.start(t, Math.random() * 10);
-      this.bedLive = src;
-      if (this.bedG) this.bedG.gain.setTargetAtTime(0, t, 0.3);
-    }
-    if (this.bedLive) this.bedLiveG.gain.setTargetAtTime(on ? CROWD_BED_VOL : 0, t, 0.6);
-    else if (this.bedG) this.bedG.gain.setTargetAtTime(on ? CROWD_BED : 0, t, 0.5);
   }
 
-  loadCrowd() {
-    for (const name in CROWD) {
-      fetch(CROWD[name])
-        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('http ' + r.status))))
-        .then((data) => new Promise((ok, bad) => this.ac.decodeAudioData(data, ok, bad)))
-        .then((buf) => {
-          this.samples[name] = buf;
-          if (name === 'bed') this.setCrowd(this.crowdOn);
-        })
-        .catch(() => {}); // the synthesised crowd stays in
-    }
-  }
-
-  // Play a slice of a crowd recording: from `at` seconds for `dur`, faded in
-  // and out, at `vol`, `rate` (pitch) and `pan`; o.lowpass muffles it.
-  slice(name, o) {
-    const buf = this.samples[name];
-    if (!buf) return false;
-    const t = this.ac.currentTime + (o.delay || 0);
-    const dur = Math.min(o.dur, buf.duration);
-    const at = Math.max(0, Math.min(o.at ?? Math.random() * (buf.duration - dur), buf.duration - dur));
+  // A clap, 8-bit style: a tick of stepped noise.
+  chipClap(vol, delay) {
+    const t = this.ac.currentTime + delay;
     const src = this.ac.createBufferSource();
-    src.buffer = buf;
-    src.playbackRate.value = o.rate || 1;
+    src.buffer = this.chipNoise;
     const g = this.ac.createGain();
-    const fadeIn = o.fadeIn ?? 0.08;
-    const fadeOut = o.fadeOut ?? Math.min(0.6, dur * 0.4);
-    const len = dur / (o.rate || 1);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(o.vol, t + fadeIn);
-    g.gain.setValueAtTime(o.vol, t + Math.max(fadeIn, len - fadeOut));
-    g.gain.linearRampToValueAtTime(0.0001, t + len);
-    let node = src;
-    if (o.lowpass) {
-      const f = this.ac.createBiquadFilter();
-      f.type = 'lowpass';
-      f.frequency.value = o.lowpass;
-      src.connect(f);
-      node = f;
-    }
-    node.connect(g);
-    let out = g;
-    if (this.ac.createStereoPanner && (o.pan != null || o.sweep)) {
-      const pan = this.ac.createStereoPanner();
-      pan.pan.setValueAtTime(o.sweep ? -0.8 : o.pan, t);
-      if (o.sweep) pan.pan.linearRampToValueAtTime(0.8, t + len);
-      g.connect(pan);
-      out = pan;
-    }
-    out.connect(this.sfxG);
-    src.start(t, at, dur);
-    return true;
-  }
-
-  // The crowd's reactions, from the recordings. False if they haven't loaded.
-  crowdSound(name, arg, info) {
-    const pan = info.x != null ? Math.max(-0.7, Math.min(0.7, (info.x / COURT_W) * 1.4 - 0.7)) : null;
-    switch (name) {
-      case 'ooh': // a quick "ooh"/"yeah" from that side of the stands
-        return this.slice('soft', { dur: 0.9, vol: 0.65 + (arg || 0.7) * 0.4, rate: arg >= 1 ? 1.05 + Math.random() * 0.1 : 0.9 + Math.random() * 0.08, pan, fadeIn: 0.05, fadeOut: 0.45 });
-      case 'clap': // a round of applause
-        if (!this.slice('soft', { dur: 2.2, vol: 1.1 })) return false;
-        this.duck(1.2);
-        return true;
-      case 'cheer': { // the roar
-        const big = Math.min(arg || 1, 3);
-        const dur = 2.2 + big * 0.9;
-        if (!this.slice('cheer', { at: Math.random() * 2, dur, vol: 1.4 + big * 0.25, fadeIn: 0.12, fadeOut: 1.0 })) return false;
-        this.duck(dur * 0.8);
-        return true;
-      }
-      case 'wave': { // rhythmic cheering travelling left to right
-        const len = arg || 3.6;
-        if (!this.slice('wave', { dur: len + 0.6, vol: 1.0, sweep: true, fadeIn: 0.4, fadeOut: 0.8 })) return false;
-        this.duck(len);
-        return true;
-      }
-      case 'groan': // "awww": the crowd slowed down and muffled, sinking
-        if (!this.slice('soft', { dur: 1.4, vol: 1.0, rate: 0.6, lowpass: 900, fadeIn: 0.06, fadeOut: 0.9 })) return false;
-        this.roar(720, 0.26, 1.2, { to: 300, q: 1.4, attack: 0.1 });
-        this.duck(1.0);
-        return true;
-    }
-    return false;
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+    src.connect(g);
+    g.connect(this.out || this.sfxG);
+    src.start(t, Math.random() * 0.4, 0.05);
   }
 
   // Drop the music under a crowd roar for a moment, then bring it back.
@@ -208,33 +77,6 @@ export class AudioSys {
     g.linearRampToValueAtTime(DUCK, t + 0.12);
     g.setValueAtTime(DUCK, t + dur);
     g.linearRampToValueAtTime(1, t + dur + 0.8);
-  }
-
-  // A swell of crowd noise in one band; o.to slides the band (a groan falls).
-  roar(cut, vol, dur, o = {}) {
-    const t = this.ac.currentTime + (o.delay || 0);
-    const src = this.ac.createBufferSource();
-    src.buffer = this.noiseBuf;
-    src.loop = true;
-    const f = this.ac.createBiquadFilter();
-    f.type = 'bandpass';
-    f.frequency.setValueAtTime(cut, t);
-    if (o.to) f.frequency.exponentialRampToValueAtTime(o.to, t + dur);
-    f.Q.value = o.q || 0.8;
-    const g = this.ac.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(vol, t + (o.attack || 0.12));
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(f);
-    f.connect(g);
-    g.connect(this.sfxG);
-    src.start(t);
-    src.stop(t + dur + 0.05);
-  }
-
-  // Applause: many short claps, scattered.
-  claps(n, spread, vol, delay = 0) {
-    for (let i = 0; i < n; i++) this.noise(0.025 + Math.random() * 0.02, vol * (0.6 + Math.random() * 0.4), 2200 + Math.random() * 1800, { type: 'highpass', delay: delay + Math.random() * spread });
   }
 
   // How far the court's music has built, 0 (mellow) to 1 (full power).
@@ -290,8 +132,14 @@ export class AudioSys {
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
       this.apply();
       this.setBuild(this.build ?? 1, true);
-      this.startCrowdBed();
-      this.loadCrowd();
+      // Stepped noise (each value held for 16 samples): the NES noise channel.
+      const cl = this.ac.sampleRate * 0.5;
+      this.chipNoise = this.ac.createBuffer(1, cl, this.ac.sampleRate);
+      const cd = this.chipNoise.getChannelData(0);
+      for (let i = 0, v = 0; i < cl; i++) {
+        if (i % 16 === 0) v = Math.random() > 0.5 ? 0.8 : -0.8;
+        cd[i] = v;
+      }
     }
     // 'suspended' is the normal locked state; iOS also uses 'interrupted' after a call or alarm.
     if (this.ac.state !== 'running' && !this.held) this.ac.resume().catch(() => {});
@@ -395,7 +243,7 @@ export class AudioSys {
       pan.connect(this.sfxG);
       this.out = pan;
     }
-    if (!this.crowdSound(name, arg, info)) this.play1(name, arg, info);
+    this.play1(name, arg, info);
     this.out = null;
   }
 
@@ -553,74 +401,69 @@ export class AudioSys {
       case 'win':
         [523, 659, 784, 1047, 1319].forEach((f, i) => T(f, 0.22, 'square', 0.13, { delay: i * 0.11 }));
         break;
-      case 'cheer': {
-        // The crowd roars: a big swell, whoops and a long round of applause.
-        const big = Math.min(arg || 1, 3);
-        const len = 1.1 + big * 0.4;
-        this.duck(len * 0.7);
-        this.roar(800, 0.3 + big * 0.07, len, { attack: 0.15 });
-        this.roar(1900, 0.14 + big * 0.04, len * 0.8, { attack: 0.2 });
-        this.roar(350, 0.16 + big * 0.04, len * 0.9, { attack: 0.25 });
-        for (let i = 0; i < 3 + big * 2; i++) {
-          const f = 550 + Math.random() * 600;
-          this.tone(f, 0.25, 'triangle', 0.08, { to: f * 1.7, delay: 0.05 + i * 0.12 + Math.random() * 0.08 });
+      // ---- the crowd, arcade-style
+      case 'ooh':
+        // A brick hit: one tiny voice from that side. A break chirps up
+        // ("yay"), a crack dips ("ooh"); the note is picked from a pentatonic
+        // scale so a string of them sounds like a tune.
+        if (arg >= 1) {
+          const f = PENTA[Math.floor(Math.random() * PENTA.length)] * 2;
+          T(f, 0.05, 'square', 0.05);
+          T(f * 1.5, 0.07, 'square', 0.05, { delay: 0.05 });
+        } else {
+          const f = PENTA[Math.floor(Math.random() * 3)];
+          T(f, 0.12, 'triangle', 0.12, { to: f * 0.85 });
         }
-        this.claps(14 + big * 10, len, 0.18, 0.1);
+        break;
+      case 'clap':
+        // A round of 8-bit applause on a beat, and a little "yay".
+        for (let i = 0; i < 8; i++) this.chipClap(0.14 * (i % 2 ? 0.7 : 1), i * 0.075 + Math.random() * 0.012);
+        T(784, 0.06, 'square', 0.06, { delay: 0.02 });
+        T(1047, 0.09, 'square', 0.06, { delay: 0.09 });
+        break;
+      case 'cheer': {
+        // The roar: a quick rising arpeggio, a trill at the top, a "HEY!"
+        // chord stab and a burst of claps. Bigger moments climb higher.
+        const big = Math.min(arg || 1, 3);
+        const notes = [523, 659, 784, 1047, 1319, 1568].slice(0, 3 + big);
+        notes.forEach((f, i) => T(f, 0.07, 'square', 0.1, { delay: i * 0.055 }));
+        const top = notes[notes.length - 1];
+        const at = notes.length * 0.055;
+        for (let i = 0; i < 4 + big * 2; i++) T(i % 2 ? top : top * 0.84, 0.045, 'square', 0.07, { delay: at + i * 0.045 });
+        const hey = at + (4 + big * 2) * 0.045;
+        [top / 2, (top / 2) * 1.26, (top / 2) * 1.5].forEach((f) => T(f, 0.16, 'square', 0.045, { delay: hey }));
+        for (let i = 0; i < 6 + big * 4; i++) this.chipClap(0.08, hey + i * 0.06 + Math.random() * 0.02);
+        this.duck(hey + 0.4);
         break;
       }
-      case 'ooh': {
-        // A brick hit: a quick "ooh" (a crack) or "yeah" (a break) from the
-        // fans on that side, a little different each time.
-        const f = (arg >= 1 ? 900 : 560) * (0.85 + Math.random() * 0.3);
-        this.roar(f, 0.05 + (arg || 0.7) * 0.04, 0.35, { to: arg >= 1 ? f * 1.25 : f * 0.8, q: 2.2, attack: 0.06 });
+      case 'groan':
+        // The arcade "wah wah wahhh".
+        T(392, 0.16, 'square', 0.06);
+        T(370, 0.16, 'square', 0.06, { delay: 0.18 });
+        T(349, 0.45, 'square', 0.06, { delay: 0.36, to: 262 });
+        this.duck(0.8);
         break;
-      }
       case 'wave': {
-        // The Mexican wave: a rising "whooo" that travels left to right
-        // round the stands, timed with the crest.
+        // The Mexican wave: a run of notes rising and falling with the crest
+        // as it travels left to right round the stands.
         const len = arg || 3.6;
-        const t = this.ac.currentTime;
-        const src = this.ac.createBufferSource();
-        src.buffer = this.noiseBuf;
-        src.loop = true;
-        const f = this.ac.createBiquadFilter();
-        f.type = 'bandpass';
-        f.Q.value = 1.6;
-        f.frequency.setValueAtTime(500, t);
-        for (let i = 1; i <= 6; i++) f.frequency.linearRampToValueAtTime(i % 2 ? 1100 : 650, t + (len * i) / 6);
-        const g = this.ac.createGain();
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(0.16, t + 0.4);
-        g.gain.setValueAtTime(0.16, t + len - 0.5);
-        g.gain.linearRampToValueAtTime(0.0001, t + len);
-        src.connect(f);
-        f.connect(g);
-        let out = g;
-        if (this.ac.createStereoPanner) {
-          const pan = this.ac.createStereoPanner();
+        const steps = Math.round(len / 0.12);
+        const pan = this.ac.createStereoPanner ? this.ac.createStereoPanner() : null;
+        if (pan) {
+          const t = this.ac.currentTime;
           pan.pan.setValueAtTime(-0.8, t);
           pan.pan.linearRampToValueAtTime(0.8, t + len);
-          g.connect(pan);
-          out = pan;
+          pan.connect(this.sfxG);
+          this.out = pan;
         }
-        out.connect(this.sfxG);
-        src.start(t);
-        src.stop(t + len + 0.05);
-        this.claps(18, len, 0.08, 0.3);
+        for (let i = 0; i < steps; i++) {
+          const f = PENTA[i % PENTA.length] * (Math.floor(i / PENTA.length) % 2 ? 2 : 1);
+          T(f * 2, 0.08, 'square', 0.06, { delay: i * 0.12 });
+          if (i % 2 === 0) this.chipClap(0.08, i * 0.12 + 0.06);
+        }
+        this.out = null;
         break;
       }
-      case 'clap':
-        // A warm round of applause with a little murmur of approval.
-        this.duck(0.7);
-        this.roar(700, 0.12, 1.0, { attack: 0.2 });
-        this.claps(16, 0.9, 0.16);
-        break;
-      case 'groan':
-        // "Awww": the crowd's voice sinks.
-        this.duck(0.8);
-        this.roar(720, 0.26, 1.2, { to: 300, q: 1.4, attack: 0.1 });
-        this.roar(1500, 0.08, 0.9, { to: 700, q: 1.2, attack: 0.1 });
-        break;
       case 'over':
         [392, 330, 262, 196].forEach((f, i) => this.tone(f, 0.3, 'triangle', 0.3, { delay: i * 0.17 }));
         break;

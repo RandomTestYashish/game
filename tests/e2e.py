@@ -1798,6 +1798,17 @@ def finale(browser, url):
     d.ev("__court.S.crowd={at:__court.S.time,big:2,kind:'cheer'}; __court.S.game.emit('lost')")
     check("a groan never cuts a cheer short", d.ev("__court.S.crowd.kind==='cheer'"))
     check("the crowd murmur is on during play", d.ev("__court.audio.crowdOn") is True)
+    d.ev("__court.S.pops=[]; __court.S.game.emit('hit', 'S', {x: 20, y: 40, hp: 2})")
+    time.sleep(0.05)
+    check("every brick hit gets a reaction from the fans nearby", len(d.ev("__court.P.pops")) == 1 and d.ev("__court.P.pops[0].x") == 20)
+    d.ev("__court.S.wave=null; __court.S.game.emit('break', 8, {type: 'T', x: 100, y: 60})")
+    check("a combo of eight starts a Mexican wave", d.ev("!!__court.S.wave"))
+    time.sleep(1.2)
+    w = d.ev("__court.P.wave")
+    check("the wave travels round the stands", 0 < w < 1, w)
+    d.ev("__court.S.wave={at: __court.S.time - 40}; __court.S.playSince = __court.S.time - 40; __court.S.game.state='play'")
+    time.sleep(0.2)
+    check("a quiet stretch of play starts a wave of its own", d.ev("__court.S.time - __court.S.wave.at") < 1)
     tracks = d.ev("(async()=>{const {TRACKS}=await import('/js/audio.js'); const out={}; for (const k in TRACKS) out[k]=(await fetch(TRACKS[k])).status; return out})()")
     check("all seven music tracks are there", len(tracks) == 7 and all(v == 200 for v in tracks.values()), tracks)
     check("no console errors (finale)", not d.errors, d.errors[:3])
@@ -1819,7 +1830,7 @@ def sounds_and_haptics(browser, url):
              ["wall", "side", {"x": 0}], ["wall", "back", {"x": 100}], ["hit", "S", {"x": 50}], ["hit", "H", {"x": 150}],
              ["break", 1, {"type": "T"}], ["break", 4, {"type": "L"}], ["break", 7, {"type": "H"}], ["break", 12, {"type": "S", "x": 190}],
              ["land", "S"], ["drop", "freeze", {"x": 30}], ["shield"], ["serve"], ["rush"], ["lost"], ["count"], ["go"], ["win"],
-             ["cheer", 2], ["clap"], ["groan"], ["over"]] + [["power", t] for t in ["shield", "multiball", "smash", "freeze", "expand", "lowgrav"]]
+             ["cheer", 2], ["clap"], ["groan"], ["ooh", 1, {"x": 20}], ["wave", 3.6], ["over"]] + [["power", t] for t in ["shield", "multiball", "smash", "freeze", "expand", "lowgrav"]]
     bad = d.pg.evaluate("(calls)=>{const bad=[]; for (const c of calls){ try{ __court.audio.sfx(...c) }catch(e){ bad.push(c[0]+': '+e.message) } } return bad}", calls)
     check("every element's sound plays without an error (%d sounds)" % len(calls), not bad, bad)
     d.ev("__court.S.introSeen=true; __court.beginRun(0)")

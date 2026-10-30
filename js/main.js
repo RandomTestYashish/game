@@ -135,6 +135,9 @@ function onGameEvent(type, arg, info) {
   buzz(type, arg, info);
   if (type === 'rush') S.rushAt = S.time;
   if (type === 'win') S.cheer = { at: S.time }; // the finish: slow motion, flash, fireworks
+  if ((type === 'break' || type === 'hit') && info) crowdPop(info, type === 'break' ? 1 : 0.7);
+  if (type === 'break' && arg === WAVE_COMBO) startWave();
+  if (type === 'rush') startWave();
   if (type === 'break') {
     // Big moments get the crowd going: a combo milestone, or a burst of bricks at once.
     S.breaks = (S.breaks || []).filter((t) => S.time - t < BURST_WINDOW);
@@ -184,6 +187,36 @@ function tapSound(id) {
   else if (BACK_IDS.has(id)) audio.sfx('back');
   else audio.sfx('click');
   haptics.play(BACK_IDS.has(id) ? 'back' : 'tap');
+}
+
+// The crowd reacts to every brick hit: the fans nearest it pop up, with a
+// little "ooh" or "yeah" from that side. And now and then a Mexican wave
+// goes round all three stands.
+const POP_LEN = 0.7; // seconds a pop lasts
+const WAVE_LEN = 3.6; // seconds for the wave to go all the way round
+const WAVE_COMBO = 8; // a combo this long starts a wave
+const WAVE_EVERY = 24; // a quiet stretch of play this long starts one too
+let lastOoh = -1;
+function crowdPop(info, k) {
+  S.pops = (S.pops || []).filter((q) => S.time - q.at < POP_LEN);
+  if (S.pops.length > 8) S.pops.shift();
+  S.pops.push({ x: info.x, y: info.y ?? 60, at: S.time, k });
+  if (S.time - lastOoh > 0.14) {
+    lastOoh = S.time;
+    audio.sfx('ooh', k, info);
+  }
+}
+function startWave() {
+  if (S.wave && S.time - S.wave.at < WAVE_LEN + 2) return;
+  S.wave = { at: S.time };
+  audio.sfx('wave', WAVE_LEN);
+  haptics.play('wave');
+}
+// Where the crest is now (0..1 round the stands), or -1.
+function wavePos() {
+  if (!S.wave || !GAME_SCREENS.has(S.screen)) return -1;
+  const k = (S.time - S.wave.at) / WAVE_LEN;
+  return k > 1.1 ? -1 : k * 1.1 - 0.05;
 }
 
 // The crowd behind the court cheers (and roars) at big moments; strength 1-3.
@@ -1930,6 +1963,11 @@ function draw() {
   P.hype = crowdHype();
   P.clap = crowdMood('clap');
   P.groan = crowdMood('groan');
+  P.pops = GAME_SCREENS.has(S.screen) ? (S.pops || []).filter((q) => S.time - q.at < POP_LEN).map((q) => ({ x: q.x, y: q.y, k: q.k * (1 - (S.time - q.at) / POP_LEN) })) : [];
+  P.wave = wavePos();
+  // A quiet stretch of play: the crowd starts a wave of its own.
+  if (S.screen === 'play' && S.game && S.game.state === 'play' && S.time - ((S.wave && S.wave.at) ?? S.playSince ?? S.time) > WAVE_EVERY) startWave();
+  if (S.screen !== 'play') S.playSince = S.time;
   audio.setCrowd(GAME_SCREENS.has(S.screen) && !!S.game);
   say(ARIA);
   const look = courtTheme();

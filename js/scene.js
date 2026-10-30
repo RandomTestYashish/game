@@ -11,7 +11,9 @@ import { COUNTRIES } from './themes.js';
 // everything nearer or farther slides against it.
 
 // landing 1 = the bare first screen (no net, no overhanging canopy).
-export const P = { cam: 0, wb: 0, hor: 0, G: 1, dFar: 1.45, kx: 1.16, cx: W / 2, shift: 0, sRef: 1, landing: 0, banner: false, hype: 0, clap: 0, groan: 0 };
+// pops: brick hits the nearby fans react to ({x, y, k}: where, and 1..0 as it fades);
+// wave: where a Mexican wave's crest is around the stands (0..1), or -1.
+export const P = { cam: 0, wb: 0, hor: 0, G: 1, dFar: 1.45, kx: 1.16, cx: W / 2, shift: 0, sRef: 1, landing: 0, banner: false, hype: 0, clap: 0, groan: 0, pops: [], wave: -1 };
 // hype 0..1: how hard the crowd behind the court is cheering right now.
 
 export function setCam(cam, shift = 0) {
@@ -851,7 +853,9 @@ function drawSides(time) {
         const wx = (t.x0 + t.x1) / 2 + (hash(k, row + 13) - 0.5) * 3;
         const p = proj(side < 0 ? wx : WW - wx, wy, t.z);
         if (p.y < P.wb) continue;
-        drawFan(p.x, p.y + 1, p.s > 1.2 ? 2 : 1, k, row + 20, time);
+        const along = (wy - far) / (near - far); // 0 far .. 1 near
+        const u = side < 0 ? 0.3 * (1 - along) : 0.7 + 0.3 * along;
+        drawFan(p.x, p.y + 1, p.s > 1.2 ? 2 : 1, k, row + 20, time, side < 0 ? wx : WW - wx, wy, u);
       }
     }
   }
@@ -1041,51 +1045,68 @@ function logo(rows, x, y) {
   rows.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && C12[ch] && rect(x + i, y + j, 1, 1, C12[ch])));
 }
 // Two-tone lettering: the lower part in `lo`, the top three rows in `hi`.
+const BANNER_SP = 2; // the banner's letter spacing, in pixels
 function word(str, x, y, hi, lo) {
-  text(str, x, y, lo, { shadow: C12.o, sp: 0 });
+  text(str, x, y, lo, { shadow: C12.o, sp: BANNER_SP });
   ctx.save();
   ctx.beginPath();
-  ctx.rect(x - 1, y, textW(str, 1, 0) + 2, 3);
+  ctx.rect(x - 1, y, textW(str, 1, BANNER_SP) + 2, 3);
   ctx.clip();
-  text(str, x, y, hi, { sp: 0 });
+  text(str, x, y, hi, { sp: BANNER_SP });
   ctx.restore();
 }
 
-// Two low terraces behind the banner with a sparse crowd: a few small fans
-// with empty seats between them. When the player lands a big hit (P.hype)
-// they jump up and throw their arms in the air.
-// Bright, saturated shirts so the fans stand out against the dark terraces.
-const FAN_SHIRTS = ['#ff4a4a', '#3d8bff', '#ffd23a', '#ffffff', '#3fd170', '#ff8a2a', '#c86bff', '#2ee6e0'];
-const FAN_SKIN = ['#f6cfa8', '#e0aa82', '#b07a55', '#7a4e32'];
-const FAN_HAIR = ['#2a1b12', '#5a3a1e', '#111', '#d8b050', '#8a2f12'];
+// The crowd. Shirts are muted so the stands sit back behind the play.
+const FAN_SHIRTS = ['#b8625c', '#5a7db0', '#c2a352', '#cfcac0', '#5f9670', '#bf7d4e', '#8a6ea3', '#5c9c99'];
+const FAN_SKIN = ['#e3c2a2', '#cfa182', '#a37859', '#71503a'];
+const FAN_HAIR = ['#2a1b12', '#5a3a1e', '#1c1c1c', '#b89a52', '#6f3220'];
 const STAND = {
-  top: '#3a3f4a', face: '#23272f', lip: '#6a7282',
-  nightTop: '#1c1f26', nightFace: '#14161b', nightLip: '#323844',
+  top: '#454a52', face: '#353940', lip: '#5c626b',
+  nightTop: '#22252b', nightFace: '#191b20', nightLip: '#30343b',
 };
 const FAN_FILL = 0.62; // the share of seats taken
+const POP_R = 60; // how far from a brick hit the fans react (court units)
+const WAVE_W = 0.06; // how wide the Mexican wave's crest is, around the stands
 const hash = (i, k) => {
   const v = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
   return v - Math.floor(v);
 };
 
-// One fan, feet at (x, y), drawn n pixels to a pixel. At a big moment
-// (P.hype) most of them jump and throw their arms up.
-function drawFan(x, y, n, i, row, time) {
+// One fan, feet at (x, y), drawn n pixels to a pixel. (wx, wy) is where
+// they sit in court units and u how far round the stands (0..1, for the
+// wave). They react to everything: a brick hit nearby (P.pops), the
+// Mexican wave passing (P.wave), a big moment (P.hype), applause (P.clap)
+// and a lost ball (P.groan).
+function drawFan(x, y, n, i, row, time, wx, wy, u) {
   const r = hash(i, row + 7);
   const hype = P.hype;
-  const cheer = hype > 0 && r < 0.4 + hype * 0.6;
-  const jump = cheer ? Math.round(Math.abs(Math.sin(time * 11 + r * 20)) * 3 * hype) : 0;
+  // A brick hit nearby: the closest fans pop up.
+  let pop = 0;
+  for (const q of P.pops) {
+    const d = Math.hypot(q.x - wx, (q.y - wy) * 0.8);
+    if (d < POP_R * (0.5 + r)) pop = Math.max(pop, q.k * (1 - d / (POP_R * 1.5)));
+  }
+  // The wave: up as the crest goes by.
+  const crest = P.wave >= 0 ? Math.max(0, 1 - Math.abs(u - P.wave) / WAVE_W) : 0;
+  const cheer = (hype > 0 && r < 0.4 + hype * 0.6) || pop > 0.25 || crest > 0.3;
+  let lift = 0;
+  if (crest > 0.3) lift = Math.round(crest * 3);
+  else if (hype > 0 && r < 0.4 + hype * 0.6) lift = Math.round(Math.abs(Math.sin(time * 11 + r * 20)) * 3 * hype);
+  else if (pop > 0.25) lift = Math.round(pop * 2);
   const bob = !cheer && Math.sin(time * 1.3 + r * 40) > 0.96 ? 1 : 0; // the odd fidget
   x = Math.round(x - 1.5 * n);
-  y = Math.round(y - (jump + bob) * n);
+  y = Math.round(y - (lift + bob) * n);
   const shirt = FAN_SHIRTS[Math.floor(hash(i, row + 3) * FAN_SHIRTS.length)];
   const skin = FAN_SKIN[Math.floor(hash(i, row + 5) * FAN_SKIN.length)];
   const px = (dx, dy, w, h, c) => rect(x + dx * n, y + dy * n, w * n, h * n, c);
   px(0, -6, 3, 5, shirt);
-  px(0, -5, 3, 1, shade(shirt, 0.25)); // a lit shoulder line
   px(0, -9, 3, 3, skin);
   px(0, -9, 3, 1, FAN_HAIR[Math.floor(r * FAN_HAIR.length)]);
-  if (cheer) {
+  if (crest > 0.3) {
+    // In the wave: both arms straight up.
+    px(-1, -11, 1, 5, skin);
+    px(3, -11, 1, 5, skin);
+  } else if (cheer) {
     const wave = Math.sin(time * 14 + r * 30) > 0 ? 1 : 0;
     px(-1, -10 - wave, 1, 4, skin);
     px(3, -11 + wave, 1, 4, skin);
@@ -1121,7 +1142,8 @@ function drawStands(time) {
     const fy = top - step * row + 1; // where this row's feet are
     for (let x = x0 + 4 + (row ? 3 : 0), i = 0; x < x1 - 4; x += 6, i++) {
       if (hash(i, row) > FAN_FILL) continue; // an empty seat
-      drawFan(x + 1.5 + Math.round((hash(i, row + 9) - 0.5) * 2), fy, 1, i, row, time);
+      const fx = x + 1.5 + Math.round((hash(i, row + 9) - 0.5) * 2);
+      drawFan(fx, fy, 1, i, row, time, unprojX(fx, 0), -20, 0.3 + (0.4 * (fx - x0)) / (x1 - x0));
     }
   }
 }
@@ -1160,21 +1182,21 @@ function drawBanner(time) {
   ctx.rect(x0, y0, x1 - x0, h);
   ctx.clip();
   // THE COURT: the ball, then the wordmark.
-  const tw = textW('THE ', 1, 0);
-  const aw = 9 + 3 + tw + textW('COURT', 1, 0);
+  const tw = textW('THE ', 1, BANNER_SP) + BANNER_SP;
+  const aw = 9 + 4 + tw + textW('COURT', 1, BANNER_SP);
   const ax = cx - Math.round(aw / 2);
   const ay = Math.round(y0 + offA);
   logo(LOGO_BALL, ax, ay + Math.round((h - 9) / 2));
-  word('THE', ax + 12, ay + Math.round((h - 7) / 2) + 1, '#fff', '#bcd');
-  word('COURT', ax + 12 + tw, ay + Math.round((h - 7) / 2) + 1, '#ff8', '#fb2');
+  word('THE', ax + 13, ay + Math.round((h - 7) / 2) + 1, '#fff', '#bcd');
+  word('COURT', ax + 13 + tw, ay + Math.round((h - 7) / 2) + 1, '#ff8', '#fb2');
   // COURT BITES: the wordmark, then the burger and the drink.
-  const cw = textW('COURT ', 1, 0);
-  const bw = cw + textW('BITES', 1, 0) + 3 + 11 + 1 + 6;
+  const cw = textW('COURT ', 1, BANNER_SP) + BANNER_SP;
+  const bw = cw + textW('BITES', 1, BANNER_SP) + 4 + 11 + 1 + 6;
   const bx = cx - Math.round(bw / 2);
   const by = Math.round(y0 + offB);
   word('COURT', bx, by + Math.round((h - 7) / 2) + 1, '#fff', '#bcd');
   word('BITES', bx + cw, by + Math.round((h - 7) / 2) + 1, '#fc6', '#f72');
-  const ix = bx + cw + textW('BITES', 1, 0) + 3;
+  const ix = bx + cw + textW('BITES', 1, BANNER_SP) + 4;
   logo(LOGO_BURGER, ix, by + Math.round((h - 9) / 2));
   logo(LOGO_DRINK, ix + 12, by + Math.round((h - 8) / 2));
   ctx.restore();

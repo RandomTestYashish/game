@@ -356,7 +356,7 @@ export class Game {
     if (b.hp > 0) {
       b.flash = 0.12;
       this.debris(b, 3);
-      this.emit('hit', b.type, { x: b.x + b.w / 2, hp: b.hp });
+      this.emit('hit', b.type, { x: b.x + b.w / 2, y: b.y + b.d / 2, hp: b.hp });
       return;
     }
     b.alive = false;
@@ -366,7 +366,7 @@ export class Game {
     this.score += pts;
     this.floaters.push({ x: b.x + b.w / 2, y: b.y + b.d / 2, z: b.hz + 4, text: '+' + pts, life: 0.9 });
     this.debris(b, 10);
-    this.emit('break', this.combo, { type: b.type, x: b.x + b.w / 2 });
+    this.emit('break', this.combo, { type: b.type, x: b.x + b.w / 2, y: b.y + b.d / 2 });
     if (this.remaining === 0) this.win();
     else {
       if (!this.rush && this.total >= 12 && this.remaining <= this.total * RUSH_AT) {

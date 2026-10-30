@@ -453,6 +453,47 @@ export class AudioSys {
         this.claps(14 + big * 10, len, 0.18, 0.1);
         break;
       }
+      case 'ooh': {
+        // A brick hit: a quick "ooh" (a crack) or "yeah" (a break) from the
+        // fans on that side, a little different each time.
+        const f = (arg >= 1 ? 900 : 560) * (0.85 + Math.random() * 0.3);
+        this.roar(f, 0.05 + (arg || 0.7) * 0.04, 0.35, { to: arg >= 1 ? f * 1.25 : f * 0.8, q: 2.2, attack: 0.06 });
+        break;
+      }
+      case 'wave': {
+        // The Mexican wave: a rising "whooo" that travels left to right
+        // round the stands, timed with the crest.
+        const len = arg || 3.6;
+        const t = this.ac.currentTime;
+        const src = this.ac.createBufferSource();
+        src.buffer = this.noiseBuf;
+        src.loop = true;
+        const f = this.ac.createBiquadFilter();
+        f.type = 'bandpass';
+        f.Q.value = 1.6;
+        f.frequency.setValueAtTime(500, t);
+        for (let i = 1; i <= 6; i++) f.frequency.linearRampToValueAtTime(i % 2 ? 1100 : 650, t + (len * i) / 6);
+        const g = this.ac.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.16, t + 0.4);
+        g.gain.setValueAtTime(0.16, t + len - 0.5);
+        g.gain.linearRampToValueAtTime(0.0001, t + len);
+        src.connect(f);
+        f.connect(g);
+        let out = g;
+        if (this.ac.createStereoPanner) {
+          const pan = this.ac.createStereoPanner();
+          pan.pan.setValueAtTime(-0.8, t);
+          pan.pan.linearRampToValueAtTime(0.8, t + len);
+          g.connect(pan);
+          out = pan;
+        }
+        out.connect(this.sfxG);
+        src.start(t);
+        src.stop(t + len + 0.05);
+        this.claps(18, len, 0.08, 0.3);
+        break;
+      }
       case 'clap':
         // A warm round of applause with a little murmur of approval.
         this.duck(0.7);

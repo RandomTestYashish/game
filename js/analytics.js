@@ -44,14 +44,15 @@ function start() {
   if (window.posthog.register) window.posthog.register({ deployment: deployment() });
 }
 
-// production = the main GitHub Pages game; preview / test = the branch
-// previews; vercel = the Vercel project; local = this computer.
+// production = the main GitHub Pages game; preview / test / test3 = the
+// branch previews; vercel = the Vercel project; local = this computer.
 export function deployment() {
   const h = location.hostname;
   const p = location.pathname;
   if (local) return 'local';
   if (h.endsWith('.vercel.app')) return 'vercel';
   if (p.startsWith('/game-code-2/')) return 'test';
+  if (p.startsWith('/game-3/')) return 'test3';
   if (p.startsWith('/game-preview/')) return 'preview';
   if (p.startsWith('/game/')) return 'production';
   return 'other';

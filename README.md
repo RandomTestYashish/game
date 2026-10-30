@@ -187,7 +187,7 @@ It sends a page view plus these events, with numbers only (no player names). Aut
 
 If PostHog is blocked or down, the game is unaffected: every call is wrapped.
 
-Every event carries a `deployment` property (`production` for the main GitHub Pages game, `preview`, `test` for the code-2 test link, `vercel`, `local`), so preview and test activity can be filtered out of production numbers.
+Every event carries a `deployment` property (`production` for the main GitHub Pages game, `preview`, `test` for the game-code-2 test link, `test3` for the game-3 test link, `vercel`, `local`), so preview and test activity can be filtered out of production numbers.
 
 Leaderboard and sharing events:
 
@@ -208,6 +208,8 @@ Leaderboard and sharing events:
 No player names are sent.
 
 **Tidy-up (2026-10-23).** `supabase/2026-10-23-tidy-up.sql` removes the one test score left from checking the game, adds an index for the top-20 query, and ends with read-only checks (the 150300 limit is in place; the public key can call `submit_score` but cannot insert directly). Run it once in the SQL Editor; running it again does nothing harmful.
+
+**The racket (game-3).** On this branch (`code-4`, published to the game-3 test link) the black bar is a tennis racket lying on the court: the strung head is the bar's full width (what the ball bounces off, so play is unchanged), the throat and taped grip stick out to the right, and a hit makes the strings dent and light up where the ball struck while the racket springs (`RACKET_RING` in `js/game.js`).
 
 **Power Rush and the finish.** With a quarter of a court's blocks left (`RUSH_AT` in `js/game.js`), a small POWER RUSH label shows under the HUD for a moment, most breaks drop a tool (`RUSH_RATE`), and tools also fall from the far end at random places every 1.4 to 2.4 s (`RAIN_EVERY`), since few bricks are left to break; still at most `MAX_DROPS` falling at once. The last brick brings a short, gentle slow-down, a light fall of confetti and COURT CLEAR!
 

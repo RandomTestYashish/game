@@ -44,7 +44,7 @@ export class AudioSys {
   // How far the court's music has built, 0 (mellow) to 1 (full power).
   setBuild(k, now = false) {
     k = Math.max(0, Math.min(1, k));
-    if (!now && this.build != null && Math.abs(k - this.build) < 0.01) return;
+    if (!now && this.build != null && (k === this.build || (Math.abs(k - this.build) < 0.01 && k > 0 && k < 1))) return;
     this.build = k;
     if (!this.ac) return;
     const t = this.ac.currentTime;

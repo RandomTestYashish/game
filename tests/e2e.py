@@ -407,7 +407,7 @@ def desktop(browser, url):
     d.screen("title", 1.4)
     d.shot("02-title")
     ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
-    check("landing screen is minimal: Play is the only control", ids == "play", ids)
+    check("landing screen: exactly two options, The Rally and Multiplayer", ids == "play,multiplayer", ids)
 
     # --- sound controls (reached from the courts screen)
     d.click("play")

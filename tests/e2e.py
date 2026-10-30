@@ -1596,8 +1596,18 @@ def signature(browser, url):
         second = snap()
         steps = {3.4: second}
         check(f"{name}: CRAFTED BY and YASHISH are both there, in cream and gold", first["cream"] > 100 and first["gold"]["n"] > 100, first)
-        check(f"{name}: the signature is still: no animation (nothing changes over a second, no white flashes)",
-              first["cream"] == second["cream"] and first["gold"] == second["gold"] and first["white"] == second["white"] == 0, (first, second))
+        whites = [first["white"], second["white"]]
+        for _ in range(8):
+            time.sleep(0.2)
+            whites.append(snap()["white"])
+        # CRAFTED BY (cream; a glint may whiten an edge pixel) stays where it is while the light runs.
+        spans = []
+        for _ in range(5):
+            q = d.ev(f"{lit}({area},'#efe6c8')")
+            spans.append((q["mx"], q["Mx"]))
+            time.sleep(0.3)
+        steady = max(x[0] for x in spans) - min(x[0] for x in spans) <= 2 and max(x[1] for x in spans) - min(x[1] for x in spans) <= 2
+        check(f"{name}: the signature animates in place: the light and glints flash white, the letters never move", max(whites) > 0 and steady, (whites, spans))
         g = steps[3.4]["gold"]
         if name == "desktop":
             check("desktop: the signature sits bottom right", g["mx"] > W * 0.6 and g["Mx"] < W - 4, g)
@@ -1737,6 +1747,36 @@ def board_and_share(browser, url):
     MOCK["posted"].clear()
 
 
+def finale(browser, url):
+    """Power Rush in the last quarter of a court, and the finish: slow motion, flash, fireworks, COURT CLEAR!"""
+    print("power rush and the finish")
+    ctx = browser.new_context(viewport={"width": 390, "height": 844})
+    ctx.add_init_script(RETURNING)
+    d = Driver(ctx.new_page())
+    d.pg.goto(url + "&look=0")
+    d.screen("title", 1.0)
+    r = d.ev("""(async()=>{const {Game, RUSH_AT, MAX_DROPS}=await import('/js/game.js'); const L=__court.LEVELS;
+      const g=new Game(L[10], ()=>{}, ()=>0.5); const ev=[]; g.emit=(e)=>ev.push(e);
+      g.state='play'; let broke=0, drops=0;
+      for (const b of g.blocks) { if (g.remaining<=1) break; b.hp=1; g.hit ? 0 : 0; g.breakBlock ? g.breakBlock(b) : null; }
+      return {RUSH_AT, MAX_DROPS, hasBreak: typeof g.breakBlock}})()""")
+    check("game rules export RUSH_AT (25%)", r["RUSH_AT"] == 0.25, r)
+    d.ev("__court.S.introSeen=true; __court.beginRun(10)")
+    d.wait("__court.S.screen==='play' && __court.S.game.ready", 30000)
+    d.ev("""(()=>{const g=__court.S.game; const keep=Math.floor(g.total*0.25)+1; let n=g.remaining; for(const b of g.blocks){ if(n<=keep) break; b.alive=false; n--; } g.remaining=n; g.state='play';
+       const b=g.blocks.find(q=>q.alive); g.balls[0].stuck=false; Object.assign(g.balls[0],{x:b.x+b.w/2,y:b.y+b.d+8,vx:0,vy:-1});})()""")
+    d.wait("__court.S.game.rush", 10000)
+    check("with a quarter of the court left, Power Rush starts and its banner shows", d.ev("__court.S.game.rush && __court.S.time-__court.S.rushAt < 2"))
+    # In the rush most breaks drop a tool: count drops over many breaks on a fresh court in rush.
+    rate = d.ev("""(async()=>{const {Game}=await import('/js/game.js'); let made=0, tries=0; for (let k=0;k<40;k++){ const g=new Game(__court.LEVELS[30], ()=>{}, Math.random); g.rush=true; g.drops=[]; g.sinceDrop=0; const b=g.blocks[0]; g.maybeDrop(b); if (g.drops.length) made++; tries++; } return made/tries})()""")
+    check("in a Power Rush most breaks drop a tool (about 65%)", rate > 0.45, rate)
+    d.ev("(()=>{const g=__court.S.game; const live=g.blocks.filter(q=>q.alive); live.slice(1).forEach(q=>q.alive=false); g.remaining=1; const b=live[0]; g.balls=[g.balls[0]]; g.drops=[]; Object.assign(g.balls[0],{stuck:false,x:b.x+b.w/2,y:b.y+b.d+6,vx:0,vy:-1}); b.hp=1;})()")
+    d.wait("__court.S.cheer && __court.S.time-__court.S.cheer.at>0.5", 10000)
+    check("the last brick sets off the finish (fireworks and COURT CLEAR!)", d.ev("__court.S.game.state==='won'"))
+    check("no console errors (finale)", not d.errors, d.errors[:3])
+    ctx.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1758,6 +1798,7 @@ def main():
             bricks_in_groups(browser, url)
             polish(browser, url)
             signature(browser, url)
+            finale(browser, url)
             board_and_share(browser, url)
         finally:
             browser.close()

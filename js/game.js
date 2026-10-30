@@ -25,6 +25,10 @@ export const PADDLE_Y = WH - 34; // just in front of the baseline
 export const START_LIVES = 3; // a run's lives; a lost life never comes back
 export const MAX_BALLS = 9;
 export const MAX_DROPS = 2; // tools falling at once
+// Power Rush: once only this share of a court's blocks is left, tools drop on
+// most breaks (still no more than MAX_DROPS falling at once).
+export const RUSH_AT = 0.25;
+export const RUSH_RATE = 0.65;
 export const LIFE_BONUS = 100; // per life left when a court is cleared
 export const COMBO_STEP = 0.25;
 export const COMBO_CAP = 8; // steps, so the multiplier tops out at 1 + 8 * 0.25 = x3
@@ -60,6 +64,7 @@ export class Game {
     this.shield = false;
     this.fx = { smash: 0, freeze: 0, expand: 0, lowgrav: 0 };
     this.sinceDrop = 0;
+    this.rush = false; // the Power Rush at the end of the court
     this.shake = 0;
     this.paddle = { x: WW / 2, y: PADDLE_Y, w: this.padW, d: 8 };
     this.balls = [];
@@ -363,7 +368,13 @@ export class Game {
     this.debris(b, 10);
     this.emit('break', this.combo);
     if (this.remaining === 0) this.win();
-    else this.maybeDrop(b);
+    else {
+      if (!this.rush && this.total >= 12 && this.remaining <= this.total * RUSH_AT) {
+        this.rush = true;
+        this.emit('rush');
+      }
+      this.maybeDrop(b);
+    }
   }
 
   maybeDrop(b) {
@@ -379,7 +390,7 @@ export class Game {
       return;
     }
     if (this.drops.length >= MAX_DROPS) return;
-    if (this.sinceDrop < 7 && this.rng() >= this.dropRate) return;
+    if (this.sinceDrop < 7 && this.rng() >= (this.rush ? RUSH_RATE : this.dropRate)) return;
     let total = 0;
     for (const t of TOOLS) total += this.weight(t.id);
     let pick = this.rng() * total;

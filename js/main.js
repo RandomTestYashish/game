@@ -129,6 +129,11 @@ function onGameEvent(type, arg) {
     lastLand = S.time;
   }
   audio.sfx(type, arg);
+  if (type === 'rush') {
+    S.rushAt = S.time;
+    audio.sfx('power');
+  }
+  if (type === 'win') S.cheer = { at: S.time }; // the finish: slow motion, flash, fireworks
   // Analytics only while the run is live: a quit run's ball may still roll out behind the name screen.
   const live = S.run && !S.run.over;
   if (live && (type === 'lost' || type === 'over')) track('life_lost', { court: S.level + 1, lives_left: S.game.lives, run_score: S.game.score });
@@ -509,7 +514,9 @@ function update(dt) {
   const frozen = S.overlay || S.screen === 'paused' || S.next === 'paused';
   if (frozen) return;
   const steer = S.screen === 'play' || S.screen === 'countdown';
-  g.update(dt, steer ? (S.right ? 1 : 0) - (S.left ? 1 : 0) : 0);
+  // The last brick goes in slow motion for a moment.
+  const slow = S.cheer && S.time - S.cheer.at < 0.55 ? 0.35 : 1;
+  g.update(dt * slow, steer ? (S.right ? 1 : 0) - (S.left ? 1 : 0) : 0);
 
   if (S.screen === 'countdown' && !S.leaving) {
     S.count -= dt;
@@ -613,6 +620,69 @@ function drawPlace() {
   }
 }
 
+// ---- Power Rush and the finish ----------------------------------------------
+// Power Rush (the last quarter of a court): a banner when it starts, and a
+// gold edge pulsing round the screen while it lasts. The finish (last brick):
+// a white flash, fireworks of confetti and COURT CLEAR! popping in.
+
+function drawRush(g) {
+  if (!g.rush || g.state !== 'play') return;
+  const a0 = ctx.globalAlpha;
+  const pulse = 0.35 + 0.25 * Math.sin(S.time * 6);
+  ctx.globalAlpha = a0 * pulse;
+  rect(0, 0, W, 2, PAL.yellow);
+  rect(0, H - 2, W, 2, PAL.yellow);
+  rect(0, 0, 2, H, PAL.yellow);
+  rect(W - 2, 0, 2, H, PAL.yellow);
+  ctx.globalAlpha = a0;
+  const t = S.time - (S.rushAt || -99);
+  if (t < 0 || t > 1.8) return;
+  // POWER RUSH! drops in, flickers between gold and white, and fades.
+  const y = Math.round(hudRows().toast + 18 - (1 - easeBack(clamp(t / 0.35, 0, 1))) * 14);
+  const msg = 'POWER RUSH!';
+  const w = textW(msg, 2, 2) + 20;
+  ctx.globalAlpha = a0 * clamp((1.8 - t) * 2.5, 0, 1);
+  rrect(W / 2 - w / 2 - 1, y - 1, w + 2, 22, 7, PAL.ink);
+  rrect(W / 2 - w / 2, y, w, 20, 6, Math.floor(t * 8) % 2 ? PAL.yellow : '#ffffff');
+  text(msg, W / 2, y + 3, PAL.ink, { align: 'center', scale: 2, sp: 2 });
+  ctx.globalAlpha = a0;
+}
+
+const CHEER_COLORS = ['#f5e663', '#ff6fa8', '#5fd3ff', '#9cff6a', '#ffffff', '#ff9a4a'];
+function drawCheer() {
+  if (!S.cheer) return;
+  const t = S.time - S.cheer.at;
+  if (t > 2.2) return;
+  const a0 = ctx.globalAlpha;
+  // Flash.
+  if (t < 0.3) {
+    ctx.globalAlpha = a0 * 0.55 * (1 - t / 0.3);
+    rect(0, 0, W, H, '#ffffff');
+  }
+  // Three bursts of confetti, one after another, falling as they spread.
+  const bursts = [[0.5, 0.4, 0], [0.24, 0.32, 0.22], [0.76, 0.32, 0.42], [0.5, 0.25, 0.6]];
+  bursts.forEach(([bx, by, at], j) => {
+    const tt = t - at;
+    if (tt < 0) return;
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * Math.PI * 2 + j;
+      const sp = 70 + ((i * 37 + j * 11) % 40);
+      const x = W * bx + Math.cos(a) * sp * tt;
+      const y = H * by + Math.sin(a) * sp * tt + 90 * tt * tt;
+      ctx.globalAlpha = a0 * clamp(1.6 - tt, 0, 1);
+      const c = CHEER_COLORS[(i + j) % CHEER_COLORS.length];
+      rect(x, y, (i + Math.floor(tt * 12)) % 3 ? 3 : 2, 2, c);
+    }
+  });
+  // COURT CLEAR! pops in over it all.
+  if (t > 0.1 && t < 2) {
+    ctx.globalAlpha = a0 * clamp((2 - t) * 3, 0, 1);
+    const y = Math.round(H * 0.45 - (1 - easeBack(clamp((t - 0.1) / 0.35, 0, 1))) * 20);
+    blockTitle('COURT CLEAR!', W / 2, y, W >= 400 ? 3 : 2);
+  }
+  ctx.globalAlpha = a0;
+}
+
 // ---------------------------------------------------------------- screens
 
 const PYRAMID = [
@@ -659,22 +729,46 @@ function drawPyramid(vis) {
   }
 }
 
-function drawIntroBall(t) {
-  const u = clamp(t / 1.9, 0, 1);
-  const at = (v) => {
-    const a = 1 - v;
-    return {
-      x: W / 2 + a * a * 58 + 2 * a * v * -90 + v * v * 76,
-      y: a * a * (H - 12) + 2 * a * v * (P.wb + (H - P.wb) * 0.3) + v * v * (P.wb - 54),
-    };
-  };
-  for (let v = 0; v < u; v += 0.035) {
-    const p = at(v);
-    const big = v < 0.5;
-    rect(p.x, p.y, big ? 2 : 1, big ? 2 : 1, PAL.yellow);
+// The ball rallying between two rackets under the title: an arc each way,
+// a trail behind it, a hit sound and a spray of sparks on each racket.
+function drawIntroRally(t, k, cy) {
+  const reach = Math.min(70, W / 2 - 30);
+  const lx = W / 2 - reach;
+  const rx = W / 2 + reach;
+  const leg = 0.55; // seconds from one racket to the other
+  const i = Math.floor(t / leg);
+  const u = (t % leg) / leg;
+  const from = i % 2 ? rx : lx;
+  const to = i % 2 ? lx : rx;
+  const at = (v) => ({ x: lerp(from, to, v) + (to > from ? -8 : 8) * (1 - 2 * v), y: cy - 4 - Math.sin(v * Math.PI) * 26 });
+  if (i !== S.introHit) {
+    S.introHit = i;
+    if (i > 0) audio.sfx('paddle');
   }
+  ctx.globalAlpha = k;
+  racket(lx - 6, cy, 1);
+  racket(rx + 6, cy, -1);
+  // The trail, then the ball and its shadow on the grass.
+  for (let v = Math.max(0, u - 0.35); v < u; v += 0.05) {
+    const p = at(v);
+    ctx.globalAlpha = k * (0.2 + 0.7 * (1 - (u - v) / 0.35));
+    rect(p.x, p.y, 2, 2, PAL.yellow);
+  }
+  ctx.globalAlpha = k;
   const p = at(u);
-  drawBall(p.x, p.y, lerp(6, 3.4, u));
+  drawShadow(p.x, cy + 10, 4, 1, 0.3);
+  drawBall(p.x, p.y, 4);
+  // Sparks just after each hit.
+  if (u < 0.25 && i > 0) {
+    const hx = from + (from < W / 2 ? 2 : -2);
+    for (let s = 0; s < 6; s++) {
+      const a = (s / 6) * Math.PI * 2;
+      const r = 3 + u * 40;
+      ctx.globalAlpha = k * (1 - u * 4);
+      rect(hx + Math.cos(a) * r, cy - 4 + Math.sin(a) * r, 1, 1, s % 2 ? '#ffffff' : PAL.yellow);
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 
 // Leaderboard with nothing on it: a cup in a burst of light, laurels and rackets.
@@ -895,13 +989,29 @@ const SCREENS = {
   },
 
   intro(k) {
+    // ELEVATED / RALLY: the letters drop in one by one with a little bounce,
+    // then a line draws under them, while a ball rallies between two rackets.
     ctx.globalAlpha = k;
     const y = Math.round(P.wb * 0.42);
-    serif('ELEVATED', W / 2 + 100, y, 15, PAL.cream, { align: 'right', sp: 3, shadow: PAL.ink });
-    serif('RALLY', W / 2 + 100, y + 18, 15, PAL.cream, { align: 'right', sp: 3, shadow: PAL.ink });
-    rect(W / 2 + 54, y + 36, 30, 1, PAL.cream);
+    let n = 0;
+    for (const [word, wy] of [['ELEVATED', y], ['RALLY', y + 20]]) {
+      const ww = serifW(word, 15, 3);
+      let x = W / 2 - ww / 2;
+      for (const ch of word) {
+        const q = clamp((S.t - 0.1 - n * 0.06) / 0.3, 0, 1);
+        n++;
+        if (q > 0) {
+          ctx.globalAlpha = k * Math.min(1, q * 2);
+          serif(ch, x, wy - Math.round((1 - easeBack(q)) * 14), 15, PAL.cream, { sp: 3, shadow: PAL.ink });
+        }
+        x += serifW(ch, 15, 0) + 3;
+      }
+    }
+    ctx.globalAlpha = k;
+    const line = clamp((S.t - 0.9) / 0.4, 0, 1);
+    rect(Math.round(W / 2 - 20 * line), y + 40, Math.round(40 * line), 1, PAL.yellow);
     ctx.globalAlpha = 1;
-    drawIntroBall(S.t);
+    drawIntroRally(S.t, k, y + 74);
     const skip = afterIntro;
     region('skip', 0, 0, W, H, skip);
     S.primary = skip;
@@ -1632,8 +1742,10 @@ let gameLayer = null;
 
 // ---- the signature -----------------------------------------------------------
 // "CRAFTED BY / YASHISH" in the game's own pixel font on the landing screen,
-// still, on a dark plate with a thin gold edge. Bottom right on wide screens,
-// centred on phones.
+// fixed in place on its plate: a band of light runs across YASHISH pixel by
+// pixel, sparkles twinkle round it, CRAFTED BY catches a glint now and then,
+// and the plate's gold edge lights as the light passes. Bottom right on wide
+// screens, centred on phones.
 
 const SIG = { by: 'CRAFTED BY', name: 'YASHISH', zoom: 2 };
 let sigMasks = null;
@@ -1667,33 +1779,48 @@ function drawSignature(k) {
   if (!sigMasks) sigMasks = { by: sigMask(SIG.by, 2), name: sigMask(SIG.name, 1) };
   const { by, name } = sigMasks;
   const z = SIG.zoom;
+  const t = S.time;
   const bw = Math.max(by.w, name.w * z) + 14;
   const bh = by.h + 4 + name.h * z + 10;
   const x0 = W >= 400 ? W - 8 - bw : Math.round(W / 2 - bw / 2);
   const y0 = H - 6 - bh;
   const a0 = ctx.globalAlpha;
-  // The plate: a dark tile with a thin gold edge.
+  const sweep = (t % 2.6) / 2.6; // the light's run across YASHISH, then a rest
+  // The plate: a dark tile whose gold edge lights up as the light passes.
   ctx.globalAlpha = a0 * 0.6;
   rrect(x0, y0, bw, bh, 4, PAL.ink);
-  ctx.globalAlpha = a0 * 0.45;
+  ctx.globalAlpha = a0 * (0.35 + (sweep < 0.6 ? 0.5 * Math.sin((sweep / 0.6) * Math.PI) : 0));
   rect(x0 + 4, y0, bw - 8, 1, PAL.yellow);
   rect(x0 + 4, y0 + bh - 1, bw - 8, 1, PAL.yellow);
   rect(x0, y0 + 4, 1, bh - 8, PAL.yellow);
   rect(x0 + bw - 1, y0 + 4, 1, bh - 8, PAL.yellow);
   ctx.globalAlpha = a0;
-  // CRAFTED BY in cream, YASHISH below it in gold, both with a dark drop.
+  // CRAFTED BY in cream; a few of its pixels glint white in turn.
   const byX = Math.round(x0 + bw / 2 - by.w / 2);
   const byY = y0 + 5;
+  const glint = (t * 0.7) % 1;
   for (const p of by.px) {
     rect(byX + p.x + 1, byY + p.y + 1, 1, 1, PAL.ink);
-    rect(byX + p.x, byY + p.y, 1, 1, PAL.cream);
+    rect(byX + p.x, byY + p.y, 1, 1, Math.abs(p.r - glint) < 0.03 ? '#ffffff' : PAL.cream);
   }
+  // YASHISH in gold, a slanted band of light crossing it pixel by pixel.
   const nx = Math.round(x0 + bw / 2 - (name.w * z) / 2);
   const ny = y0 + 5 + by.h + 4;
   for (const p of name.px) {
+    const band = sweep * (name.w + name.h + 8) - 4 - (p.x + (name.h - p.y));
+    const c = Math.abs(band) < 1.4 ? '#ffffff' : Math.abs(band) < 3.2 ? PAL.yellowHi : PAL.yellow;
     rect(nx + p.x * z + 1, ny + p.y * z + 1, z, z, PAL.ink);
-    rect(nx + p.x * z, ny + p.y * z, z, z, PAL.yellow);
+    rect(nx + p.x * z, ny + p.y * z, z, z, c);
   }
+  // Sparkles that twinkle round the name.
+  [[nx - 4, ny + 1], [nx + name.w * z + 3, ny + 2], [nx + name.w * z * 0.55, ny - 3]].forEach(([sx, sy], i) => {
+    const tw = Math.sin(t * 3.3 + i * 2.1);
+    if (tw < 0.35) return;
+    const arm = tw > 0.85 ? 2 : 1;
+    const col = tw > 0.85 ? '#ffffff' : PAL.yellowHi;
+    rect(Math.round(sx) - arm, Math.round(sy), arm * 2 + 1, 1, col);
+    rect(Math.round(sx), Math.round(sy) - arm, 1, arm * 2 + 1, col);
+  });
 }
 
 function draw() {
@@ -1740,7 +1867,9 @@ function draw() {
   if (g && (hud === 'countdown' || hud === 'play' || hud === 'paused')) {
     drawHUD(g, 'COURT ' + (S.level + 1));
     drawPlace();
+    drawRush(g);
   }
+  drawCheer();
 
   if (S.leaving) {
     ui.live = false;

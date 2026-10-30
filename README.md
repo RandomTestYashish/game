@@ -204,6 +204,8 @@ No player names are sent.
 
 **Tidy-up (2026-10-23).** `supabase/2026-10-23-tidy-up.sql` removes the one test score left from checking the game, adds an index for the top-20 query, and ends with read-only checks (the 150300 limit is in place; the public key can call `submit_score` but cannot insert directly). Run it once in the SQL Editor; running it again does nothing harmful.
 
+**Power Rush and the finish.** With a quarter of a court's blocks left (`RUSH_AT` in `js/game.js`), a POWER RUSH! banner shows, a gold edge pulses round the screen, and most breaks drop a tool (`RUSH_RATE`, still at most `MAX_DROPS` falling at once). The last brick goes in slow motion, with a white flash, bursts of confetti and COURT CLEAR!
+
 ## Score sharing
 
 After a run, the leaderboard shows HOME, SHARE and PLAY AGAIN. SHARE makes a 1080x1350 score card in the browser (`js/share.js`): the current court theme's scenery, THE COURT, the player's name and score, the court, the leaderboard place, CAN YOU BEAT ME?, the game's address and the signature, drawn small in the game's pixel art and scaled up. Phones get the system share sheet with the image; where there is no share sheet (most desktops) the card downloads and the message and link are copied. The link is the site the card was made on, tagged `utm_source=score_share&utm_medium=social&utm_campaign=score_card` so PostHog can count new players who arrive from shares. No server or database change is needed.

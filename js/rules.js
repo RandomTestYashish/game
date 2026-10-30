@@ -1,7 +1,7 @@
 // The "How to play" text. Every number here is read from the game's own
 // constants, so the rules screen cannot drift from what the game does.
 
-import { BLOCKS, TOOLS, TOOL_TIME, START_LIVES, MAX_BALLS, MAX_DROPS, LIFE_BONUS, COMBO_STEP, COMBO_CAP, SPEED_UP, SPEED_CAP, comboMult, brickPoints } from './game.js';
+import { BLOCKS, TOOLS, TOOL_TIME, START_LIVES, MAX_BALLS, MAX_DROPS, RUSH_AT, LIFE_BONUS, COMBO_STEP, COMBO_CAP, SPEED_UP, SPEED_CAP, comboMult, brickPoints } from './game.js';
 import { COUNT } from './levels.js';
 import { BOARD_SIZE } from './save.js';
 
@@ -27,6 +27,7 @@ export function facts() {
     startLives: START_LIVES,
     maxBalls: MAX_BALLS,
     maxDrops: MAX_DROPS,
+    rushPct: Math.round(RUSH_AT * 100),
     toolTime: { ...TOOL_TIME },
     speedUpPct: Math.round((SPEED_UP - 1) * 100),
     speedCap: SPEED_CAP,
@@ -77,7 +78,7 @@ export function sections() {
       })),
       cards: [
         { title: 'THE SIX TOOLS', showRows: true, lines: [] },
-        { title: 'CATCHING THEM', lines: [`BROKEN BRICKS SOMETIMES DROP A TOOL. CATCH IT WITH THE PADDLE. NO MORE THAN ${f.maxDrops} FALL AT ONCE.`, 'LOSING A LIFE CLEARS EVERY ACTIVE TOOL.'] },
+        { title: 'CATCHING THEM', lines: [`BROKEN BRICKS SOMETIMES DROP A TOOL. CATCH IT WITH THE PADDLE. NO MORE THAN ${f.maxDrops} FALL AT ONCE.`, `POWER RUSH: WITH ${f.rushPct}% OF A COURT LEFT, TOOLS DROP FROM MOST BRICKS.`, 'LOSING A LIFE CLEARS EVERY ACTIVE TOOL.'] },
       ],
       tip: 'FREEZE BREAKS ANY BRICK IN ONE HIT, EVEN SLATE.',
     },

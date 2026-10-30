@@ -9,6 +9,7 @@ import { LEVELS } from './levels.js';
 import { drawGame, drawHUD, hudRows } from './render.js';
 import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, panel } from './ui.js';
 import { AudioSys, COURT_TRACKS, RUSH_TEMPO } from './audio.js';
+import { haptics } from './haptics.js';
 import { Save, BOARD_SIZE, cleanName } from './save.js';
 import { onlineEnabled } from './config.js';
 import { fetchTopScores, submitScore, nameTaken } from './remote.js';
@@ -22,6 +23,7 @@ const say = (label) => canvas.getAttribute('aria-label') !== label && canvas.set
 initCanvas(canvas);
 
 const save = new Save();
+haptics.on = save.data.settings.haptics;
 const audio = new AudioSys(save.data.settings);
 const debug = new URLSearchParams(location.search).has('debug');
 
@@ -124,16 +126,14 @@ function enter(name) {
 }
 
 let lastLand = 0;
-function onGameEvent(type, arg) {
+function onGameEvent(type, arg, info) {
   if (type === 'land') {
     if (S.time - lastLand < 0.06) return;
     lastLand = S.time;
   }
-  audio.sfx(type, arg);
-  if (type === 'rush') {
-    S.rushAt = S.time;
-    audio.sfx('power');
-  }
+  audio.sfx(type, arg, info);
+  buzz(type, arg, info);
+  if (type === 'rush') S.rushAt = S.time;
   if (type === 'win') S.cheer = { at: S.time }; // the finish: slow motion, flash, fireworks
   if (type === 'break') {
     // Big moments get the crowd going: a combo milestone, or a burst of bricks at once.
@@ -155,6 +155,37 @@ function onGameEvent(type, arg) {
   if (type === 'win' || type === 'over') finish(type === 'win');
 }
 
+// The feel of each event in the hand (see js/haptics.js).
+function buzz(type, arg, info) {
+  if (type === 'land' || type === 'drop') return; // too many, too small
+  if (type === 'break') return haptics.play('break' + ((info && info.type) || 'T'), 1 + Math.min(arg || 1, 10) * 0.05);
+  if (type === 'paddle') return haptics.play(Math.abs(arg || 0) > 0.7 ? 'paddleEdge' : 'paddle');
+  haptics.play(type);
+}
+
+// What a tap on each button sounds (and feels) like.
+const CONFIRM_IDS = new Set(['play', 'begin', 'save', 'again', 'resume', 'next', 'replay', 'retry', 'done', 'themedone']);
+const BACK_IDS = new Set(['close', 'home', 'back', 'skiptips']);
+function tapSound(id) {
+  if (id.startsWith('key')) {
+    const ch = id.slice(3);
+    audio.sfx(ch === 'del' ? 'back' : 'key', ch);
+    return haptics.play('key');
+  }
+  if (id.startsWith('tab') || id === 'friends') {
+    audio.sfx('tab');
+    return haptics.play('tap');
+  }
+  if (id === 'mute' || id === 'vibrate') {
+    audio.sfx('toggle', id === 'mute' ? save.data.settings.muted : !haptics.on);
+    return haptics.play('tap');
+  }
+  if (CONFIRM_IDS.has(id)) audio.sfx('confirm');
+  else if (BACK_IDS.has(id)) audio.sfx('back');
+  else audio.sfx('click');
+  haptics.play(BACK_IDS.has(id) ? 'back' : 'tap');
+}
+
 // The crowd behind the court cheers (and roars) at big moments; strength 1-3.
 const BURST_WINDOW = 0.45; // seconds
 const BURST_BREAKS = 3; // bricks broken inside the window that count as a burst
@@ -164,6 +195,7 @@ function crowdCheer(big) {
   S.crowd = { at: S.time, big, kind: 'cheer' };
   S.breaks = [];
   audio.sfx('cheer', big);
+  haptics.play('cheer', big * 0.5 + 0.5);
 }
 // Smaller reactions: a round of applause ('clap') or a groan ('groan').
 // They never cut a cheer short.
@@ -352,7 +384,8 @@ function saveScore() {
   }
   if (c.state === 'taken') {
     c.at = S.time; // shakes the message
-    audio.sfx('wall');
+    audio.sfx('back');
+    haptics.play('lost');
     return;
   }
   S.run.saved = true;
@@ -514,6 +547,7 @@ function closeSound() {
 
 function setSetting(key, v) {
   save.data.settings[key] = v;
+  haptics.on = save.data.settings.haptics;
   audio.apply();
 }
 
@@ -576,11 +610,13 @@ function update(dt) {
     if (n !== S.beat && n > 0) {
       S.beat = n;
       audio.sfx('count');
+      haptics.play('count');
     }
     if (S.count <= 0 && g.ready) {
       S.screen = 'play';
       S.t = 0;
       audio.sfx('go');
+      haptics.play('go');
       // A first-timer serves by hand, once they have found the paddle.
       if (!(S.coach && S.coach.step === 'move')) g.launch();
     }
@@ -640,7 +676,8 @@ function trackPlace(dt) {
     const mine = e.name === save.data.lastName;
     p.beat = mine && !rows.slice(0, ahead).some((r) => r.name === e.name) ? 'NEW PERSONAL BEST!' : 'YOU BEAT ' + e.name + '!';
     p.t = 2;
-    audio.sfx('power');
+    audio.sfx('beat');
+    haptics.play('power');
   }
   p.ahead = ahead;
   if (p.t > 0) p.t = Math.max(0, p.t - dt);
@@ -1554,7 +1591,7 @@ function drawSoundOverlay(k) {
   checker(0, 0, W, H, 'rgba(6,18,12,' + (0.35 * k).toFixed(2) + ')');
   const s = save.data.settings;
   const w = 176;
-  const h = 178;
+  const h = 199;
   const x = Math.round((W - w) / 2);
   const y = Math.round((H - h) / 2);
   panel(easeBack(k), x, y, w, h, 'dark', () => {
@@ -1573,8 +1610,13 @@ function drawSoundOverlay(k) {
       }
     });
     ghost('mute', s.muted ? 'SOUND IS OFF' : 'SOUND IS ON', W / 2, y + 108, w - 40, 15, toggleMute, s.muted ? { color: PAL.dim, line: PAL.dim } : {});
+    ghost('vibrate', s.haptics ? 'VIBRATION IS ON' : 'VIBRATION IS OFF', W / 2, y + 129, w - 40, 15, () => {
+      setSetting('haptics', !s.haptics);
+      save.commit();
+      haptics.play('power');
+    }, s.haptics ? {} : { color: PAL.dim, line: PAL.dim });
     const armed = S.eraseArmed > 0;
-    ghost('erase', armed ? 'TAP AGAIN TO ERASE' : 'ERASE SAVE DATA', W / 2, y + 129, w - 40, 15, () => {
+    ghost('erase', armed ? 'TAP AGAIN TO ERASE' : 'ERASE SAVE DATA', W / 2, y + 150, w - 40, 15, () => {
       if (armed) {
         S.eraseArmed = 0;
         save.erase();
@@ -2027,7 +2069,7 @@ function release(e, cancelled) {
   if (ptr.region) {
     const r = hitTest(p.x, p.y);
     if (!cancelled && r && r.id === ptr.region && r.fn) {
-      audio.sfx('click');
+      tapSound(r.id);
       r.fn();
     } else if (r && r.drag) {
       save.commit();
@@ -2058,7 +2100,10 @@ window.addEventListener('keydown', (e) => {
     if (k === 'backspace') typeKey('del');
     else if (k === 'enter') S.primary && S.primary();
     else if (k === 'escape') S.back && S.back();
-    else if (k.length === 1 && (KEYS + DIGITS).includes(k.toUpperCase())) typeKey(k.toUpperCase());
+    else if (k.length === 1 && (KEYS + DIGITS).includes(k.toUpperCase())) {
+      typeKey(k.toUpperCase());
+      audio.sfx('key', k.toUpperCase());
+    }
     else return;
     e.preventDefault();
     return;
@@ -2161,6 +2206,6 @@ async function boot() {
   S.ready = true;
 }
 
-if (debug) window.__court = { S, P, save, audio, ui, LEVELS, go, beginRun, proj, size: () => [W, H], onlineEnabled, getCourtTheme, currentTheme };
+if (debug) window.__court = { S, P, save, audio, haptics, setSetting, ui, LEVELS, go, beginRun, proj, size: () => [W, H], onlineEnabled, getCourtTheme, currentTheme };
 
 boot();

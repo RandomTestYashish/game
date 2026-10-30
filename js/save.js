@@ -13,7 +13,7 @@ export function defaultSave() {
     version: SAVE_VERSION,
     updatedAt: 0,
     onboarded: false, // true once the first-time guided rally is finished or skipped
-    settings: { music: 0.6, sfx: 0.8, muted: false, theme: 'auto' },
+    settings: { music: 0.6, sfx: 0.8, muted: false, haptics: true, theme: 'auto' },
     progress: { unlocked: 1, levels: {} }, // levels[id] = { best, stars }
     stats: { plays: 0, wins: 0, blocks: 0 },
     leaderboard: [], // { name, score, court, at } best first
@@ -39,6 +39,7 @@ export function migrate(raw) {
   d.settings.music = num(s.music, d.settings.music, 0, 1);
   d.settings.sfx = num(s.sfx, d.settings.sfx, 0, 1);
   d.settings.muted = !!s.muted;
+  d.settings.haptics = s.haptics !== false;
   d.settings.theme = cleanThemeChoice(s.theme);
   const p = raw.progress || {};
   d.progress.unlocked = Math.floor(num(p.unlocked, 1, 1, 999));

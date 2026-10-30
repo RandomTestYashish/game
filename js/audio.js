@@ -17,6 +17,10 @@ export const TRACKS = {
 export const COURT_TRACKS = ['action1', 'stage1', 'action2', 'stage2', 'action3'];
 // A court's music builds from mellow to full power: the low-pass cutoff (Hz)
 // opens, the bass shelf (dB) comes up and the level rises a touch.
+// The court's width in game units, for placing sounds left to right.
+const COURT_W = 200;
+// The note each tool's falling chime starts on.
+const TOOL_NOTE = { shield: 660, multiball: 880, smash: 440, freeze: 1320, expand: 587, lowgrav: 523 };
 const BUILD = { cutFrom: 650, cutTo: 20000, bassFrom: -2, bassTo: 9, gainFrom: 0.78 };
 export const RUSH_TEMPO = 1.08; // Power Rush plays the music a touch faster
 const TRACK_GAIN = 0.33; // the files are mastered loud; this sits them well under the crowd and effects
@@ -242,7 +246,7 @@ export class AudioSys {
     g.gain.linearRampToValueAtTime(vol, t + (o.attack || 0.005));
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(g);
-    g.connect(o.out || this.sfxG);
+    g.connect(o.out || this.out || this.sfxG);
     osc.start(t);
     osc.stop(t + dur + 0.02);
   }
@@ -259,59 +263,180 @@ export class AudioSys {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(f);
     f.connect(g);
-    g.connect(o.out || this.sfxG);
+    g.connect(o.out || this.out || this.sfxG);
     src.start(t);
     src.stop(t + dur + 0.02);
   }
 
-  sfx(name, arg) {
+  // Every element has its own sound. info.x (where on the court, 0..WW)
+  // places it left or right; arg carries the detail (which brick, which tool,
+  // where on the racket, how long the combo).
+  sfx(name, arg, info = {}) {
     if (!this.ac || this.settings.muted || this.settings.sfx <= 0 || this.ac.state !== 'running') return;
+    this.out = null;
+    if (info.x != null && this.ac.createStereoPanner) {
+      const pan = this.ac.createStereoPanner();
+      pan.pan.value = Math.max(-0.8, Math.min(0.8, (info.x / COURT_W) * 1.6 - 0.8));
+      pan.connect(this.sfxG);
+      this.out = pan;
+    }
+    this.play1(name, arg, info);
+    this.out = null;
+  }
+
+  play1(name, arg, info) {
+    const T = (f, d, w, v, o) => this.tone(f, d, w, v, o);
+    const N = (d, v, c, o) => this.noise(d, v, c, o);
     switch (name) {
-      case 'click':
-        this.tone(660, 0.05, 'square', 0.12);
+      // ---- menus
+      case 'click': // a button
+        T(880, 0.04, 'square', 0.1);
+        T(1320, 0.03, 'sine', 0.08, { delay: 0.02 });
         break;
-      case 'paddle':
-        this.tone(196, 0.1, 'triangle', 0.5, { to: 330 });
-        this.noise(0.04, 0.12, 1800);
+      case 'confirm': // play, save, again: two notes up
+        T(660, 0.07, 'square', 0.11);
+        T(990, 0.1, 'square', 0.11, { delay: 0.06 });
         break;
-      case 'wall':
-        this.tone(150, 0.05, 'triangle', 0.3);
+      case 'back': // close, home, back: two notes down
+        T(660, 0.06, 'triangle', 0.16);
+        T(440, 0.09, 'triangle', 0.16, { delay: 0.05 });
         break;
-      case 'hit':
-        this.tone(300, 0.07, 'square', 0.14, { to: 220 });
-        break;
-      case 'break': {
-        const f = 420 * Math.pow(1.06, Math.min(arg || 1, 12));
-        this.tone(f, 0.11, 'square', 0.14, { to: f * 0.6 });
-        this.noise(0.14, 0.3, 2600);
+      case 'key': { // a typewriter tick, a little different for every letter
+        const f = 1400 + ((arg || 'A').charCodeAt(0) % 12) * 60;
+        N(0.025, 0.2, f, { type: 'bandpass' });
+        T(f / 2, 0.03, 'square', 0.05);
         break;
       }
-      case 'land':
-        this.noise(0.06, 0.1, 500);
+      case 'tab':
+        T(520, 0.05, 'sine', 0.18, { to: 780 });
         break;
-      case 'drop':
-        this.tone(880, 0.08, 'sine', 0.14, { to: 1320 });
+      case 'toggle':
+        T(arg ? 520 : 780, 0.08, 'sine', 0.2, { to: arg ? 780 : 520 });
         break;
+      case 'beat': // passed someone on the leaderboard
+        [784, 988, 1175].forEach((f, i) => T(f, 0.1, 'square', 0.1, { delay: i * 0.07 }));
+        break;
+
+      // ---- the rally
+      case 'paddle': {
+        // The racket: the pitch follows where the ball meets it (left low,
+        // right high); an edge hit adds a bright ping; a fast ball hits harder.
+        const off = arg || 0;
+        const f = 220 * Math.pow(2, off * 0.3);
+        const hard = Math.min(1.4, info.speed || 1);
+        T(f, 0.1, 'triangle', 0.45 * hard, { to: f * 1.6 });
+        N(0.05, 0.14 * hard, 1600);
+        if (Math.abs(off) > 0.7) T(f * 4, 0.08, 'square', 0.07, { to: f * 3 });
+        break;
+      }
+      case 'wall':
+        if (arg === 'back') {
+          // The far wall: a deep thud and the banner's rattle.
+          T(110, 0.12, 'triangle', 0.32, { to: 80 });
+          N(0.08, 0.12, 2400, { type: 'bandpass' });
+        } else {
+          // A side wall: a dry wooden knock.
+          T(170, 0.05, 'triangle', 0.28);
+          N(0.03, 0.12, 900, { type: 'bandpass' });
+        }
+        break;
+      case 'hit': // a brick cracked but still standing
+        if (arg === 'S') {
+          T(1250, 0.06, 'square', 0.07);
+          T(1870, 0.08, 'triangle', 0.07, { delay: 0.01 });
+        } else if (arg === 'H') {
+          N(0.09, 0.22, 3200, { type: 'bandpass' });
+          T(260, 0.05, 'triangle', 0.14);
+        } else {
+          T(300, 0.07, 'square', 0.14, { to: 220 });
+        }
+        break;
+      case 'break': {
+        // Each brick breaks in its own voice; the combo raises the pitch.
+        const up = Math.pow(1.06, Math.min(arg || 1, 12));
+        const type = info.type || 'T';
+        if (type === 'T') {
+          // Terracotta: a clay crack.
+          T(420 * up, 0.11, 'square', 0.12, { to: 250 * up });
+          N(0.14, 0.3, 2400);
+        } else if (type === 'L') {
+          // Light stone: a soft pop.
+          T(640 * up, 0.09, 'sine', 0.3, { to: 320 * up });
+          N(0.08, 0.18, 1500);
+        } else if (type === 'H') {
+          // Hedge: a leafy crunch.
+          N(0.2, 0.3, 3600, { type: 'bandpass' });
+          N(0.12, 0.2, 700);
+          T(330 * up, 0.08, 'triangle', 0.18, { to: 200 * up });
+        } else {
+          // Slate: a heavy shatter with a ring.
+          T(90, 0.16, 'triangle', 0.4, { to: 55 });
+          N(0.22, 0.32, 3800, { type: 'highpass' });
+          T(1180 * up, 0.18, 'square', 0.06, { delay: 0.02 });
+          T(1770 * up, 0.14, 'triangle', 0.07, { delay: 0.04 });
+        }
+        break;
+      }
+      case 'land': // a brick drops into place as the court builds
+        N(0.06, arg === 'S' ? 0.16 : 0.09, arg === 'S' ? 380 : 600);
+        break;
+      case 'drop': {
+        // A tool falls: a chime pitched for that tool.
+        const f = TOOL_NOTE[arg] || 880;
+        T(f, 0.08, 'sine', 0.14, { to: f * 1.5 });
+        T(f * 2, 0.06, 'sine', 0.05, { delay: 0.05 });
+        break;
+      }
       case 'power':
-        [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.12, 'square', 0.12, { delay: i * 0.06 }));
+        // Catching a tool: each one has its own little tune.
+        if (arg === 'shield') {
+          T(330, 0.3, 'sine', 0.25, { to: 990 });
+          [1320, 1760].forEach((f, i) => T(f, 0.1, 'triangle', 0.08, { delay: 0.2 + i * 0.06 }));
+        } else if (arg === 'multiball') {
+          [660, 880, 1100].forEach((f, i) => T(f, 0.09, 'square', 0.11, { delay: i * 0.06 }));
+          [660, 880, 1100].forEach((f, i) => T(f * 1.5, 0.07, 'sine', 0.06, { delay: 0.03 + i * 0.06 }));
+        } else if (arg === 'smash') {
+          T(110, 0.35, 'sawtooth', 0.16, { to: 220 });
+          N(0.3, 0.28, 900);
+          T(880, 0.12, 'square', 0.09, { delay: 0.22 });
+        } else if (arg === 'freeze') {
+          [2093, 1760, 1568, 1319, 1175].forEach((f, i) => T(f, 0.12, 'triangle', 0.09, { delay: i * 0.05 }));
+          N(0.3, 0.08, 6000, { type: 'highpass' });
+        } else if (arg === 'expand') {
+          T(260, 0.4, 'sine', 0.26, { to: 780 });
+          T(390, 0.4, 'triangle', 0.1, { to: 1170 });
+        } else if (arg === 'lowgrav') {
+          T(700, 0.55, 'sine', 0.22, { to: 240 });
+          T(705, 0.55, 'sine', 0.12, { to: 236, delay: 0.04 });
+        } else {
+          [523, 659, 784, 1047].forEach((f, i) => T(f, 0.12, 'square', 0.12, { delay: i * 0.06 }));
+        }
         break;
-      case 'shield':
-        this.tone(988, 0.2, 'sine', 0.3, { to: 494 });
+      case 'shield': // the barrier saves a ball: a glassy ping
+        T(988, 0.22, 'sine', 0.3, { to: 494 });
+        T(1976, 0.12, 'triangle', 0.06);
         break;
-      case 'serve':
-        this.tone(262, 0.1, 'triangle', 0.4, { to: 523 });
+      case 'serve': // a whoosh off the racket
+        N(0.18, 0.14, 1200, { type: 'bandpass' });
+        T(262, 0.1, 'triangle', 0.36, { to: 523 });
+        break;
+      case 'rush': // Power Rush: a siren rising twice
+        T(440, 0.3, 'sawtooth', 0.08, { to: 880 });
+        T(440, 0.3, 'sawtooth', 0.08, { to: 1047, delay: 0.3 });
+        [1047, 1319, 1568].forEach((f, i) => T(f, 0.1, 'square', 0.08, { delay: 0.62 + i * 0.06 }));
         break;
       case 'lost':
-        this.tone(330, 0.45, 'sawtooth', 0.16, { to: 70 });
+        T(330, 0.45, 'sawtooth', 0.16, { to: 70 });
         break;
       case 'count':
-        this.tone(440, 0.12, 'square', 0.14);
+        T(440, 0.12, 'square', 0.14);
         break;
       case 'go':
-        this.tone(880, 0.25, 'square', 0.14);
+        T(880, 0.25, 'square', 0.14);
+        T(1320, 0.25, 'sine', 0.08);
         break;
       case 'win':
-        [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, 0.22, 'square', 0.13, { delay: i * 0.11 }));
+        [523, 659, 784, 1047, 1319].forEach((f, i) => T(f, 0.22, 'square', 0.13, { delay: i * 0.11 }));
         break;
       case 'cheer': {
         // The crowd roars: a big swell, whoops and a long round of applause.

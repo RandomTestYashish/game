@@ -1804,6 +1804,40 @@ def finale(browser, url):
     ctx.close()
 
 
+def sounds_and_haptics(browser, url):
+    """Every element has its own sound (all play without errors) and its own vibration."""
+    print("sounds and haptics")
+    b = browser.browser_type.launch(channel="chrome", headless=True, args=["--autoplay-policy=no-user-gesture-required"])
+    ctx = b.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    ctx.add_init_script(RETURNING + "; window.__vib=[]; navigator.vibrate=(p)=>{window.__vib.push(p);return true}")
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 1.0)
+    d.ev("__court.audio.unlock()")
+    d.wait("__court.audio.ac.state==='running'", 5000)
+    calls = [["click"], ["confirm"], ["back"], ["key", "A"], ["tab"], ["toggle", True], ["beat"], ["paddle", -0.9, {"x": 10, "speed": 1.3}],
+             ["wall", "side", {"x": 0}], ["wall", "back", {"x": 100}], ["hit", "S", {"x": 50}], ["hit", "H", {"x": 150}],
+             ["break", 1, {"type": "T"}], ["break", 4, {"type": "L"}], ["break", 7, {"type": "H"}], ["break", 12, {"type": "S", "x": 190}],
+             ["land", "S"], ["drop", "freeze", {"x": 30}], ["shield"], ["serve"], ["rush"], ["lost"], ["count"], ["go"], ["win"],
+             ["cheer", 2], ["clap"], ["groan"], ["over"]] + [["power", t] for t in ["shield", "multiball", "smash", "freeze", "expand", "lowgrav"]]
+    bad = d.pg.evaluate("(calls)=>{const bad=[]; for (const c of calls){ try{ __court.audio.sfx(...c) }catch(e){ bad.push(c[0]+': '+e.message) } } return bad}", calls)
+    check("every element's sound plays without an error (%d sounds)" % len(calls), not bad, bad)
+    d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+    d.wait("__court.S.screen==='play' && __court.S.game.ready", 30000)
+    got = {}
+    for ev in [["paddle", 0.9, {"x": 100}], ["break", 1, {"type": "S"}], ["break", 1, {"type": "T"}], ["power", "smash"], ["lost"]]:
+        time.sleep(0.08)
+        d.pg.evaluate("(e)=>{window.__vib=[]; __court.S.game.emit(...e)}", ev)
+        got[ev[0] + str(ev[1]) + (ev[2]["type"] if len(ev) > 2 and "type" in ev[2] else "")] = d.ev("window.__vib.at(-1)")
+    check("each event buzzes in its own pattern", len({json.dumps(v) for v in got.values()}) == len(got) and all(got.values()), got)
+    d.ev("__court.setSetting('haptics', false)")
+    d.pg.evaluate("()=>{window.__vib=[]; __court.S.game.emit('lost')}")
+    check("vibration can be switched off", d.ev("window.__vib.length") == 0, d.ev("window.__vib"))
+    check("no console errors (sounds and haptics)", not d.errors, d.errors[:3])
+    ctx.close()
+    b.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1812,6 +1846,7 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome", headless=True)
         try:
+            sounds_and_haptics(browser, url)
             slow_first_visit(browser, url)
             first_time(browser, url)
             desktop(browser, url)

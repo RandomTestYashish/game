@@ -208,7 +208,7 @@ export class Game {
           b.bounced = true;
           b.vz = 95;
           this.dust(b);
-          this.emit('land');
+          this.emit('land', b.type);
         }
       }
     }
@@ -265,18 +265,18 @@ export class Game {
       ball.x = ball.r;
       ball.vx = Math.abs(ball.vx);
       bounced = true;
-      this.emit('wall');
+      this.emit('wall', 'side', { x: ball.x });
     } else if (ball.x > WW - ball.r) {
       ball.x = WW - ball.r;
       ball.vx = -Math.abs(ball.vx);
       bounced = true;
-      this.emit('wall');
+      this.emit('wall', 'side', { x: ball.x });
     }
     if (ball.y < ball.r) {
       ball.y = ball.r;
       ball.vy = Math.abs(ball.vy);
       bounced = true;
-      this.emit('wall');
+      this.emit('wall', 'back', { x: ball.x });
     }
 
     // Paddle
@@ -294,7 +294,7 @@ export class Game {
       ball.speed = Math.min(ball.speed * SPEED_UP, this.level.speed * SPEED_CAP);
       ball.vz = 70;
       this.combo = 0;
-      this.emit('paddle');
+      this.emit('paddle', off, { x: ball.x, speed: ball.speed / this.level.speed });
       return;
     }
 
@@ -356,7 +356,7 @@ export class Game {
     if (b.hp > 0) {
       b.flash = 0.12;
       this.debris(b, 3);
-      this.emit('hit');
+      this.emit('hit', b.type, { x: b.x + b.w / 2, hp: b.hp });
       return;
     }
     b.alive = false;
@@ -366,7 +366,7 @@ export class Game {
     this.score += pts;
     this.floaters.push({ x: b.x + b.w / 2, y: b.y + b.d / 2, z: b.hz + 4, text: '+' + pts, life: 0.9 });
     this.debris(b, 10);
-    this.emit('break', this.combo);
+    this.emit('break', this.combo, { type: b.type, x: b.x + b.w / 2 });
     if (this.remaining === 0) this.win();
     else {
       if (!this.rush && this.total >= 12 && this.remaining <= this.total * RUSH_AT) {
@@ -384,9 +384,9 @@ export class Game {
       // so the hint that names it is always right.
       if (this.total - this.remaining < 3) return;
       this.drops.push({ type: this.firstTool, x: b.x + b.w / 2, y: b.y + b.d / 2, t: 0 });
+      this.emit('drop', this.firstTool, { x: b.x + b.w / 2 });
       this.firstTool = null;
       this.sinceDrop = 0;
-      this.emit('drop');
       return;
     }
     if (this.drops.length >= MAX_DROPS) return;
@@ -404,7 +404,7 @@ export class Game {
     }
     this.sinceDrop = 0;
     this.drops.push({ type, x: b.x + b.w / 2, y: b.y + b.d / 2, t: 0 });
-    this.emit('drop');
+    this.emit('drop', type, { x: b.x + b.w / 2 });
   }
 
   weight(id) {

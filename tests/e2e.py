@@ -350,7 +350,9 @@ async () => {
 # The main suites run as a returning player, so they see the normal menus.
 # The tests never touch a real database: every page starts with the online board
 # switched off, and the online suite points it at the stand-in endpoint instead.
-OFFLINE = "window.COURT_CONFIG={supabaseUrl:'',supabaseAnonKey:''}"
+# Multiplayer's settings are blanked too: the tests never reach any real project
+# (production's config fills them; the stand-in suites set their own).
+OFFLINE = "window.COURT_CONFIG={supabaseUrl:'',supabaseAnonKey:'',mpSupabaseUrl:'',mpSupabaseAnonKey:''}"
 RETURNING = OFFLINE + "; if(!localStorage.getItem('the-court.save')) localStorage.setItem('the-court.save', JSON.stringify({version:3,onboarded:true}))"
 
 
@@ -361,6 +363,8 @@ class Driver:
         page.on("console", lambda m: self.errors.append(m.text) if m.type == "error" else None)
         page.on("pageerror", lambda e: self.errors.append("PAGEERROR " + str(e)))
         page.on("request", lambda r: SUPABASE_CALLS.append(r.url.split("?")[0]) if ".supabase.co" in r.url else None)
+        # The production multiplayer project is never reachable from a test: stopped and recorded.
+        page.route("**/*jntfnwoyfvkjunvribgh*", lambda r: (SUPABASE_CALLS.append(r.request.url.split("?")[0]), r.abort()))
 
     def ev(self, js):
         return self.pg.evaluate(js)
@@ -407,7 +411,23 @@ def desktop(browser, url):
     d.screen("title", 1.4)
     d.shot("02-title")
     ids = d.ev("__court.ui.regions.map(r=>r.id).join()")
-    check("landing screen is minimal: Play is the only control", ids == "play", ids)
+    check("landing screen: the two cards (The Rally, Multiplayer), then Courts, Scores and Sound", ids == "play,multiplayer,courts,scores,sound", ids)
+    # The row under the cards opens what it says.
+    d.click("scores")
+    d.screen("scores", 0.6)
+    check("landing: SCORES opens the leaderboard", d.ev("__court.S.screen") == "scores")
+    d.ev("__court.go('title')")
+    d.screen("title", 0.8)
+    d.click("courts")
+    d.screen("courts", 0.6)
+    check("landing: COURTS opens the courts", d.ev("__court.S.screen") == "courts")
+    d.ev("__court.go('title')")
+    d.screen("title", 0.8)
+    d.click("sound")
+    d.wait("__court.S.overlayT>=1")
+    check("landing: SOUND opens the sound settings", d.ev("__court.S.overlayKind") == "sound")
+    d.ev("__court.S.overlay = null")
+    d.wait("__court.S.overlayT<=0")
 
     # --- sound controls (reached from the courts screen)
     d.click("play")
@@ -838,7 +858,7 @@ def online_board(browser, url):
         MOCK["mode"] = mode
         MOCK["requests"].clear()
         c = browser.new_context(viewport=vp, has_touch=touch, is_mobile=touch)
-        c.add_init_script(seed + f"; window.COURT_CONFIG={{supabaseUrl:'{origin}', supabaseAnonKey:'{key or MOCK['key']}'}}")
+        c.add_init_script(seed + f"; window.COURT_CONFIG={{mpSupabaseUrl:'', mpSupabaseAnonKey:'', supabaseUrl:'{origin}', supabaseAnonKey:'{key or MOCK['key']}'}}")
         dd = Driver(c.new_page())
         dd.pg.goto(url)
         dd.screen("title", 1.4)
@@ -964,7 +984,7 @@ def online_board(browser, url):
     check("empty online board: says so", d.ev("__court.S.online.rows.length") == 0)
     ctx.close()
     c = browser.new_context(viewport={"width": 1280, "height": 800})
-    c.add_init_script(seed + "; window.COURT_CONFIG={supabaseUrl:'http://127.0.0.1:9', supabaseAnonKey:'k'}")
+    c.add_init_script(seed + "; window.COURT_CONFIG={mpSupabaseUrl:'', mpSupabaseAnonKey:'', supabaseUrl:'http://127.0.0.1:9', supabaseAnonKey:'k'}")
     d = Driver(c.new_page())
     d.pg.goto(url)
     d.screen("title", 1.4)
@@ -1273,7 +1293,7 @@ def live_place(browser, url):
     origin = url.split("/?")[0]
     MOCK["mode"] = "ok"
     ctx = browser.new_context(viewport={"width": 1280, "height": 800})
-    ctx.add_init_script(RETURNING + f"; window.COURT_CONFIG={{supabaseUrl:'{origin}', supabaseAnonKey:'{MOCK['key']}'}}")
+    ctx.add_init_script(RETURNING + f"; window.COURT_CONFIG={{mpSupabaseUrl:'', mpSupabaseAnonKey:'', supabaseUrl:'{origin}', supabaseAnonKey:'{MOCK['key']}'}}")
     d = Driver(ctx.new_page())
     d.pg.goto(url)
     d.screen("title", 1.0)
@@ -1303,7 +1323,7 @@ def visits_and_names(browser, url):
     MOCK["mode"] = "ok"
     MOCK["posted"].clear()
     ctx = browser.new_context(viewport={"width": 1280, "height": 800})
-    ctx.add_init_script(RETURNING + f"; window.COURT_CONFIG={{supabaseUrl:'{origin}', supabaseAnonKey:'{MOCK['key']}'}}")
+    ctx.add_init_script(RETURNING + f"; window.COURT_CONFIG={{mpSupabaseUrl:'', mpSupabaseAnonKey:'', supabaseUrl:'{origin}', supabaseAnonKey:'{MOCK['key']}'}}")
     d = Driver(ctx.new_page())
     d.pg.goto(url)
     d.screen("title", 1.0)
@@ -1489,7 +1509,7 @@ def bricks_in_groups(browser, url):
     d.ev("__court.S.timeScale=0.0001")
     time.sleep(0.2)
     hexes = d.ev(pix)
-    check("court 1: bricks, the black paddle, no characters, no racket",
+    check("court 1: bricks, the black paddle (as on main), no characters, no racket",
           "#cf6f4f" in hexes and "#22262d" in hexes and "#f2c39a" not in hexes and "#e3b341" not in hexes)
     d.ev("__court.S.timeScale=1")
     forms = d.ev("[...new Set(__court.LEVELS.map(l=>l.form).filter(Boolean))]")
@@ -1591,6 +1611,7 @@ def signature(browser, url):
         area = f"{int(W * 0.68) if name == 'desktop' else 0},{H - 60},{W},{H}"  # on desktop, clear of the PLAY button
         # Two looks a second apart, at normal speed: the signature must not change.
         snap = lambda: {"cream": d.ev(f"{lit}({area},'#efe6c8')")["n"], "gold": d.ev(f"{lit}({area},'#f5e663')"), "white": d.ev(f"{lit}({area},'#ffffff')")["n"]}
+        d.wait("__court.S.t > 1")  # the landing screen (signature included) has faded in
         first = snap()
         time.sleep(1.0)
         second = snap()
@@ -1627,7 +1648,7 @@ def board_and_share(browser, url):
     print("leaderboard UX and score sharing")
     origin = url.split("/?")[0]
     stub = ("; window.__ph=[]; window.posthog={__SV:1, init(){}, register(o){window.__phReg=o}, capture(e,p){window.__ph.push([e,p])}}"
-            f"; window.COURT_CONFIG={{supabaseUrl:'{origin}', supabaseAnonKey:'{MOCK['key']}', posthogKey:'phc_test', posthogLocal:true}}")
+            f"; window.COURT_CONFIG={{mpSupabaseUrl:'', mpSupabaseAnonKey:'', supabaseUrl:'{origin}', supabaseAnonKey:'{MOCK['key']}', posthogKey:'phc_test', posthogLocal:true}}")
     after_run = ("__court.S.run={lives:0,score:6100,saved:true}; __court.S.level=4; __court.S.board={rank:-1,fromRun:true};"
                  "__court.S.post={state:'sent',error:'',entry:{name:'ME',score:6100,court:5}}; __court.S.online.at=-99; __court.go('scores')")
     names = lambda d: d.ev("__ph.map(e=>e[0])")
@@ -1852,6 +1873,400 @@ def sounds_and_haptics(browser, url):
     b.close()
 
 
+# A multiplayer match against a stand-in Supabase client in the page: nothing
+# goes over the network. window.__answers holds what the next mp_checkpoint
+# calls get ('ok', 'network' or a refusal such as 'too_fast'); __delay holds
+# how long the next one takes (ms); __rpc records every mp_checkpoint call.
+STAND_IN = """;
+  // Multiplayer has its own settings (no fallback to the board's); this address is never
+  // contacted: the Supabase library itself is replaced by the stand-in below.
+  window.COURT_CONFIG = {...window.COURT_CONFIG, supabaseUrl: 'https://stand-in.invalid', supabaseAnonKey: 'stand-in',
+    mpSupabaseUrl: 'https://standinmultiplayer.supabase.co', mpSupabaseAnonKey: 'sb_publishable_standin', multiplayer: true};
+  window.__rpc = []; window.__answers = []; window.__delay = []; window.__finished = false; window.__state = null; window.__stateFail = 0;
+  const state = (a) => ({ server_now: Date.now(), match: { id: 't', status: 'active' }, me: { finished: window.__finished, score: a.p_score, court: a.p_court, lives: a.p_lives, seq: a.p_seq }, opponent: null });
+  window.supabase = { createClient: () => ({
+    auth: { getSession: async () => ({ data: { session: {} } }) },
+    channel: () => ({ on() { return this; }, subscribe() { return this; } }), removeChannel() {},
+    rpc: async (fn, a) => {
+      if (fn === 'mp_leaderboard' || fn === 'mp_history') return { data: [] }; // empty boards
+      if (fn !== 'mp_checkpoint') {
+        // A status read: window.__state() may shape it; __stateFail fails that many (no network).
+        if (window.__stateFail > 0) { window.__stateFail--; throw new Error('offline'); }
+        const base = { server_now: Date.now(), match: { id: 't', status: 'active' }, me: { finished: window.__finished }, opponent: null };
+        return { data: window.__state ? window.__state(base) : base };
+      }
+      window.__rpc.push({ t: performance.now(), seq: a.p_seq, score: a.p_score, lives: a.p_lives, broken: a.p_broken, done: a.p_done, court: a.p_court });
+      const say = window.__answers.shift() || 'ok';
+      const wait = window.__delay.shift() || 0;
+      if (wait) await new Promise((ok) => setTimeout(ok, wait));
+      if (say === 'network') throw new Error('offline');
+      if (say !== 'ok') return { error: { message: 'mp:' + say } };
+      if (a.p_done) window.__finished = true; // the stand-in server: a done checkpoint finishes the run
+      return { data: window.__state ? window.__state(state(a)) : state(a) };
+    } }) };
+"""
+
+
+def stand_in_match(browser, url):
+    ctx = browser.new_context(viewport={"width": 390, "height": 844})
+    ctx.add_init_script(RETURNING + STAND_IN)
+    # The solo board reads the same (stand-in) address: answer it here, empty.
+    ctx.route("https://stand-in.invalid/**", lambda r: r.fulfill(status=200, body="[]", content_type="application/json"))
+    d = Driver(ctx.new_page())
+    d.pg.goto(url)
+    d.screen("title", 2.5)
+    return ctx, d
+
+
+def checkpoint_retry(browser, url):
+    """Multiplayer checkpoints after a refusal: a wait (1.5 s, then 3 s...), no spam, nothing lost.
+    A stand-in Supabase client in the page answers; nothing goes over the network."""
+    print("multiplayer checkpoint retry")
+    ctx, d = stand_in_match(browser, url)
+    d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+    d.wait("__court.S.screen==='play' && __court.S.game.ready", 20000)
+    d.ev("__court.S.timeScale=0.0001")  # the court holds still; the network side runs on the real clock
+    # A match in play: the last accepted checkpoint had 3 lives, the game now has 2 (urgent: sent at once).
+    d.ev("""(async()=>{ const {mp:M} = await import('/js/multiplayer.js');
+      window.__answers = ['too_fast', 'network', 'too_fast'];
+      __court.S.game.lives = 2;
+      Object.assign(M, { matchId: 't', game: true, seq: 5, sending: false, retryAt: 0, retryMs: 0, lastSentAt: 0,
+        sent: { score: 0, court: 1, lives: 3, broken: '' },
+        state: { match: { id: 't', status: 'active' }, me: { finished: false }, opponent: null } }); })()""")
+    time.sleep(2.0)
+    d.ev("__court.S.game.score += 50")  # progress made while waiting to retry
+    time.sleep(10.0)
+    calls = d.ev("window.__rpc")
+    m = d.ev("(async()=>{ const {mp:M} = await import('/js/multiplayer.js'); return { seq: M.seq, sent: M.sent, retryMs: M.retryMs, game: __court.S.game.score }; })()")
+    gaps = [round((b["t"] - a["t"]) / 1000, 2) for a, b in zip(calls, calls[1:4])]
+    check("retry: after a refusal it waits 1.5 s, then 3 s, then 6 s (an urgent update would otherwise go every frame)",
+          len(gaps) == 3 and 1.4 <= gaps[0] <= 2.0 and 2.9 <= gaps[1] <= 3.5 and 5.9 <= gaps[2] <= 6.6, gaps)
+    check("retry: no spam, 4 tries in 12 s (3 refused or failed, then accepted)", len(calls) == 4, len(calls))
+    check("retry: a refused update is not counted as sent (same sequence number until accepted)",
+          [c["seq"] for c in calls] == [6, 6, 6, 6] and m["seq"] == 6, [c["seq"] for c in calls])
+    check("retry: nothing lost, the accepted update carries everything since (the lost life and the 50 points)",
+          calls[-1]["lives"] == 2 and calls[-1]["score"] == calls[0]["score"] + 50 and m["sent"]["score"] == calls[-1]["score"], (calls[0]["score"], calls[-1]["score"], m["sent"]))
+    check("retry: once accepted, the wait resets", m["retryMs"] == 0)
+    check("no console errors (checkpoint retry)", not d.errors, d.errors[:3])
+    ctx.close()
+
+
+def final_update(browser, url):
+    """M2: the run's last checkpoint (done) is retried with done after a refusal,
+    and never sent over one already on its way (the two would share a number)."""
+    print("multiplayer final update")
+    count_bits = "((b)=>[...atob(b)].reduce((n,c)=>{let v=c.charCodeAt(0);while(v){n+=v&1;v>>=1}return n},0))"
+    setup = """(async()=>{ const {mp:M} = await import('/js/multiplayer.js');
+      Object.assign(M, { matchId: 't', game: true, seq: 5, sending: false, retryAt: 0, retryMs: 0, lastSentAt: 0, ended: null,
+        sent: { score: -1, court: 1, lives: 3, broken: '' },
+        state: { match: { id: 't', status: 'active' }, me: { finished: false }, opponent: null } }); })()"""
+    # The court cleared: every brick down and the game won, as Game.win() leaves it.
+    clear = "(()=>{ const g=__court.S.game; g.blocks.forEach(b=>b.alive=false); g.remaining=0; g.state='won'; return g.blocks.length })()"
+    end = "(async()=>{ const m = await import('/js/multiplayer.js'); m.onRunEnd(true); })()"
+
+    # 1. The final checkpoint is refused: the retry still says done, with every brick.
+    ctx, d = stand_in_match(browser, url)
+    d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+    d.wait("__court.S.screen==='play' && __court.S.game.ready", 20000)
+    d.ev("__court.S.timeScale=0.0001")
+    d.ev(setup)
+    d.wait("window.__rpc.length >= 1", 5000)  # a regular checkpoint, accepted
+    time.sleep(0.3)
+    n = d.ev(clear)
+    d.ev("window.__rpc = []; window.__answers = ['too_fast']")
+    d.ev(end)
+    time.sleep(4.0)
+    calls = d.ev("window.__rpc")
+    bits = [d.ev(f"{count_bits}({json.dumps(c['broken'])})") for c in calls]
+    check("M2: the final checkpoint goes out at once, marked done, with every brick broken",
+          len(calls) >= 1 and calls[0]["done"] is True and bits[0] == n, (len(calls), calls[:1], bits[:1], n))
+    check("M2: refused, it is retried after the wait, still marked done (it used to go out without done)",
+          len(calls) == 2 and calls[1]["done"] is True and bits[1] == n and 1.4 <= (calls[1]["t"] - calls[0]["t"]) / 1000 <= 2.0,
+          [(c["done"], round(c["t"])) for c in calls])
+    check("M2: once accepted the player is finished and nothing more is sent",
+          d.ev("(async()=>{ const {mp:M} = await import('/js/multiplayer.js'); return M.state.me.finished === true && M.retryMs === 0; })()") and len(calls) == 2)
+    check("M2: the same number until accepted (a refusal is not counted)", [c["seq"] for c in calls] == [calls[0]["seq"]] * 2, [c["seq"] for c in calls])
+    check("no console errors (final update, refused)", not d.errors, d.errors[:3])
+    ctx.close()
+
+    # 2. The run ends while a regular checkpoint is still on its way.
+    ctx, d = stand_in_match(browser, url)
+    d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+    d.wait("__court.S.screen==='play' && __court.S.game.ready", 20000)
+    d.ev("__court.S.timeScale=0.0001")
+    d.ev("window.__delay = [1200]")  # the first (regular) checkpoint takes 1.2 s
+    d.ev(setup)
+    d.wait("window.__rpc.length === 1", 5000)
+    n = d.ev(clear)
+    d.ev(end)
+    sent_at_once = d.ev("window.__rpc.length")
+    time.sleep(3.0)
+    calls = d.ev("window.__rpc")
+    check("M2 race: the final checkpoint waits for the one on its way (not sent over it)", sent_at_once == 1, sent_at_once)
+    check("M2 race: then it goes out with the next number, marked done, every brick broken",
+          len(calls) == 2 and calls[1]["seq"] == calls[0]["seq"] + 1 and calls[1]["done"] is True and d.ev(f"{count_bits}({json.dumps(calls[1]['broken'])})") == n,
+          [(c["seq"], c["done"]) for c in calls])
+    check("M2 race: the player ends finished", d.ev("(async()=>{ const {mp:M} = await import('/js/multiplayer.js'); return M.state.me.finished === true; })()"))
+    check("no console errors (final update, race)", not d.errors, d.errors[:3])
+    ctx.close()
+
+
+def match_time(browser, url):
+    """M-a: the match clock and the grace on screen, time's up mid-game, a reload, a reconnect."""
+    print("multiplayer match time")
+    M = "window.__mp"  # the multiplayer state, exposed by ?debug
+
+    def waited(d, expr, ms):
+        # True once expr holds (a plain expression: a promise would count as true at once).
+        try:
+            d.wait(expr, ms)
+            return True
+        except Exception:
+            return False
+    setup = """(async()=>{ const {mp:M} = await import('/js/multiplayer.js');
+      Object.assign(M, { matchId: 't', role: 'host', game: true, seq: 5, sending: false, retryAt: 0, retryMs: 0, lastSentAt: 0, ended: null, pollAt: 0,
+        sent: { score: 0, court: 1, lives: 3, broken: '' },
+        state: { match: { id: 't', status: 'active' }, me: { finished: false }, opponent: null } }); })()"""
+
+    def in_play(d):
+        d.ev("__court.S.introSeen=true; __court.beginRun(0)")
+        d.wait("__court.S.screen==='play' && __court.S.game.ready", 20000)
+        d.ev("__court.S.timeScale=0.0001; __court.S.mpGame = true")  # a match game: the opponent box is drawn
+        d.ev(setup)
+
+    # 1. The grace: the opponent is done, this player has 2:50 left: the clock shows in play.
+    ctx, d = stand_in_match(browser, url)
+    in_play(d)
+    d.ev("""void (window.__state = (b) => ({ ...b, match: { ...b.match, ends_at: Date.now() + 170000, time_ends_at: Date.now() + 20 * 60000 },
+             me: { finished: false }, opponent: { name: 'ANA', finished: true, connection: 'online', court: 3, score: 900, lives: 0 } }))""")
+    ok = waited(d, f"/^FINISH IN 2:[45]\\d$/.test({M}.shown.clock)", 6000)
+    check("M-a: once the opponent is done the grace clock shows in play (FINISH IN 2:5x)", ok, d.ev(f"{M}.shown.clock"))
+    # 2. No grace, 4 minutes of match left: the match clock shows; with 20 minutes left it does not.
+    d.ev("""void (window.__state = (b) => ({ ...b, match: { ...b.match, ends_at: Date.now() + 240000, time_ends_at: Date.now() + 240000 },
+             me: { finished: false }, opponent: { name: 'ANA', finished: false, connection: 'online', court: 3, score: 900, lives: 2 } }))""")
+    ok = waited(d, f"/^TIME [34]:\\d\\d$/.test({M}.shown.clock)", 6000)
+    check("M-a: in the last 5 minutes of the match the clock shows (TIME 4:00)", ok, d.ev(f"{M}.shown.clock"))
+    d.ev("""void (window.__state = (b) => ({ ...b, match: { ...b.match, ends_at: Date.now() + 20 * 60000, time_ends_at: Date.now() + 20 * 60000 },
+             me: { finished: false }, opponent: { name: 'ANA', finished: false, connection: 'online', court: 3, score: 900, lives: 2 } }))""")
+    ok = waited(d, f"{M}.shown.clock === ''", 6000)
+    check("M-a: with plenty of time left there is no clock", ok, d.ev(f"{M}.shown.clock"))
+    # 3. Time's up mid-game: the server ends this player's game; the game stops sending.
+    d.ev("__court.S.timeScale=1")  # screens change on game time
+    d.ev("""void (window.__state = (b) => ({ ...b, match: { ...b.match, ends_at: Date.now() - 1000, time_ends_at: Date.now() - 1000 },
+             me: { finished: true, finish_reason: 'time_up', final_score: 0, score: 0 }, opponent: { name: 'ANA', finished: true, connection: 'online', court: 3, score: 900, lives: 2 } }))""")
+    d.wait("__court.S.screen === 'mpwait'", 6000)
+    note = d.ev(f"(async()=>{M}.note)()")
+    n0 = d.ev("window.__rpc.length")
+    d.ev("__court.S.game.lives = 1")  # would be urgent if the game still reported
+    time.sleep(2.5)
+    check("M-a: time's up mid-game: on to the waiting screen with TIME'S UP", note == "TIME'S UP", note)
+    check("M-a: …and nothing more is sent for that game", d.ev("window.__rpc.length") == n0, (n0, d.ev("window.__rpc.length")))
+    # 4. The waiting screen shows how long the opponent has.
+    d.ev("""void (window.__state = (b) => ({ ...b, match: { ...b.match, ends_at: Date.now() + 150000, time_ends_at: Date.now() + 20 * 60000 },
+             me: { finished: true, finish_reason: 'out_of_lives', final_score: 300, score: 300 }, opponent: { name: 'ANA', finished: false, connection: 'online', court: 3, score: 900, lives: 2 } }))""")
+    ok = waited(d, f"/^ANA HAS 2:[23]\\d TO FINISH$/.test({M}.shown.wait)", 6000)
+    check("M-a: the waiting screen says how long the opponent has (ANA HAS 2:30 TO FINISH)", ok, d.ev(f"{M}.shown.wait"))
+    check("no console errors (match time)", not d.errors, d.errors[:3])
+    ctx.close()
+
+    # 5. Reconnect: the network drops for a few seconds mid-game, then comes back; nothing is lost.
+    ctx, d = stand_in_match(browser, url)
+    in_play(d)
+    d.ev("window.__stateFail = 2; window.__answers = ['network']; __court.S.game.lives = 2")
+    ok = waited(d, f"{M}.offline === true", 6000)
+    check("M-a reconnect: a dropped connection shows (RECONNECTING...)", ok)
+    d.ev("__court.S.game.score += 50")
+    waited(d, f"{M}.offline === false && {M}.sent && {M}.sent.lives === 2 && {M}.sent.score === 50", 15000)
+    got = d.ev(f"(async()=>{{ const m = {M}; return [__court.S.screen, m.offline, m.sent.lives, m.sent.score, m.reconnects]; }})()")
+    check("M-a reconnect: back online, the game carries on and its checkpoint (lost life, +50) is accepted",
+          got[0] == "play" and got[1] is False and got[2] == 2 and got[3] == 50, got)
+    check("no console errors (reconnect)", not d.errors, d.errors[:3])
+    ctx.close()
+
+    # 6. Refresh mid-match: the page reloads and the game comes back from the server's verified state.
+    for finished in (False, True):
+        ctx = browser.new_context(viewport={"width": 390, "height": 844})
+        me = ("{ finished: true, finish_reason: 'time_up', final_score: 120, score: 120, court: 2, lives: 2, broken: '', seq: 4 }" if finished
+              else "{ finished: false, score: 120, court: 2, lives: 2, broken: '', seq: 4 }")
+        ctx.add_init_script(RETURNING + STAND_IN + f"""
+          localStorage.setItem('the-court.mp', JSON.stringify({{ id: 't', role: 'guest' }}));
+          window.__state = (b) => ({{ ...b, match: {{ ...b.match, start_at: Date.now() - 60000, ends_at: Date.now() + 25 * 60000, time_ends_at: Date.now() + 25 * 60000 }},
+            me: {me}, opponent: {{ name: 'ANA', finished: false, connection: 'online', court: 3, score: 900, lives: 2 }} }});""")
+        ctx.route("https://stand-in.invalid/**", lambda r: r.fulfill(status=200, body="[]", content_type="application/json"))
+        d = Driver(ctx.new_page())
+        d.pg.goto(url)
+        if finished:
+            d.wait("__court.S.screen === 'mpwait'", 10000)
+            check("M-a refresh: reloading after time's up lands on the waiting screen, not a new game", d.ev("__court.S.screen") == "mpwait")
+        else:
+            d.wait("__court.S.mpGame && ['countdown','play'].includes(__court.S.screen)", 10000)
+            got = d.ev(f"(async()=>({{ court: __court.S.level + 1, score: __court.S.game.score, lives: __court.S.game.lives, seq: {M}.seq }}))()")
+            check("M-a refresh: reloading mid-match resumes the verified game (court 2, 120 points, 2 lives)",
+                  got == {"court": 2, "score": 120, "lives": 2, "seq": 4}, got)
+        check("no console errors (refresh)", not d.errors, d.errors[:3])
+        ctx.close()
+
+
+def invite_and_boards(browser, url):
+    """The challenge image is made and sent by Share and WhatsApp; The Rally's
+    FRIENDS tab is the multiplayer board; realtime only re-reads on real changes."""
+    print("multiplayer invite image and boards")
+    M = "window.__mp"
+    ctx, d = stand_in_match(browser, url)
+    # The Rally's leaderboard: GLOBAL is its own board; FRIENDS opens multiplayer's, and BACK returns.
+    d.ev("__court.S.board = { rank: -1, fromRun: false }; __court.go('scores')")
+    d.screen("scores", 0.6)
+    d.click("friends")
+    d.screen("mpboard", 0.4)
+    check("leaderboard: the FRIENDS tab opens the multiplayer friends board", d.ev("__court.S.screen") == "mpboard")
+    d.click("back")
+    d.screen("scores", 0.4)
+    check("…and BACK returns to The Rally's leaderboard", d.ev("__court.S.screen") == "scores")
+    # The invite screen with a match link: the image is made and shown.
+    d.ev(f"""Object.assign({M}, {{ matchId: 't', role: 'host', name: 'YASH', inviteUrl: 'https://example.test/game-3/?join=abc123', token: 'abc', polling: true, pollAt: Date.now() + 1e9,
+        state: {{ match: {{ id: 't', status: 'waiting', expires_at: Date.now() + 3500000 }}, me: {{ name: 'YASH', role: 'host', finished: false }}, opponent: null }} }}); __court.go('mpinvite')""")
+    d.screen("mpinvite", 0.6)
+    card = d.ev(f"(()=>{{ const c = {M}.invite && {M}.invite.canvas; return c ? [c.width, c.height, {M}.invite.file.name, {M}.invite.file.size] : null; }})()")
+    check("invite: the challenge image is made (1080 x 1350 PNG), ready to share", card and card[0] == 1080 and card[1] == 1350 and card[2] == "the-court-challenge.png" and card[3] > 5000, card)
+    # A phone (can share files): WhatsApp and Share both send the image with the message and link.
+    d.ev("""window.__shared = []; navigator.canShare = (o) => !!(o && o.files); navigator.share = (o) => { window.__shared.push({ files: (o.files || []).map(f => f.name), text: o.text || '', url: o.url || '' }); return Promise.resolve(); }; 0""")
+    d.click("mpwhatsapp")
+    d.click("mpshare")
+    shared = d.ev("window.__shared")
+    check("invite (phone): WHATSAPP and SHARE send the image with the message and link",
+          len(shared) == 2 and all(s["files"] == ["the-court-challenge.png"] and "YASH" in s["text"] and "join=abc123" in s["text"] for s in shared), shared)
+    # A laptop (cannot share files): WhatsApp opens with the message and the image is saved to attach.
+    d.ev("""navigator.canShare = () => false; window.__opened = []; window.open = (u) => { window.__opened.push(u); return null; }; 0""")
+    with d.pg.expect_download() as dl:
+        d.click("mpwhatsapp")
+    opened = d.ev("window.__opened")
+    check("invite (laptop): WHATSAPP opens WhatsApp with the message and link, and saves the image",
+          len(opened) == 1 and opened[0].startswith("https://wa.me/?text=") and "join%3Dabc123" in opened[0] and dl.value.suggested_filename == "the-court-challenge.png", (opened, dl.value.suggested_filename))
+    # Realtime: a player's own heartbeat or an unchanged opponent does not trigger another read.
+    w = d.ev("""(async()=>{ const m = await import('/js/multiplayer.js'); const M = m.mp;
+        M.state = { match: { id: 't', status: 'active' }, me: { id: 'p1', finished: false }, opponent: { id: 'p2', score: 30, court: 1, lives: 3, finished: false, ready: true, connection: 'online', rematch: false, declined: false } };
+        const row = (o) => ({ table: 'multiplayer_players', new: { id: 'p2', score: 30, court: 1, lives: 3, finished_at: null, ready_at: 'x', connection_status: 'online', rematch_requested_at: null, rematch_declined_at: null, ...o } });
+        return [m._worthReading({ table: 'multiplayer_players', new: { id: 'p1', score: 0 } }), m._worthReading(row({})), m._worthReading(row({ score: 60 })),
+                m._worthReading(row({ lives: 2 })), m._worthReading({ table: 'multiplayer_matches', new: { id: 't' } })]; })()""")
+    check("realtime: our own row and an opponent's bare heartbeat do not trigger a read; a score, a life or the match does",
+          w == [False, False, True, True, True], w)
+    check("no console errors (invite image and boards)", not d.errors, d.errors[:3])
+    ctx.close()
+
+
+def invite_share_once(browser, url):
+    """The invite SHARE: one tap sends exactly one image, a fast double tap still
+    one (and no download), a tap after the sheet closes shares again; COPY LINK
+    works while a share is open; on a laptop a double tap on WHATSAPP opens
+    WhatsApp once and saves the image once."""
+    print("multiplayer invite share: once per tap")
+    STUB = """
+      window.__log = []; let open = false;
+      navigator.canShare = (o) => !!(o && o.files);
+      navigator.share = (o) => { const f = (o.files || []).map(x => x.name).join(',') || 'text';
+        if (open) { window.__log.push('rejected ' + f); const e = new Error('busy'); e.name = 'InvalidStateError'; return Promise.reject(e); }
+        open = true; window.__log.push('share ' + f);
+        return new Promise((ok) => setTimeout(() => { open = false; ok(); }, 1500)); };
+      const click = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function () { if (this.download) window.__log.push('download ' + this.download); else return click.call(this); };
+      navigator.clipboard.writeText = (t) => { window.__log.push('copy'); return Promise.resolve(); };
+      window.open = (u) => { window.__log.push('open ' + u.slice(0, 19)); return null; };
+    """
+    setup = """(()=>{ const M = window.__mp; Object.assign(M, { matchId: 't', role: 'host', name: 'YASH', inviteUrl: 'https://example.test/game-3/?join=abc',
+        polling: true, pollAt: Date.now() + 1e9, sharing: false,
+        state: { match: { id: 't', status: 'waiting', expires_at: Date.now() + 3e6 }, me: { name: 'YASH', role: 'host' }, opponent: null } });
+        __court.go('mpinvite'); })()"""
+
+    def page(laptop=False):
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=not laptop)
+        ctx.add_init_script(RETURNING + STAND_IN + STUB + ("; navigator.canShare = () => false; navigator.share = undefined;" if laptop else ""))
+        ctx.route("https://stand-in.invalid/**", lambda r: r.fulfill(status=200, body="[]", content_type="application/json"))
+        d = Driver(ctx.new_page())
+        d.pg.goto(url)
+        d.screen("title", 0.5)
+        d.ev(setup)
+        d.screen("mpinvite", 0.8)
+        return ctx, d
+
+    ctx, d = page()
+    d.tap("mpshare")
+    time.sleep(0.3)
+    log = d.ev("window.__log")
+    check("invite SHARE: one tap shares exactly one image", log == ["share the-court-challenge.png"], log)
+    time.sleep(1.6)  # the sheet closes
+    d.ev("window.__log = []")
+    d.tap("mpshare")
+    time.sleep(0.2)
+    d.tap("mpshare")  # a fast second tap while the sheet is opening
+    time.sleep(0.3)
+    log = d.ev("window.__log")
+    check("invite SHARE: a fast double tap still shares exactly one image, no second share, no download",
+          log == ["share the-court-challenge.png"], log)
+    d.tap("mpcopy")
+    time.sleep(0.3)
+    check("invite COPY LINK still works while the share sheet is open", d.ev("window.__log").count("copy") == 1, d.ev("window.__log"))
+    time.sleep(1.6)
+    d.ev("window.__log = []")
+    d.tap("mpshare")
+    time.sleep(0.3)
+    log = d.ev("window.__log")
+    check("invite SHARE: after the sheet closes, a new tap shares again (once)", log == ["share the-court-challenge.png"], log)
+    check("no console errors (invite share, phone)", not d.errors, d.errors[:3])
+    ctx.close()
+
+    ctx, d = page(laptop=True)
+    d.tap("mpwhatsapp")
+    time.sleep(0.2)
+    d.tap("mpwhatsapp")
+    time.sleep(0.4)
+    log = d.ev("window.__log")
+    check("laptop WHATSAPP: a double tap opens WhatsApp once and saves the image once",
+          log.count("open https://wa.me/?text") == 1 and log.count("download the-court-challenge.png") == 1, log)
+    check("no console errors (invite share, laptop)", not d.errors, d.errors[:3])
+    ctx.close()
+
+
+def mp_config_guard(browser, url):
+    """Multiplayer uses only its own settings: no fallback to the leaderboard's,
+    never the live leaderboard project, publishable keys only, and nothing sent
+    to any Supabase project when it is off."""
+    print("multiplayer settings guard")
+    LIVE = "https://cbbdhnzbqocckyyymszc.supabase.co"
+    cases = [
+        ("no multiplayer settings: no fallback to the board's (multiplayer off)",
+         {"supabaseUrl": "https://stand-in.invalid", "supabaseAnonKey": "sb_publishable_board", "multiplayer": True}, False),
+        ("multiplayer pointed at the live leaderboard project: refused (off)",
+         {"mpSupabaseUrl": LIVE, "mpSupabaseAnonKey": "sb_publishable_x", "multiplayer": True}, False),
+        ("a secret key: refused (off)",
+         {"mpSupabaseUrl": "https://devprojectref0000000.supabase.co", "mpSupabaseAnonKey": "sb_secret_x", "multiplayer": True}, False),
+        ("an address but no key: off",
+         {"mpSupabaseUrl": "https://devprojectref0000000.supabase.co", "mpSupabaseAnonKey": "", "multiplayer": True}, False),
+        ("multiplayer switched off: off",
+         {"mpSupabaseUrl": "https://devprojectref0000000.supabase.co", "mpSupabaseAnonKey": "sb_publishable_x", "multiplayer": False}, False),
+        ("its own project and publishable key: on",
+         {"mpSupabaseUrl": "https://devprojectref0000000.supabase.co", "mpSupabaseAnonKey": "sb_publishable_x", "multiplayer": True}, True),
+    ]
+    for name, cfg, want in cases:
+        ctx = browser.new_context(viewport={"width": 390, "height": 844})
+        ctx.add_init_script(RETURNING + "; window.COURT_CONFIG = Object.assign({}, window.COURT_CONFIG, " + json.dumps(cfg) + ");")
+        sent = []
+        ctx.route("**/*", lambda r: (sent.append(r.request.url), r.abort()) if ".supabase.co" in r.request.url or "stand-in.invalid" in r.request.url else r.continue_())
+        d = Driver(ctx.new_page())
+        d.pg.goto(url)
+        d.screen("title", 0.5)
+        on = d.ev("(async()=> (await import('/js/mpnet.js')).mpEnabled())()")
+        if not want:
+            # Open Multiplayer and try to host: when off, nothing may reach any Supabase project.
+            d.click("multiplayer")
+            d.screen("mp", 0.5)
+            time.sleep(0.8)
+            mp_calls = [u for u in sent if ".supabase.co" in u]
+            check("guard: " + name + "; nothing sent to any Supabase project", on is False and not mp_calls, (on, mp_calls[:2]))
+        else:
+            check("guard: " + name, on is True, on)
+        ctx.close()
+
+
 def main():
     srv = serve()
     url = f"http://127.0.0.1:{srv.server_address[1]}/?debug=1"
@@ -1876,9 +2291,17 @@ def main():
             signature(browser, url)
             finale(browser, url)
             board_and_share(browser, url)
+            checkpoint_retry(browser, url)
+            final_update(browser, url)
+            match_time(browser, url)
+            invite_and_boards(browser, url)
+            mp_config_guard(browser, url)
+            invite_share_once(browser, url)
         finally:
             browser.close()
             srv.shutdown()
+    mp_prod = [u for u in SUPABASE_CALLS if "jntfnwoyfvkjunvribgh" in u]
+    check("the tests never contacted the production multiplayer project", not mp_prod, mp_prod[:3])
     failed = [r for r in results if not r[1]]
     print(f"\n{len(results) - len(failed)} passed, {len(failed)} failed")
     sys.exit(1 if failed else 0)

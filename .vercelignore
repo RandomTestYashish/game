@@ -1,0 +1,7 @@
+# Not part of the website: tests, tooling, database SQL and notes stay out of
+# the Vercel deployment (they hold no keys, but players never need them).
+tests/
+scripts/
+supabase/
+.env.example
+README.md

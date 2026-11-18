@@ -44,7 +44,8 @@ window.__bot = { mode: 'win', on: false };
 })();
 """
 SITES = [("MAIN (production)", "https://randomtestyashish.github.io/game/?debug=1", False, "production"),
-         ("TEST LINK", "https://randomtestyashish.github.io/game-code-2/?debug=1", True, "test")]
+         ("TEST LINK", "https://randomtestyashish.github.io/game-code-2/?debug=1", True, "test"),
+         ("GAME-3 TEST LINK", "https://randomtestyashish.github.io/game-3/?debug=1", True, "test3")]
 
 def decode(req):
     raw = req.post_data_buffer or b""

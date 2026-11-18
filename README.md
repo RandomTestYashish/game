@@ -187,7 +187,7 @@ It sends a page view plus these events, with numbers only (no player names). Aut
 
 If PostHog is blocked or down, the game is unaffected: every call is wrapped.
 
-Every event carries a `deployment` property (`production` for the main GitHub Pages game, `preview`, `test` for the code-2 test link, `vercel`, `local`), so preview and test activity can be filtered out of production numbers.
+Every event carries a `deployment` property (`production` for the main GitHub Pages game, `preview`, `test` for the game-code-2 test link, `test3` for the game-3 test link, `vercel`, `local`), so preview and test activity can be filtered out of production numbers.
 
 Leaderboard and sharing events:
 
@@ -208,6 +208,8 @@ Leaderboard and sharing events:
 No player names are sent.
 
 **Tidy-up (2026-10-23).** `supabase/2026-10-23-tidy-up.sql` removes the one test score left from checking the game, adds an index for the top-20 query, and ends with read-only checks (the 150300 limit is in place; the public key can call `submit_score` but cannot insert directly). Run it once in the SQL Editor; running it again does nothing harmful.
+
+**The racket (game-3).** On this branch (`code-4`, published to the game-3 test link) the black bar is a tennis racket lying on the court: the strung head is the bar's full width (what the ball bounces off, so play is unchanged), the throat and taped grip stick out to the right, and a hit makes the strings dent and light up where the ball struck while the racket springs (`RACKET_RING` in `js/game.js`).
 
 **Power Rush and the finish.** With a quarter of a court's blocks left (`RUSH_AT` in `js/game.js`), a small POWER RUSH label shows under the HUD for a moment, most breaks drop a tool (`RUSH_RATE`), and tools also fall from the far end at random places every 1.4 to 2.4 s (`RAIN_EVERY`), since few bricks are left to break; still at most `MAX_DROPS` falling at once. The last brick brings a short, gentle slow-down, a light fall of confetti and COURT CLEAR!
 
@@ -258,3 +260,23 @@ python tests/e2e.py
 Runs the game in headless Chrome (it uses your installed Google Chrome) at desktop, tablet and phone sizes. It clicks through every screen, checks mouse, keyboard and touch control, the rules and each tool, sound settings, name entry and the leaderboard, and saving across a reload. It plays five courts through in the browser (1, 3, 40, 80 and 120) and simulates all 120 to confirm each can be cleared. Pass a folder path as an argument to keep screenshots.
 
 Adding `?debug` to the URL exposes the game state as `window.__court`, which is what the test drives.
+
+The multiplayer database functions have their own test, run against a throwaway in-memory Postgres (PGlite), never a real project:
+
+```sh
+npm install --prefix /some/scratch/dir @electric-sql/pglite@0.3
+PGLITE=/some/scratch/dir node tests/mp_server_test.mjs
+```
+
+It plays honest and dishonest clients against `mp_checkpoint` (fake, negative, extreme and repeated scores, bricks that come back, a bonus claimed twice, courts skipped or cleared too fast) and checks who may read or change what. Multiplayer scores are checked brick by brick against each court's real layout, and paced against how soon a run could possibly have cleared each court (timed in the game engine by a bot with nine balls and Smash on all the time, far beyond any player). Both live in `supabase/multiplayer/003_courts.sql`; after changing `js/levels.js` or `js/game.js`, run `node scripts/mp_courts.mjs` to regenerate it (the test fails if they disagree). The test also replays real play from the engine (normal play, long Multiball and Smash combos, late courts, checkpoints every half second) and checks the server accepts every checkpoint.
+
+**Local testing (multiplayer).** Keys stay out of the repository, in `~/.config/thecourt/`:
+`dev.json` (`{"supabaseUrl": "https://<dev ref>.supabase.co"}`) and `mp-key` (the dev project's
+publishable key, `sb_publishable_...`, file mode 600). Then `python3 scripts/dev-server.py`
+serves the game on http://127.0.0.1:8020/ with those added to the page (multiplayer on,
+analytics off); it never prints a key and refuses the live leaderboard project. Multiplayer
+reads only `mpSupabaseUrl` / `mpSupabaseAnonKey` (js/config.js): it never falls back to the
+leaderboard settings, refuses the live leaderboard project and anything but a publishable key,
+and stays off when either is missing.
+
+A match lasts at most 30 minutes of play, and once one player is done the other has 3 minutes to finish (`mp_match_secs()` and `mp_grace_secs()` in `002_multiplayer.sql`); then that game ends at its last verified score, so nobody can hold a match open. The game shows the clock in the last 5 minutes and through the grace.

@@ -16,6 +16,14 @@ const DEFAULTS = {
   supabaseUrl: 'https://cbbdhnzbqocckyyymszc.supabase.co',
   supabaseAnonKey: 'sb_publishable_-i24A5KT1-sMIuI8_f38mA_V3eYeQSm',
   table: 'thecourt',
+  // Multiplayer's own Supabase project (the-court-multiplayer). Multiplayer uses
+  // these and nothing else: it never falls back to the leaderboard settings
+  // above and refuses the live leaderboard's project (js/mpnet.js). The key is
+  // the project's publishable key, public by design like the one above.
+  // Set multiplayer to false to switch multiplayer off.
+  multiplayer: true,
+  mpSupabaseUrl: 'https://jntfnwoyfvkjunvribgh.supabase.co',
+  mpSupabaseAnonKey: 'sb_publishable_hoauA4wn-8YwaF732NYgSw_5z9EaG2p',
   // PostHog analytics (js/analytics.js). Leave the key empty for no analytics.
   // Use the *project* API key ("phc_..."), from PostHog -> Settings -> Project.
   // It is public by design. NEVER put a personal API key ("phx_...") here.

@@ -3,13 +3,14 @@
 import { W, H, ctx, PAL, initCanvas, setSize, setTarget, makeLayer, rect, rrect, disc, ellipse, line, text, textW, wrap, blockTitle, sparkle, racket, cup, METAL, trophy, laurel, rays, globe, serif, serifW, icon, clamp, lerp, easeOut, easeInOut, easeBack, checker } from './gfx.js';
 import { P, setCam, buildLayers, drawScene, setTheme, currentTheme, drawThemePreview, proj, unprojX, drawBlock, drawBall, drawShadow } from './scene.js';
 import { COUNTRIES, getCourtTheme } from './themes.js';
-import { Game, TOOLS, START_LIVES, RUSH_AT } from './game.js';
+import { Game, TOOLS, START_LIVES, RUSH_AT, MATCH_WEIGHTS } from './game.js';
 import { sections } from './rules.js';
-import { LEVELS } from './levels.js';
+import { LEVELS, matchLevel } from './levels.js';
 import { drawGame, drawHUD, hudRows } from './render.js';
-import { ui, beginUI, region, hitTest, pill, ghost, roundBtn, iconBtn, slider, panel } from './ui.js';
+import { ui, beginUI, region, hitTest, pill, ghost, card, tile, cardArt, roundBtn, iconBtn, slider, panel } from './ui.js';
 import { AudioSys, COURT_TRACKS, RUSH_TEMPO } from './audio.js';
 import { haptics } from './haptics.js';
+import { setupMultiplayer, openMultiplayer, bootMultiplayer, tickMultiplayer, drawOpponentHUD, onRunEnd, onCourtCleared, onPlayStarted, onPause, applyBroken, typing, typeChar, submitName, leaveMatch, openFriendsBoard, friendsOn, MP_SCREENS, MP_SCREEN_NAMES, mp } from './multiplayer.js';
 import { Save, BOARD_SIZE, cleanName } from './save.js';
 import { onlineEnabled } from './config.js';
 import { fetchTopScores, submitScore, nameTaken } from './remote.js';
@@ -28,6 +29,10 @@ const audio = new AudioSys(save.data.settings);
 const debug = new URLSearchParams(location.search).has('debug');
 
 const CAM = { loading: 0, title: 0, intro: 0.14, courts: 0.38, tools: 0.5, countdown: 1, play: 1, paused: 1, complete: 0.82, name: 0.82, scores: 0.55 };
+for (const n of MP_SCREEN_NAMES) CAM[n] = 0.55; // multiplayer menus sit like the leaderboard
+// On short phones (a browser's bars take the height) the landing lifts its
+// horizon: the logo rises and the brick pyramid and the buttons get room.
+const camFor = (name) => (name === 'title' && W < 400 && H < 440 ? (H < 380 ? 0.48 : 0.32) : CAM[name]);
 const GAME_SCREENS = new Set(['countdown', 'play', 'paused', 'complete', 'name']);
 const PER_PAGE = 20;
 const KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ-';
@@ -90,7 +95,7 @@ function go(name) {
   if (S.leaving || name === S.screen) return;
   S.leaving = { name: S.screen, t: 0 };
   S.next = name;
-  aimCam(CAM[name]);
+  aimCam(camFor(name));
 }
 
 function aimCam(to) {
@@ -104,9 +109,13 @@ function enter(name) {
   S.screen = name;
   S.t = 0;
   if (name === 'countdown') {
-    S.count = BEAT * 3;
+    // A match counts down to the server's start time; solo is three beats.
+    S.count = S.countFrom != null ? S.countFrom : BEAT * 3;
+    S.countFrom = null;
     S.beat = 4;
   }
+  if (S.mpGame && name === 'paused') onPause(true);
+  if (S.mpGame && name === 'play') onPause(false);
   if (name === 'intro') S.introSeen = true;
   if (name === 'courts') S.page = Math.floor((Math.min(save.data.progress.unlocked, LEVELS.length) - 1) / PER_PAGE);
   if (name === 'name') {
@@ -146,12 +155,18 @@ function onGameEvent(type, arg, info) {
     else if (S.breaks.length >= BURST_BREAKS) crowdCheer(S.breaks.length >= 5 ? 2 : 1);
     else if (arg === 3) crowdReact('clap'); // a nice little run
   }
-  if (type === 'power') crowdReact('clap'); // a tool caught
+  if (type === 'power' && arg === 'multiball') {
+    // The stands erupt: the fans jump (a cheer's look) to the roar's sound.
+    S.crowd = { at: S.time, big: 2, kind: 'cheer' };
+    audio.sfx('roar', 1, lastPlace());
+  } else if (type === 'power') crowdReact('clap'); // a tool caught
+  if (type === 'paddle' && Math.abs(arg || 0) > 0.8) crowdReact('gasp'); // saved off the edge
+  if (type === 'rush') audio.sfx('chant', 4);
   if (type === 'lost' || type === 'over') crowdReact('groan');
-  if (type === 'rush') crowdCheer(1);
+  if (type === 'rush') S.crowd = { at: S.time, big: 1, kind: 'cheer' }; // the fans up for the chant below
   if (type === 'win') crowdCheer(3);
   // Analytics only while the run is live: a quit run's ball may still roll out behind the name screen.
-  const live = S.run && !S.run.over;
+  const live = S.run && !S.run.over && !S.mpGame;
   if (live && (type === 'lost' || type === 'over')) track('life_lost', { court: S.level + 1, lives_left: S.game.lives, run_score: S.game.score });
   if (live && type === 'power') track('powerup_used', { powerup: arg, court: S.level + 1 });
   if (S.coach) coachEvent(type);
@@ -223,11 +238,16 @@ function wavePos() {
 const BURST_WINDOW = 0.45; // seconds
 const BURST_BREAKS = 3; // bricks broken inside the window that count as a burst
 const CROWD_GAP = 1.2; // seconds before the crowd can start another cheer
+// Where the latest brick broke (court x), so the crowd answers from that side.
+function lastPlace() {
+  const q = S.pops && S.pops[S.pops.length - 1];
+  return q && S.time - q.at < 1 ? { x: q.x } : null;
+}
 function crowdCheer(big) {
   if (S.crowd && S.crowd.kind === 'cheer' && S.time - S.crowd.at < CROWD_GAP && big <= S.crowd.big) return;
   S.crowd = { at: S.time, big, kind: 'cheer' };
   S.breaks = [];
-  audio.sfx('cheer', big);
+  audio.sfx('cheer', big, lastPlace());
   haptics.play('cheer', big * 0.5 + 0.5);
 }
 // Smaller reactions: a round of applause ('clap') or a groan ('groan').
@@ -235,7 +255,7 @@ function crowdCheer(big) {
 function crowdReact(kind) {
   if (S.crowd && S.time - S.crowd.at < CROWD_GAP && (S.crowd.kind === 'cheer' || S.crowd.kind === kind)) return;
   S.crowd = { at: S.time, big: 1, kind };
-  audio.sfx(kind);
+  audio.sfx(kind, 1, lastPlace());
 }
 const CROWD_LEN = 1.8; // seconds the fans keep jumping
 function crowdMood(kind) {
@@ -323,9 +343,11 @@ function coachText() {
 
 function startLevel(i, level, extra) {
   S.cleared = null;
-  if (onlineEnabled()) loadOnline(); // fresh rows for the live place (reused for 30 s)
+  if (onlineEnabled() && !S.mpGame) loadOnline(); // fresh rows for the live place (reused for 30 s)
   S.level = clamp(i, 0, LEVELS.length - 1);
-  S.game = new Game(level || LEVELS[S.level], onGameEvent, Math.random, { lives: S.run.lives, score: S.run.score, ...extra });
+  const lv = level || (S.mpGame ? matchLevel(S.level) : LEVELS[S.level]);
+  const odds = S.mpGame ? { weights: MATCH_WEIGHTS } : {};
+  S.game = new Game(lv, onGameEvent, Math.random, { lives: S.run.lives, score: S.run.score, ...odds, ...extra });
   S.ending = 0;
   if (S.screen === 'countdown') enter('countdown');
   else go('countdown');
@@ -341,12 +363,15 @@ function nextLevel() {
 function finish(won) {
   const g = S.game;
   const score = g.score - g.startScore;
-  const res = save.recordResult(S.level, LEVELS[S.level].id, LEVELS.length, {
-    won,
-    score,
-    stars: g.stars,
-    blocks: g.total - g.remaining,
-  });
+  // A multiplayer game never touches solo progress or bests.
+  const res = S.mpGame
+    ? { best: 0, newBest: false }
+    : save.recordResult(S.level, LEVELS[S.level].id, LEVELS.length, {
+        won,
+        score,
+        stars: g.stars,
+        blocks: g.total - g.remaining,
+      });
   S.run.score = g.score;
   if (S.coach) endCoach(); // the first rally is over, win or lose
   S.result = {
@@ -364,6 +389,11 @@ function finish(won) {
   };
   S.ending = won ? 1.2 : 0.9;
   const court = S.level + 1;
+  if (S.mpGame) {
+    if (won) S.run.cleared = (S.run.cleared || 0) + 1;
+    if (!S.result.hasNext) S.run.over = true;
+    return;
+  }
   if (won) {
     S.run.cleared = (S.run.cleared || 0) + 1;
     track('court_completed', { court, score, run_score: g.score, stars: g.stars, lives_left: g.lives, blocks: g.total, new_best: res.newBest });
@@ -594,6 +624,7 @@ function toggleMute() {
 function update(dt) {
   S.time += dt;
   S.t += dt;
+  tickMultiplayer();
 
   if (S.leaving) {
     S.leaving.t += dt;
@@ -616,7 +647,7 @@ function update(dt) {
   S.titleVis = step(S.titleVis, S.screen === 'title' && !S.leaving, S.screen === 'title' ? 1.5 : 3.5);
   if (S.eraseArmed > 0) S.eraseArmed -= dt;
 
-  if (S.screen === 'loading' && S.ready && S.t > 1.5) go('title');
+  if (S.screen === 'loading' && S.ready && S.t > 1.5) go(S.bootTo || 'title');
   // Ask about the typed name once typing pauses.
   if (S.screen === 'name' && S.run && !S.run.saved && S.nameCheck.name !== typedName() && S.time - S.typedAt > 0.4) checkName();
   if (S.screen === 'intro' && S.t > 2.6 && !S.leaving) afterIntro();
@@ -650,6 +681,7 @@ function update(dt) {
       S.t = 0;
       audio.sfx('go');
       haptics.play('go');
+      if (S.mpGame) onPlayStarted();
       // A first-timer serves by hand, once they have found the paddle.
       if (!(S.coach && S.coach.step === 'move')) g.launch();
     }
@@ -674,8 +706,10 @@ function update(dt) {
       // shows how it went. Only the last court stops on Rally Complete.
       if (S.result.won && S.result.hasNext) {
         S.cleared = { court: S.level + 1, stars: S.result.stars, score: S.result.score, newBest: S.result.newBest };
+        if (S.mpGame) onCourtCleared(S.level + 1);
         nextLevel();
-      } else if (S.result.won) go('complete');
+      } else if (S.mpGame) onRunEnd(S.result.won);
+      else if (S.result.won) go('complete');
       else {
         S.nameTitle = 'RALLY OVER';
         go('name');
@@ -694,6 +728,7 @@ function boardRows() {
 }
 
 function trackPlace(dt) {
+  if (S.mpGame) return; // a match has its own opponent, not the solo board
   const g = S.game;
   const rows = boardRows();
   if (!g || !S.run || !rows) return;
@@ -1014,6 +1049,7 @@ const LOADING_TIPS = [
 ];
 
 const SCREENS = {
+  ...MP_SCREENS,
   loading(k) {
     // A pixel bar that fills while the game gets ready (it only reaches the
     // end once the save is read and the court is built), and a tip to read.
@@ -1059,7 +1095,7 @@ const SCREENS = {
         }
       }
     };
-    drawTitle(PAL.cream, PAL.ink);
+    drawTitle(PAL.cream, '#7a2420'); // cream letters on a deep red shadow
     rect(W / 2 - 22, top + 58, 44, 1, PAL.cream);
     const sweep = (cyc - 1.5) / 1.2;
     if (sweep > 0 && sweep < 1) {
@@ -1086,8 +1122,25 @@ const SCREENS = {
       rect(sx - arm, sy, arm * 2 + 1, 1, '#ffffff');
       rect(sx, sy - arm, 1, arm * 2 + 1, '#ffffff');
     }
-    const y = wb + 46 + Math.round(H * 0.04) + Math.round((1 - k) * 8);
-    pill('play', 'PLAY', W / 2, y, 118, 23, play, { scale: 2, sp: 3, pulse: S.time });
+    // Two ways in, as cards: The Rally (solo, as always) and Multiplayer; under
+    // them Courts, Scores and Sound. Wide screens set the cards side by side;
+    // short ones bring everything up over the brick pyramid.
+    const L = titleLayout();
+    const lift = Math.round((1 - k) * 8);
+    card('play', 'THE RALLY', null, L.a.x, L.a.y + lift, L.cw, L.ch, play, { t: S.time, art: cardArt.ball });
+    card('multiplayer', 'MULTIPLAYER', null, L.b.x, L.b.y + lift, L.cw, L.ch, openMultiplayer, { style: 'dark', t: S.time + 1.2, art: cardArt.rackets });
+    const bw = L.bw;
+    const scores = () => {
+      S.board = { rank: -1, fromRun: false };
+      go('scores');
+    };
+    // Phones: square tiles (icon over label); wide screens: icon beside label.
+    const row = [['courts', 'COURTS', 'bricks', () => go('courts')], ['scores', 'SCORES', 'trophy', scores], ['sound', 'SOUND', 'sound', openSound]];
+    row.forEach(([id, label, ic, fn], i) => {
+      const cx = L.row.x + bw * (i + 0.5) + i * 5;
+      if (L.tiles) tile(id, label, ic, cx, L.row.y + lift, bw, L.rh, fn);
+      else ghost(id, label, cx, L.row.y + lift, bw, 17, fn, { sp: 1, icon: ic });
+    });
     drawSignature(k);
     ctx.globalAlpha = 1;
     S.primary = play;
@@ -1251,8 +1304,8 @@ const SCREENS = {
   },
 
   countdown(k) {
-    const n = Math.max(1, Math.ceil(S.count / BEAT));
-    const f = 1 - (S.count / BEAT - (n - 1)); // 0..1 within this beat
+    const n = Math.min(3, Math.max(1, Math.ceil(S.count / BEAT)));
+    const f = S.count > BEAT * 3 ? 0.5 : 1 - (S.count / BEAT - (n - 1)); // 0..1 within this beat
     const size = f < 0.12 ? 64 : 54;
     const cy = Math.round(proj(0, 186).y) - 8;
     ctx.globalAlpha = k * (f > 0.85 ? 0.5 : 1);
@@ -1277,10 +1330,12 @@ const SCREENS = {
     }
     ctx.globalAlpha = 1;
     iconBtn('pause', 'pause', W - 23, 7, null);
-    S.back = () => {
-      quitRun();
-      go('title');
-    };
+    S.back = S.mpGame
+      ? null
+      : () => {
+          quitRun();
+          go('title');
+        };
   },
 
   play() {
@@ -1314,10 +1369,26 @@ const SCREENS = {
 
   paused(k) {
     const w = 150;
+    const resume = () => go('play');
+    if (S.mpGame) {
+      // In a match only this player's game pauses; the opponent plays on.
+      const h = 128;
+      const x = Math.round((W - w) / 2);
+      const y = Math.round((H - h) / 2);
+      panel(k, x, y, w, h, 'dark', () => {
+        serif('PAUSED', W / 2 + 2, y + 15, 16, PAL.cream, { align: 'center', sp: 4 });
+        rect(W / 2 - 12, y + 33, 24, 1, PAL.cream);
+        pill('resume', 'RESUME', W / 2, y + 46, 104, 19, resume);
+        ghost('sound', 'SOUND', W / 2, y + 76, 104, 15, openSound);
+        ghost('mpleave', 'LEAVE MATCH', W / 2, y + 97, 104, 15, leaveMatch);
+      });
+      S.primary = resume;
+      S.back = resume;
+      return;
+    }
     const h = 192;
     const x = Math.round((W - w) / 2);
     const y = Math.round((H - h) / 2);
-    const resume = () => go('play');
     panel(k, x, y, w, h, 'dark', () => {
       serif('PAUSED', W / 2 + 2, y + 15, 16, PAL.cream, { align: 'center', sp: 4 });
       rect(W / 2 - 12, y + 33, 24, 1, PAL.cream);
@@ -1439,7 +1510,7 @@ const SCREENS = {
         sparkle(tx + 5 + d * 10, y + 7, 1 + tw);
         sparkle(tx + 5 - d * 9, y + 23, 2 - tw, '#9fd0a8');
       }
-      // Tabs: GLOBAL is this board; FRIENDS is not built yet, and says so.
+      // Tabs: GLOBAL is this board (The Rally, everyone); FRIENDS is multiplayer's.
       const tabW = Math.floor((w - 30) / 2);
       const tabY = y + 33;
       rrect(W / 2 - 3 - tabW - 1, tabY - 1, tabW + 2, 17, 5, PAL.ink);
@@ -1447,11 +1518,14 @@ const SCREENS = {
       rrect(W / 2 - 3 - tabW, tabY, tabW, 14, 4, PAL.yellow);
       globe(W / 2 - 3 - tabW + 8, tabY + 1);
       text(online ? 'GLOBAL' : 'THIS DEVICE', W / 2 - 3 - tabW / 2 + 7, tabY + 4, PAL.ink, { align: 'center', sp: 1 });
+      // FRIENDS: the multiplayer friends board (wins against friends), a
+      // separate board from this one; until multiplayer is on, it says so.
       ghost('friends', 'FRIENDS', W / 2 + 3 + tabW / 2, tabY, tabW, 14, () => {
+        track('friends_tab_clicked');
+        if (friendsOn()) return openFriendsBoard('scores');
         s.note = 'FRIENDS BOARD COMING SOON';
         s.noteT = S.time;
-        track('friends_tab_clicked');
-      }, { color: PAL.dim, line: '#4d6b55', sp: 1 });
+      }, friendsOn() ? { sp: 1 } : { color: PAL.dim, line: '#4d6b55', sp: 1 });
       const refreshing = online && S.online.state === 'loading' && S.online.rows.length > 0;
       const loading = online && S.online.state === 'loading' && !refreshing;
       const failed = online && S.online.state === 'error';
@@ -1886,15 +1960,50 @@ function sigMask(str, sp) {
   return { px, w: mw, h: mh };
 }
 
-function drawSignature(k) {
+// Where the signature plate sits: bottom right on wide screens, else bottom centre.
+function sigBox() {
   if (!sigMasks) sigMasks = { by: sigMask(SIG.by, 2), name: sigMask(SIG.name, 1) };
+  const { by, name } = sigMasks;
+  const bw = Math.max(by.w, name.w * SIG.zoom) + 14;
+  const bh = by.h + 4 + name.h * SIG.zoom + 10;
+  return { x: W >= 400 ? W - 8 - bw : Math.round(W / 2 - bw / 2), y: H - 6 - bh, w: bw, h: bh };
+}
+
+// The landing screen's cards and button row, fitted between the horizon and
+// the signature: stacked on narrow screens, side by side on wide ones.
+function titleLayout() {
+  const wide = W >= 400;
+  const tall = H >= 440;
+  const sig = sigBox();
+  const ch = tall ? 32 : wide ? 32 : 28;
+  const gap = tall ? 8 : 6;
+  const rowGap = tall ? 8 : 7;
+  if (wide) {
+    const cw = Math.min(206, Math.floor((W - 48) / 2));
+    const x = Math.round((W - cw * 2 - 8) / 2);
+    const bw = Math.min(84, Math.floor((cw * 2 + 8 - 10) / 3));
+    const rx = Math.round(W / 2 - (bw * 3 + 10) / 2);
+    const clear = rx + bw * 3 + 10 < sig.x - 4; // the row passes left of the signature
+    const limit = (clear ? H - 6 : sig.y - 4) - (ch + 4 + rowGap + 19);
+    const top = Math.max(P.wb + 6, Math.min(P.wb + 40 + Math.round(H * 0.04), limit));
+    return { cw, ch, bw, a: { x, y: top }, b: { x: x + cw + 8, y: top }, row: { x: rx, y: top + ch + 4 + rowGap } };
+  }
+  const cw = Math.min(208, W - 24);
+  const x = Math.round((W - cw) / 2);
+  const bw = Math.floor((cw - 10) / 3);
+  const tiles = tall; // room for icon-over-label tiles
+  const rh = tiles ? 28 : 17;
+  const total = (ch + 4) * 2 + gap + rowGap + rh + 2;
+  const limit = sig.y - (tall ? 10 : 4) - total;
+  const top = Math.max(P.wb + 4, Math.min(P.wb + 46 + Math.round(H * 0.04), limit));
+  return { cw, ch, bw, tiles, rh, a: { x, y: top }, b: { x, y: top + ch + 4 + gap }, row: { x, y: top + (ch + 4) * 2 + gap + rowGap } };
+}
+
+function drawSignature(k) {
+  const { x: x0, y: y0, w: bw, h: bh } = sigBox(); // (also makes sigMasks)
   const { by, name } = sigMasks;
   const z = SIG.zoom;
   const t = S.time;
-  const bw = Math.max(by.w, name.w * z) + 14;
-  const bh = by.h + 4 + name.h * z + 10;
-  const x0 = W >= 400 ? W - 8 - bw : Math.round(W / 2 - bw / 2);
-  const y0 = H - 6 - bh;
   const a0 = ctx.globalAlpha;
   const sweep = (t % 2.6) / 2.6; // the light's run across YASHISH, then a rest
   // The plate: a dark tile whose gold edge lights up as the light passes.
@@ -1944,6 +2053,11 @@ function draw() {
   setCam(S.cam + S.pitch, S.shift);
   P.banner = GAME_SCREENS.has(S.screen); // the banner board shows on the courts, the stone wall elsewhere
   P.hype = crowdHype();
+  // The crowd under play: a murmur that rises with the combo, the Power Rush
+  // and every cheer; quiet off the court.
+  const g1 = S.game;
+  const live = g1 && S.screen === 'play' && (g1.state === 'play' || g1.state === 'serve');
+  audio.crowdBed(live ? Math.min(1, 0.15 + (g1.combo || 0) / 12 + (g1.rush ? 0.35 : 0) + P.hype * 0.5) : 0);
   P.clap = crowdMood('clap');
   P.groan = crowdMood('groan');
   P.pops = GAME_SCREENS.has(S.screen) ? (S.pops || []).filter((q) => S.time - q.at < POP_LEN).map((q) => ({ x: q.x, y: q.y, k: q.k * (1 - (S.time - q.at) / POP_LEN) })) : [];
@@ -1988,7 +2102,8 @@ function draw() {
   const hud = S.leaving ? S.leaving.name : S.screen;
   if (g && (hud === 'countdown' || hud === 'play' || hud === 'paused')) {
     drawHUD(g, 'COURT ' + (S.level + 1));
-    drawPlace();
+    if (S.mpGame) drawOpponentHUD();
+    else drawPlace();
     drawRush(g);
   }
   drawCheer();
@@ -2116,6 +2231,16 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
+  if (typing() && !S.leaving && !S.overlay) {
+    if (k === 'backspace') typeChar('del');
+    else if (k === 'enter') submitName();
+    else if (k === 'escape') S.back && S.back();
+    else if (k.length === 1 && (KEYS + DIGITS).includes(k.toUpperCase())) typeChar(k.toUpperCase());
+    else return;
+    audio.sfx('key');
+    e.preventDefault();
+    return;
+  }
   if (S.screen === 'name' && !S.leaving && !S.overlay && S.run && S.run.score > 0) {
     // Typing a name: letters are text here, not shortcuts.
     if (k === 'backspace') typeKey('del');
@@ -2198,6 +2323,34 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+// ---------------------------------------------------------------- multiplayer
+
+// A match game: this player's own run, built from the server's verified
+// numbers (court, lives, score, and which bricks of the court are already
+// broken), counting down to the server's start time.
+function startMatchGame(levelIndex, { lives, score }, broken, wait) {
+  S.coach = null;
+  S.place = null;
+  S.mpGame = true;
+  S.run = { lives, score, saved: true, cleared: 0, mp: true }; // saved: never offered to the solo board
+  S.cleared = null;
+  S.level = clamp(levelIndex, 0, LEVELS.length - 1);
+  S.game = new Game(matchLevel(S.level), onGameEvent, Math.random, { lives, score, weights: MATCH_WEIGHTS });
+  applyBroken(S.game, broken);
+  // Rejoining on a court already cleared (its bonus already counted): play on from the next one.
+  if (S.game.remaining === 0 && S.level + 1 < LEVELS.length) {
+    S.level++;
+    S.game = new Game(matchLevel(S.level), onGameEvent, Math.random, { lives, score, weights: MATCH_WEIGHTS });
+  }
+  S.ending = 0;
+  S.countFrom = Math.max(BEAT, wait || 0);
+  if (S.screen === 'countdown') enter('countdown');
+  else go('countdown');
+}
+
+setupMultiplayer({ S, go, audio, haptics, track, save, courtTheme, startMatchGame, playSolo: () => play() });
+if (debug) window.__mp = mp;
+
 async function boot() {
   resize();
   requestAnimationFrame(frame);
@@ -2206,6 +2359,7 @@ async function boot() {
   if (fallback) fallback.hidden = true;
   await save.init();
   initAnalytics();
+  S.bootTo = bootMultiplayer(); // an invite link, or a match to rejoin after a refresh
   // Each visit opens on a different country than the last one (Automatic
   // theme only; a country picked in Pause stays picked).
   // Kept apart from the save, so a first visit does not create one.

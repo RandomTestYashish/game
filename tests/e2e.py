@@ -1414,8 +1414,8 @@ def analytics(browser, url):
         key, opts = d.ev("[window.posthog._i[0][0], window.posthog._i[0][1]]")
         check(f"project key ({region.upper()}): official snippet loads array.js from {region}-assets.i.posthog.com",
               any(u == f"https://{region}-assets.i.posthog.com/static/array.js" for u in seen) and key == "phc_test" and opts["api_host"] == f"https://{region}.i.posthog.com", seen[:2])
-        check(f"({region.upper()}) no autocapture, no session recording, no surveys, anonymous players",
-              opts["autocapture"] is False and opts["disable_session_recording"] is True and opts["disable_surveys"] is True and opts["person_profiles"] == "identified_only" and opts["defaults"] == "2026-05-30", opts)
+        check(f"({region.upper()}) no autocapture, no session recording, no surveys; anonymous profiles (no names)",
+              opts["autocapture"] is False and opts["disable_session_recording"] is True and opts["disable_surveys"] is True and opts["person_profiles"] == "always" and opts["defaults"] == "2026-05-30", opts)
         c.close()
 
     # 4. Not on localhost unless asked: a real deploy's key does not count test runs.
@@ -1647,7 +1647,7 @@ def board_and_share(browser, url):
     """Leaderboard UX (loading rows, CTA row) and score sharing: card, share sheet, fallback, events."""
     print("leaderboard UX and score sharing")
     origin = url.split("/?")[0]
-    stub = ("; window.__ph=[]; window.posthog={__SV:1, init(){}, register(o){window.__phReg=o}, capture(e,p){window.__ph.push([e,p])}}"
+    stub = ("; window.__ph=[]; window.posthog={__SV:1, init(){}, register(o){window.__phReg=Object.assign(window.__phReg||{}, o)}, capture(e,p){window.__ph.push([e,p])}}"
             f"; window.COURT_CONFIG={{mpSupabaseUrl:'', mpSupabaseAnonKey:'', supabaseUrl:'{origin}', supabaseAnonKey:'{MOCK['key']}', posthogKey:'phc_test', posthogLocal:true}}")
     after_run = ("__court.S.run={lives:0,score:6100,saved:true}; __court.S.level=4; __court.S.board={rank:-1,fromRun:true};"
                  "__court.S.post={state:'sent',error:'',entry:{name:'ME',score:6100,court:5}}; __court.S.online.at=-99; __court.go('scores')")
@@ -1673,6 +1673,8 @@ def board_and_share(browser, url):
     MOCK["mode"] = "slow"
     c, d = open_board()
     check("every event says which site sent it (deployment)", d.ev("window.__phReg && window.__phReg.deployment") == "local")
+    check("each session says which visit it is (visit_number, first_visit)", d.ev("window.__phReg && window.__phReg.visit_number") >= 1 and d.ev("window.__phReg.first_visit") is not None)
+    check("a session start and the screens seen are sent", "session_started" in names(d) and "screen_viewed" in names(d), names(d)[:8])
     d.ev(after_run)
     d.wait("__court.S.screen==='scores' && !__court.S.leaving && __court.S.online.state==='loading'", 10000)
     time.sleep(0.2)
